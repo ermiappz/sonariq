@@ -27,3 +27,9 @@ Appended by `make eval` (scripts/eval.py). Numbers come from the run; nothing he
 - **AI**: phrasings 19/20 · number guard 4/6 cached explanations pass · latency cold 2753 ms, cached 1 ms (gemini-3.5-flash@eu) · RAG 14/15 (local sqlite + text-embedding-005 (europe-west4))
   - phrasing missed: “upgrade door FD-5-165P to an A-60 fire door” → {"type": "scenario_preview", "scenario": {"case": "night", "route": "primary", "closed_door": "FD-5-165P"}}
   - RAG missed: “How many simulations are needed for each benchmark case in an advanced evacuation analysis?” want circ1533 §5.2, top MSC.1/Circ.1533 Annex 3 App.1 §3.1.1
+
+## Sat 07 Nov 12:53 · git da730f0
+
+- **Rules benchmark**: 12 planted violations · caught 12 · missed 0 · false alarms 0 · contract revisions A ok, B ok, Bfix2 ok
+- **AI**: phrasings 24/24 · number guard 13/18 cached AI outputs pass (the other 5 were caught at answer time and replaced by engine text) · latency cold 4230 ms, cached 1 ms (gemini-3.5-flash@eu) · RAG 14/15 (local sqlite + text-embedding-005 (europe-west4))
+  - RAG missed: “How many simulations are needed for each benchmark case in an advanced evacuation analysis?” want circ1533 §5.2, top MSC.1/Circ.1533 Annex 3 App.1 §3.1.1

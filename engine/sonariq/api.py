@@ -130,7 +130,9 @@ def analyse(req: AnalyseReq):
     other_file = (req.revision in REVISIONS and
                   str(Path(S.model.path).resolve()) != str(REVISIONS[req.revision].resolve()))
     if req.path or (req.revision and (req.revision != S.model.revision or other_file)):
-        S.open(req.revision or S.model.revision, req.path)
+        # a file opened by path is labelled by its name (uploads: without the hash prefix), not the last revision
+        label = req.revision or (re.sub(r"^[0-9a-f]{12}_", "", Path(req.path).stem) if req.path else S.model.revision)
+        S.open(label, req.path)
     return S.analyse(req.scope, req.packs, req.selection)
 
 

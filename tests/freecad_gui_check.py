@@ -16,7 +16,10 @@ p("macro loaded")
 FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/BIM").SetBool("FirstTime", False)
 FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/NativeIFC").SetBool("SingleDoc", True)
 
+_T0 = 0.0
 def step1():
+    global _T0
+    _T0 = __import__("time").time()
     p("step1")
     try:
         Gui.activateWorkbench("BIMWorkbench")
@@ -25,10 +28,10 @@ def step1():
     try:
         from nativeifc import ifc_import
         doc = FreeCAD.newDocument("Demo_ship_RevA")
-        ifc_import.insert(IFC, doc.Name, strategy=2, shapemode=0, switchwb=False, silent=True, singledoc=True)
+        ifc_import.insert(IFC, doc.Name, strategy=int(os.environ.get("SQ_STRATEGY", "2")), shapemode=int(os.environ.get("SQ_SHAPEMODE", "0")), switchwb=False, silent=True, singledoc=True)
         doc = FreeCAD.ActiveDocument
         doc.recompute()
-        p("doc", doc.Name, "objects", len(doc.Objects))
+        p("doc", doc.Name, "objects", len(doc.Objects), "import_s", round(__import__("time").time() - _T0, 1))
         import sonariq_panel
         g = [o for o in doc.Objects if sonariq_panel.FreeCADBridge.guid_of(o)]
         p("objects with GlobalId", len(g), "sample", [(o.Label, sonariq_panel.FreeCADBridge.guid_of(o)) for o in g[:3]])
@@ -45,7 +48,8 @@ def step2():
         panel = dock.widget()
         panel.analyse()
         p("meta", panel.meta.text())
-        f01 = next(c for c in panel.run["findings"] if c["id"] == "F-01")
+        f01 = next((c for c in panel.run["findings"] if c["id"] == "F-01"), None) or next(c for c in panel.run["findings"] if c["status"] == "fail")
+        p("clicked", f01["id"], f01.get("element", {}).get("name"))
         panel.open_evidence(f01)
         doc = FreeCAD.ActiveDocument
         shp = [o for o in doc.Objects if hasattr(o, "Shape") and not o.Shape.isNull()]

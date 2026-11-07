@@ -261,7 +261,29 @@ class FreeCADBridge:
         hits = [o for o in self._objects() if guid and self.guid_of(o) == guid]
         if not hits and name:
             hits = [o for o in self._objects() if o.Label == name or o.Label.startswith(name + " ")]
+        if not hits and guid:
+            o = self._load_element(guid)
+            hits = [o] if o is not None else []
         return hits
+
+    def _load_element(self, guid: str):
+        """Model opened lightweight (NativeIFC "Only root object" / "Project structure"): create just this
+        element's object from the IFC so the finding can be selected and coloured. Returns None if not possible."""
+        try:
+            import FreeCAD
+            from nativeifc import ifc_tools
+            doc = FreeCAD.ActiveDocument
+            path = getattr(doc, "IfcFilePath", None) if doc else None
+            if not path:
+                return None
+            if getattr(self, "_ifc_path", None) != path:
+                self._ifc_path, self._ifc_file = path, ifc_tools.get_ifcfile(doc)
+            ent = self._ifc_file.by_guid(guid)
+            obj = ifc_tools.create_object(ent, doc, self._ifc_file, shapemode=0)
+            doc.recompute()
+            return obj
+        except Exception:  # noqa: BLE001 - not NativeIFC, element not in file, or older FreeCAD
+            return None
 
     def model_path(self) -> str | None:
         if not self.ok:
