@@ -101,7 +101,7 @@ export default function Viewer({ rev, run, hvac, onOpen }: { rev: string; run: R
       <div className="flex flex-col gap-2">
         <div className="sq-label">Findings on this deck · {findings.length}</div>
         {findings.map((c) => (
-          <button key={c.check_key} className="sq-row" style={{ textAlign: "left", background: "none" }} onClick={() => onOpen(c)}>
+          <button key={c.check_key} className="sq-row" style={{ textAlign: "left", background: "none", gridTemplateColumns: "108px minmax(0, 1fr)", justifyItems: "start" }} onClick={() => onOpen(c)}>
             <Pill s={c.status} />
             <span className="t"><span className="id">{c.id}</span>{c.title}</span>
             <span className="m"><Loc text={c.location.label} /></span>

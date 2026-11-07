@@ -416,6 +416,19 @@ def write(rev: str, out: Path, fix2: bool = False) -> Path:
         e = W.product("IfcPlate", b, predefined="SHEET")
         W.pset(e, "SonarIQ_Ship", b.props)
 
+    # Byte-stable output: relationships and property sets get GlobalIds from their type and
+    # position (the build order is fixed), and the header gets a fixed timestamp, so
+    # re-running `make deck` / `make test` does not leave the IFC files modified in git.
+    seen: dict[str, int] = {}
+    for e in list(f.by_type("IfcRelationship")) + list(f.by_type("IfcPropertyDefinition")):
+        k = e.is_a()
+        seen[k] = seen.get(k, 0) + 1
+        e.GlobalId = gid(f"{k}#{seen[k]}")
+    try:
+        f.header.file_name.time_stamp = "2026-11-07T00:00:00"
+    except Exception:  # older/newer ifcopenshell header API: a changing timestamp is harmless
+        pass
+
     out.mkdir(parents=True, exist_ok=True)
     name = f"deck5_rev{rev}{'_fix2' if fix2 else ''}.ifc"
     p = out / name

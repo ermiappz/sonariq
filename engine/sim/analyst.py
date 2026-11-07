@@ -49,3 +49,51 @@ def explain_results(llm, res: dict, question: str | None = None) -> dict:
     out = llm.guarded(SYSTEM, facts(res), question or "What does this result show?", template(res))
     out["badge"] = "AI explanation · numbers checked" if out["source"] == "ai" else "Simulation summary"
     return out
+
+
+HOT_SYSTEM = (
+    "You explain one congested place in an evacuation replay to a ship designer. Use only the facts. Every number "
+    "must be in the facts. Say what is happening there and one thing the designer could check. Two short sentences. "
+    "No product or vendor names."
+)
+
+
+def hotspot(llm, res: dict, rep: dict, x: float, y: float, t: float) -> dict:
+    """Facts at a clicked place: peak density and time above 4 p/m2 in that cell, the space, the nearest landing
+    queue at time t (all computed); the AI explains them, numbers checked."""
+    import math
+    d = rep["density"]
+    i, j = int((x - d["origin"][0]) // d["cell_m"]), int((y - d["origin"][1]) // d["cell_m"])
+    if not (0 <= i < d["nx"] and 0 <= j < d["ny"]):
+        return {"error": "outside the deck"}
+    g = rep.get("geometry") or {}
+    space = None
+    for s in g.get("spaces", []):
+        xs = [p[0] for p in s["poly"]["outer"]]
+        ys = [p[1] for p in s["poly"]["outer"]]
+        if min(xs) <= x <= max(xs) and min(ys) <= y <= max(ys):
+            space = s["name"]
+            break
+    best = None
+    for st in g.get("stairs", []):
+        for li, h in enumerate(st["landings"]):
+            dist = math.hypot(h[0] - x, h[1] - y)
+            if best is None or dist < best[0]:
+                best = (dist, st["name"] + ("PS"[li] if len(st["landings"]) > 1 else ""))
+    k = max(0, int(t - rep["series_t0_s"]))
+    q = rep["queue_series"].get(best[1], []) if best else []
+    facts = {"place": {"space": space, "frame": round(x / 0.8), "side": "P" if y > 0.3 else "S" if y < -0.3 else "CL"},
+             "peak_density_p_m2": d["peak"][j][i], "seconds_above_4_p_m2": d["over4_s"][j][i],
+             "viewed_at_mm_ss": _mmss(t), "nearest_landing": best[1] if best else None,
+             "distance_to_landing_m": round(best[0], 1) if best else None,
+             "queue_at_landing_now": q[min(k, len(q) - 1)] if q else None,
+             "queue_at_landing_max": max(q) if q else None, "congestion_level_p_m2": 4,
+             "run": {"seed": rep["seed"], "tA_mm_ss": _mmss(rep["tA_s"])}}
+    fb = (f"{facts['place']['space'] or 'Here'} (Fr {facts['place']['frame']} · {facts['place']['side']}): peak "
+          f"{facts['peak_density_p_m2']} p/m², {facts['seconds_above_4_p_m2']} s above 4 p/m²."
+          + (f" Landing {best[1]} queue {facts['queue_at_landing_now']} now, {facts['queue_at_landing_max']} at most."
+             if q else ""))
+    out = llm.guarded(HOT_SYSTEM, facts, "What happens at this place?", fb)
+    out["facts"] = facts
+    out["badge"] = "AI explanation · numbers checked" if out["source"] == "ai" else "Simulation facts"
+    return out

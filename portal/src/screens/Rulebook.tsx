@@ -14,8 +14,8 @@ export default function Rulebook() {
         <thead><tr><th>ID</th><th>Clause</th><th>What it checks</th><th>Applies to</th><th>Parameters</th><th>Status</th></tr></thead>
         <tbody>{rules.map((r) => (
           <tr key={r.id}>
-            <td className="mono">{r.id}</td>
-            <td><span className="sq-rule"><b>{r.source.startsWith("SOLAS") ? "SOLAS" : r.source}</b><span>{r.clause}</span></span></td>
+            <td className="mono" style={{ whiteSpace: "nowrap" }}>{r.id}</td>
+            <td style={{ minWidth: 170 }}><span className="sq-rule"><b>{r.source.startsWith("SOLAS") ? "SOLAS" : r.source}</b><span>{r.clause.replace(/-/g, "\u2011")}</span></span></td>
             <td><div>{r.title}</div><div className="sq-faint" style={{ fontSize: 12 }}>{r.reading}</div></td>
             <td className="sq-muted" style={{ fontSize: 12 }}>{r.applies_to}{r.applicability?.passengers_gt ? ` · ships > ${r.applicability.passengers_gt} passengers` : ""}</td>
             <td className="mono" style={{ fontSize: 12 }}>{Object.entries(r.params ?? {}).map(([k, v]) => `${k} ${JSON.stringify(v)}`).join(" · ") || "—"}</td>

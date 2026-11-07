@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { sim, type Run, type SimCompare, type SimReplay, type SimResults, type SimScenario, type SimStatus } from "../api";
 import DeckPlan, { ringPath } from "../components/DeckPlan";
 import { Controls, Histogram, QueueChart, ReplayView, useClock, mmss } from "../components/Replay";
-import Deck3D from "../components/Deck3D";
+import Deck3D, { Safe3D } from "../components/Deck3D";
 
 const REVS = [["A", "Rev A"], ["B", "Rev B · OR-117"], ["Bfix2", "Rev B + fix 2"]] as const;
 const LABEL = "Deck 5 sub-model with inflows from Decks 4, 6, 7 · design insight, not a full-ship Circ.1533 analysis";
@@ -26,7 +26,7 @@ export default function Simulate({ user, rev, run }: { user: string; rev: string
   const [path, setPath] = useState<string[]>(parse());
   const go = (p: string[]) => { setPath(p); history.replaceState(null, "", "#simulate" + (p.length ? "/" + p.join("/") : "")); };
   if (path[0] === "compare" && path[1] && path[2]) return <Compare a={path[1]} b={path[2]} back={() => go([path[1]])} open={(id) => go([id])} go={go} />;
-  if (path[0]) return <Results id={path[0]} back={() => go([])} user={user} go={go} />;
+  if (path[0]) return <Results id={path[0]} back={() => go([])} user={user} go={go} initial3d={path[1] === "3d"} />;
   return <SetupView rev={rev} run={run} open={(id) => go([id])} />;
 }
 
@@ -211,13 +211,15 @@ function PlanSetup({ g, s, showF, run, onClick }: { g: any; s: Setup; showF: boo
 }
 
 // ------------------------------------------------------------------------------------------------ W10 results
-function Results({ id, back, user, go }: { id: string; back: () => void; user: string; go: (p: string[]) => void }) {
+function Results({ id, back, user, go, initial3d = false }: { id: string; back: () => void; user: string; go: (p: string[]) => void; initial3d?: boolean }) {
   const [r, setR] = useState<SimResults & { congestion?: any[]; events?: any[]; scenario?: any } | null>(null);
   const [rep, setRep] = useState<SimReplay | null>(null);
   const [ai, setAi] = useState<{ text: string; badge: string } | null>(null);
   const [heat, setHeat] = useState(true);
-  const [dim, setDim] = useState<"2D" | "3D">("2D");
+  const [dim, setDim] = useState<"2D" | "3D">(initial3d ? "3D" : "2D");
   const [pick, setPick] = useState<{ x: number; y: number; peak: number; over4: number; t: number } | null>(null);
+  const [hot, setHot] = useState<{ text: string; badge: string } | null>(null);
+  const [hint, setHint] = useState(false);
   const [pinned, setPinned] = useState("");
   const [err, setErr] = useState("");
   useEffect(() => {
@@ -229,8 +231,22 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
   const t0 = rep?.t_start_s ?? 0, t1 = rep?.frames.at(-1)?.[0] ?? 1;
   const clock = useClock(t0, t1);
   const smokeNow = useMemo(() => (rep?.smoke_events ?? []).filter((e: any) => e.t <= clock.t).flatMap((e: any) => e.spaces), [rep, clock.t]);
-  const queueLanding = useMemo(() => rep ? Object.keys(rep.queue_series).sort((a, b) => Math.max(...rep.queue_series[b]) - Math.max(...rep.queue_series[a]))[0] : null, [rep]);
+  // Chart the stair whose landing queue is longest across all runs (p95), the same figure as the
+  // landings table and the summary; fall back to the replay run's own peak while results load.
+  const queueLanding = useMemo(() => {
+    const L = r?.landings;
+    if (L && Object.keys(L).length)
+      return Object.keys(L).sort((a, b) => (L[b].queue_max_p95 - L[a].queue_max_p95) || (L[b].queue_max_mean - L[a].queue_max_mean))[0];
+    return rep ? Object.keys(rep.queue_series).sort((a, b) => Math.max(...rep.queue_series[b]) - Math.max(...rep.queue_series[a]))[0] : null;
+  }, [r, rep]);
   const stair = queueLanding?.slice(0, 2) ?? "3B";
+  const stairPeak = useMemo(() => {
+    if (!rep) return null;
+    let best: { landing: string; people: number; t_s: number } | null = null;
+    for (const [k, ser] of Object.entries(rep.queue_series) as [string, number[]][])
+      if (k.startsWith(stair)) ser.forEach((v, i) => { if (!best || v > best.people) best = { landing: k, people: v, t_s: rep.series_t0_s + i }; });
+    return best && (best as { people: number }).people > 0 ? best as { landing: string; people: number; t_s: number } : null;
+  }, [rep, stair]);
   if (err) return <div className="sq-banner is-unk">{err}</div>;
   if (!r) return <p className="sq-muted">Loading results…</p>;
   const sc = r.scenario ?? {};
@@ -238,9 +254,10 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
     if (!rep) return;
     const d = rep.density, i = Math.floor((x - d.origin[0]) / d.cell_m), j = Math.floor((y - d.origin[1]) / d.cell_m);
     if (i < 0 || j < 0 || i >= d.nx || j >= d.ny) return;
-    setPick({ x: +x.toFixed(1), y: +y.toFixed(1), peak: d.peak[j][i], over4: d.over4_s[j][i], t: Math.round(clock.t) }); setPinned("");
+    const p = { x: +x.toFixed(1), y: +y.toFixed(1), peak: d.peak[j][i], over4: d.over4_s[j][i], t: Math.round(clock.t) };
+    setPick(p); setPinned(""); setHot(null); setHint(false);
+    sim.hotspot(id, p.x, p.y, p.t).then(setHot).catch(() => {});
   };
-  const queuePeak = (r.events ?? []).find((e: any) => e.kind === "queue_peak");
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
@@ -257,7 +274,7 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
           <div className="sq-faint mono" style={{ fontSize: 12 }}>t = {mmss(clock.t)} · illustrative frame from the p{r.percentile} run (seed {rep?.seed ?? "…"})</div>
           {rep ? (dim === "2D"
             ? <ReplayView rep={rep} t={clock.t} heat={heat} smoke={smokeNow} onPick={onPick} height={400} />
-            : <Deck3D rep={rep} t={clock.t} height={400} />) : <p className="sq-muted">Loading replay…</p>}
+            : <Safe3D><Deck3D rep={rep} t={clock.t} height={400} /></Safe3D>) : <p className="sq-muted">Loading replay…</p>}
           <div className="flex gap-3" style={{ flexWrap: "wrap", fontSize: 12 }}>
             <button className="sq-switch" onClick={() => setHeat(!heat)}>{heat ? "☑" : "☐"} Density heatmap</button>
             {rep?.smoke_label && <span className="sq-faint">▨ Smoke (illustrative) · {rep.smoke_label}</span>}
@@ -269,6 +286,7 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
             <div className="sq-card flex flex-col gap-1" style={{ padding: 10 }}>
               <div className="sq-label">Hotspot · Deck 5 · Fr {Math.round(pick.x / 0.8)} · {pick.y > 0.3 ? "P" : pick.y < -0.3 ? "S" : "CL"}</div>
               <div className="mono">peak {pick.peak} p/m² · {pick.over4} s above 4 p/m² · viewed at t = {mmss(pick.t)}</div>
+              {hot ? <div><span className="sq-ai">{hot.badge}</span><p style={{ margin: "4px 0 0" }}>{hot.text}</p></div> : <span className="sq-faint">Reading the place…</span>}
               <div className="flex gap-2"><button className="sq-btn" onClick={async () => {
                 try { const p = await sim.pin(id, { t: pick.t, x: pick.x, y: pick.y, finding: "F-07", note: `Replay ${r.scenario_label} (${r.revision}): peak ${pick.peak} p/m² at Fr ${Math.round(pick.x / 0.8)}, t ${mmss(pick.t)}`, by: user }); setPinned(`Pinned to F-07 review · BCF viewpoint + comment (${p.topic})`); }
                 catch (e) { setPinned(String(e)); }
@@ -293,7 +311,7 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
           <div className="sq-card" style={{ padding: 12 }}>
             <div className="flex"><span className="sq-label" style={{ flex: 1 }}>Queue at Stair {stair} landing</span><span className="sq-faint" style={{ fontSize: 11 }}>persons · time</span></div>
             {rep && <QueueChart rep={rep} t={clock.t} height={110} only={stair} />}
-            {queuePeak && <div className="sq-faint mono" style={{ fontSize: 11 }}>peak {queuePeak.people} on {queuePeak.landing} at {mmss(queuePeak.t_s)}</div>}
+            {stairPeak && <div className="sq-faint mono" style={{ fontSize: 11 }}>replay run: peak {stairPeak.people} on {stairPeak.landing} at {mmss(stairPeak.t_s)}</div>}
           </div>
           <div className="sq-card" style={{ padding: 12 }}>
             <div className="flex"><span className="sq-label" style={{ flex: 1 }}>Congestion · sorted after run</span><span className="sq-faint" style={{ fontSize: 11 }}>peak p/m²</span></div>
@@ -302,8 +320,9 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
                 <span style={{ flex: 1 }}>{c.label}</span>{c.finding && <span className="sq-tag">{c.finding}</span>}<span className="mono">{c.peak_p_m2}</span></div>))}
           </div>
           {ai && <div className="sq-card" style={{ padding: 12 }}><span className="sq-ai">{ai.badge}</span><p style={{ margin: "6px 0 0" }}>{ai.text}</p></div>}
+          {hint && !pick && <div className="sq-banner">Pause on the moment, then click the place on the plan. The pin keeps the time, the place and the density.</div>}
           <div className="flex gap-2">
-            <button className="sq-btn" onClick={() => pick ? null : setPick({ x: 0, y: 0, peak: 0, over4: 0, t: Math.round(clock.t) })} title="Click the plan to choose a moment and place">Pin to review</button>
+            <button className="sq-btn" onClick={() => setHint(true)} title="Click the plan to choose a moment and place">Pin to review</button>
             <button className="sq-btn is-primary" onClick={() => go(["compare", id, "fixes"])}>Try fixes</button>
           </div>
         </div>

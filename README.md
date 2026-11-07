@@ -52,7 +52,7 @@ If the panel says "Engine not reachable", the API is not running (step 5). Set `
 
 ## AI explanations (optional)
 
-The engine needs no AI and no network. Explanations use Gemini (`gemini-3.5-flash`) on Vertex AI, EU multi-region location `eu`, through the Google Gen AI SDK with your gcloud credentials (`GEMINI_MODEL`, `GEMINI_LOCATION`, `GOOGLE_CLOUD_PROJECT`; `SONARIQ_AI=off` turns it off). Every explanation is checked: if it contains a number that is not in the facts it was given, it is thrown away and the engine's own wording is shown. Slow answers (> 8 s) also fall back to the engine text. Answers are cached on disk (`data/cache/ai/`). The model sits behind `engine/sonariq/llm.py:Gateway`, so it can be swapped.
+The engine needs no AI and no network. Explanations use Gemini (`gemini-3.5-flash`) on Vertex AI, EU multi-region location `eu`, through the Google Gen AI SDK with Application Default Credentials (on a Mac: `gcloud auth application-default login`) (`GEMINI_MODEL`, `GEMINI_LOCATION`, `GOOGLE_CLOUD_PROJECT`; `SONARIQ_AI=off` turns it off). Every explanation is checked: if it contains a number that is not in the facts it was given, it is thrown away and the engine's own wording is shown. Slow answers (> 8 s) also fall back to the engine text. Answers are cached on disk (`data/cache/ai/`). The model sits behind `engine/sonariq/llm.py:Gateway`, so it can be swapped.
 
 ## Simulate (evacuation, behind `SIMULATE_ENABLED`)
 

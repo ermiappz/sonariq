@@ -79,7 +79,9 @@ def parse_edit_words(t: str, names: dict) -> dict | None:
 
 SIM_WORDS = re.compile(r"\b(simulat\w*|evacuat\w*|what[- ]if|replay|run (?:a |the )?(?:night|day)|"
                        r"fire(?!\s*(?:door|class|rating|damper|division|integrity))|smoke|"
-                       r"stair\s*[0-9][a-z]\s*(?:is\s+)?(?:out|closed|blocked|unavailable))\b", re.I)
+                       r"stair\s*[0-9][a-z]\s*(?:is\s+)?(?:out|closed|blocked|unavailable)|"
+                       r"(?:night|day(?:time)?)\s+(?:case\s+)?with(?:out)?|"
+                       r"[a-z]{1,3}-\d-\d{3}-?[ps]\s+(?:is\s+)?(?:out|closed|blocked|unavailable))\b", re.I)
 FIX_WORDS = re.compile(r"\b(apply|use|take|do)\s+(?:the\s+)?fix\s*(\d)\b|\bfix\s*(\d)\b", re.I)
 WHY_WORDS = re.compile(r"^\s*(why|what|how|explain|which|where|is|does|can)\b", re.I)
 CHANGE_WORDS = re.compile(r"\b(add|put|insert|remove|delete|move|make|change|set|widen|narrow|replace|build|fit)\b", re.I)
@@ -116,6 +118,9 @@ class Chat:
         # 2. simulate
         if SIM_WORDS.search(text) and self.sim is not None:
             return self._scenario_card(text, names)
+        if SIM_WORDS.search(text) and (not WHY_WORDS.search(text) or re.search(r"what[- ]if|simulat|replay", text, re.I)):
+            return {"cards": [{"type": "error", "text": "Simulate is off on this engine. Start it with "
+                               "make api-sim (or SIMULATE_ENABLED=1 make api) to run evacuation scenarios."}]}
         # 3. edits
         e = parse_edit_words(text, names)
         src = "parser"
