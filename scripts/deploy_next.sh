@@ -36,5 +36,5 @@ systemctl --user daemon-reload && systemctl --user enable -q sonariq-next && sys
 for _ in $(seq 1 40); do curl -fs "http://127.0.0.1:$NEXT_PORT/health" >/dev/null && break; sleep 1; done
 IP="$(curl -fs -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)"
 NIC="$(curl -fs -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip)"
-HOST="${IP//./-}.sslip.io" NIC="$NIC" PORT=8780 SQ_USER="$SQ_USER" SQ_PASS="$SQ_PASS" CADDY_MODE="${CADDY_MODE:-v1}" "$REPO/scripts/caddy_write.sh"
+HOST="${IP//./-}.sslip.io" NIC="$NIC" PORT=8780 SQ_USER="$SQ_USER" SQ_PASS="$SQ_PASS" CADDY_MODE="${CADDY_MODE:-v2}" "$REPO/scripts/caddy_write.sh"
 echo "staging: https://${IP//./-}.sslip.io/next/"
