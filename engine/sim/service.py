@@ -155,6 +155,18 @@ class Job:
 class SimService:
     def __init__(self):
         self.jobs: dict[str, Job] = {}
+        self._setup: dict[str, dict] = {}
+
+    def setup(self, model, sc: Scenario) -> dict:
+        """W9: initial people, routes, closed routes, fire origin, model reader gaps, scenario sentence."""
+        from .reader import setup as _setup
+        k = f"{model_hash(model)}_{scenario_hash(sc)}"
+        if k not in self._setup:
+            prep = prepare(model, sc)
+            self._setup[k] = _setup(prep, model, sc) | {"scenario": sc.key(), "scenario_label": sc.label(),
+                                                       "revision": model.revision, "label": LABEL,
+                                                       "runs_default": PARAMS["runs"]["target"]}
+        return self._setup[k]
 
     def job_id(self, model, sc: Scenario, n: int) -> str:
         return f"{model_hash(model)}_{scenario_hash(sc)}_{n}"

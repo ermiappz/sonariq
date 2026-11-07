@@ -187,6 +187,13 @@ def _names(model):
     return list(g.stairs), list(g.spaces), g
 
 
+def _scenario(sc: dict):
+    from sim.runner import Scenario
+    return Scenario(case=sc.get("case", "night"), route=sc.get("route", "primary"),
+                    closed_stair=sc.get("closed_stair"), closed_door=sc.get("closed_door"),
+                    fire_origin=sc.get("fire_origin"))
+
+
 @app.get("/simulate/enabled")
 def sim_enabled():
     return {"enabled": SIM_ON}
@@ -202,26 +209,48 @@ def simulate(req: SimReq):
     model, rev = _sim_model(req.revision or sc.get("revision"))
     stairs, spaces, g = _names(model)
     if req.text and not req.scenario:
-        parsed = from_words(req.text, stairs, spaces, S.llm)
+        parsed = from_words(req.text, stairs, spaces, S.llm, list(g.doors))
         if not parsed["ok"]:
             raise HTTPException(422, parsed)
         sc = parsed["scenario"]
         if sc.get("revision"):
             model, rev = _sim_model(sc["revision"])
-    errs = validate({"case": sc.get("case", "night"), **sc}, stairs, spaces)
+    errs = validate({"case": sc.get("case", "night"), **sc}, stairs, spaces, list(g.doors))
     if errs:
         raise HTTPException(422, {"errors": errs})
     if (sc.get("fire_origin") or "").startswith("@near:"):
         from sim.smoke import origin_near_stair
         sc["fire_origin"] = origin_near_stair(g, sc["fire_origin"].split(":", 1)[1])
-    scen = Scenario(case=sc.get("case", "night"), route=sc.get("route", "primary"),
-                    closed_stair=sc.get("closed_stair"), fire_origin=sc.get("fire_origin"))
+    scen = _scenario(sc)
     preview = {"scenario": scen.key(), "label": scen.label(), "revision": rev,
                "runs": req.runs or 500, "source": parsed["source"] if parsed else "explicit"}
     if not req.confirm:
         return {"preview": preview, "confirm_required": True}
     st = svc.start(model, scen, req.runs, revision=rev, label=req.label)
     return {"preview": preview, **st}
+
+
+class SetupReq(BaseModel):
+    scenario: dict = {}
+    revision: str | None = None
+    explain: bool = False
+
+
+@app.post("/simulate/setup")
+def sim_setup(req: SetupReq):
+    """W9: what the simulation will read from the model (people, inflows, stairs, doors, gaps) before running."""
+    from sim.reader import explain_gaps
+    svc = _sim()
+    model, rev = _sim_model(req.revision)
+    sc = dict(req.scenario)
+    if (sc.get("fire_origin") or "").startswith("@near:"):
+        from sim.smoke import origin_near_stair
+        sc["fire_origin"] = origin_near_stair(_names(model)[2], sc["fire_origin"].split(":", 1)[1])
+    out = dict(svc.setup(model, _scenario(sc)))
+    out["revision"] = rev
+    if req.explain:
+        out["reader"] = explain_gaps(S.llm, out)
+    return out
 
 
 @app.get("/simulate")

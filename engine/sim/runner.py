@@ -27,6 +27,7 @@ class Scenario:
     case: str = "night"                       # night | day
     route: str = "primary"                    # primary | secondary
     closed_stair: str | None = None           # secondary: which stair is out of use
+    closed_door: str | None = None            # secondary: which door (e.g. MVZ fire door) is out of use
     fire_origin: str | None = None            # fire what-if: origin space name
     smoke_hop_s: float | None = None          # override params smoke.hop_delay_s
     stair_width_override: dict = field(default_factory=dict)   # what-if: {"3B": 1.40}
@@ -38,6 +39,8 @@ class Scenario:
         s = f"{self.case.title()} · {self.route}"
         if self.closed_stair:
             s += f" (Stair {self.closed_stair} out of use)"
+        if self.closed_door:
+            s += f" ({self.closed_door} out of use)"
         if self.fire_origin:
             s += f" · fire what-if in {self.fire_origin}"
         return s
@@ -55,6 +58,7 @@ class Prep:
     inflow: dict[str, int]            # stair -> persons from other decks
     capacity: dict[str, float]        # stair -> p/s
     scenario: dict
+    smoke: list = field(default_factory=list)      # [{t, spaces}] illustrative smoke spread
 
 
 def _berth_points(poly, n):
@@ -90,7 +94,8 @@ def prepare(model, sc: Scenario) -> Prep:
     import jupedsim as jps
     blocked = (sc.fire_origin,) if sc.fire_origin else ()
     closed = (sc.closed_stair,) if sc.closed_stair else ()
-    g = build(model, closed_stairs=closed, blocked_spaces=blocked)
+    g = build(model, closed_stairs=closed, blocked_spaces=blocked,
+              closed_doors=(sc.closed_door,) if sc.closed_door else ())
     for nm, w in (sc.stair_width_override or {}).items():
         if nm in g.stairs:
             g.stairs[nm].width = float(w)
@@ -140,7 +145,44 @@ def prepare(model, sc: Scenario) -> Prep:
     spec = f["stair_max_specific_flow_up"]["value"] if f["stair_direction"] == "up" else \
         f["stair_max_specific_flow_down"]["value"]
     cap = {st: round(spec * g.stairs[st].width, 4) for st in open_stairs}
-    return Prep(g, open_stairs, spawn, target, rlen, rpath, inflow, cap, sc.key())
+    smoke = []
+    if sc.fire_origin:
+        from .smoke import smoke_schedule
+        smoke = smoke_schedule(g, sc.fire_origin, float(sc.smoke_hop_s or PARAMS["smoke"]["hop_delay_s"]),
+                               PARAMS["model"]["max_sim_s"] + 800)
+    return Prep(g, open_stairs, spawn, target, rlen, rpath, inflow, cap, sc.key(), smoke)
+
+
+_ROUTING: dict = {}
+SMOKE_WEIGHT = 5.0   # one metre through smoke costs as much as five metres of clear route (SonarIQ assumption)
+
+
+def _routing(prep: Prep):
+    import jupedsim as jps
+    k = id(prep)
+    if k not in _ROUTING:
+        _ROUTING[k] = jps.RoutingEngine(prep.geom.walkable)
+    return _ROUTING[k]
+
+
+def _smoke_aware_target(prep: Prep, smoked_union, pos) -> tuple[tuple[str, int], float] | None:
+    """Landing with the least smoke on the way (smoke metres x SMOKE_WEIGHT + route metres)."""
+    eng = _routing(prep)
+    best = None
+    for st in prep.open_stairs:
+        for li, h in enumerate(prep.geom.stairs[st].landings):
+            try:
+                pts = eng.compute_waypoints(tuple(pos), h)
+            except Exception:  # noqa: BLE001
+                continue
+            if len(pts) < 2:
+                continue
+            line = LineString(pts)
+            smoke_m = line.intersection(smoked_union).length
+            cost = line.length + SMOKE_WEIGHT * smoke_m
+            if best is None or cost < best[1]:
+                best = ((st, li), cost)
+    return best
 
 
 # ---------------------------------------------------------------- population sampling
@@ -235,6 +277,13 @@ def run_one(prep: Prep, seed: int, record: bool = False, people: list[dict] | No
     frames = []
     rec_every = int(round(1.0 / (m["record_hz"] * dt)))
     sec_every = int(round(1.0 / dt))
+    smoke_ev = list(prep.smoke)
+    smoked: set[str] = set()
+    smoked_poly = None
+    smoked_union = None
+    exposed: dict[int, float] = {}
+    rerouted = 0
+    target_of: dict[int, tuple[str, int]] = {}
     t = t_start
     step = 0
     removed_total = 0
@@ -246,16 +295,41 @@ def run_one(prep: Prep, seed: int, record: bool = False, people: list[dict] | No
             p = pending[pi]
             st, li = prep.target[p["space"]]
             jid, qid = journeys[(st, li)]
+            if smoked:
+                bt = _smoke_aware_target(prep, smoked_union, (p["x"], p["y"]))
+                if bt:
+                    st, li = bt[0]
+                    jid, qid = journeys[(st, li)]
             try:
                 aid = sim.add_agent(jps.CollisionFreeSpeedModelAgentParameters(
                     position=(p["x"], p["y"]), journey_id=jid, stage_id=qid, desired_speed=p["v"],
                     radius=float(m["radius_m"]), time_gap=float(m["time_gap_s"])))
                 agent_meta[aid] = p
+                target_of[aid] = (st, li)
                 pi += 1
             except Exception:  # noqa: BLE001  overlapping: try again next step
                 p["t0"] = t + dt
                 pending.sort(key=lambda q: q["t0"])
                 break
+        # smoke events: spaces fill; people re-route to a smoke-free landing where one exists
+        while smoke_ev and smoke_ev[0]["t"] <= t:
+            ev = smoke_ev.pop(0)
+            smoked |= set(ev["spaces"])
+            from shapely.ops import unary_union
+            from shapely.prepared import prep as _prep
+            smoked_union = unary_union([g.spaces[x] for x in smoked])
+            smoked_poly = _prep(smoked_union)
+            for a in list(sim.agents()):
+                bt = _smoke_aware_target(prep, smoked_union, a.position)
+                nt = bt[0] if bt else None
+                if nt and nt != target_of.get(a.id):
+                    jid, qid = journeys[nt]
+                    try:
+                        sim.switch_agent_journey(a.id, jid, qid)
+                        target_of[a.id] = nt
+                        rerouted += 1
+                    except Exception:  # noqa: BLE001
+                        pass
         # inflows arrive at their stair
         for st in prep.open_stairs:
             arr = inflow_t[st]
@@ -299,6 +373,10 @@ def run_one(prep: Prep, seed: int, record: bool = False, people: list[dict] | No
                 qmax[k] = max(qmax[k], n)
             for st in prep.open_stairs:
                 stair_wait[st].append(inflow_wait[st])
+            if smoked_poly is not None:
+                for a in sim.agents():
+                    if smoked_poly.contains(Point(a.position)):
+                        exposed[a.id] = exposed.get(a.id, 0.0) + 1.0
         if step % rec_every == 0:
             pos = [(a.id, a.position[0], a.position[1]) for a in sim.agents()]
             if pos:
@@ -332,6 +410,11 @@ def run_one(prep: Prep, seed: int, record: bool = False, people: list[dict] | No
         "unfinished": sim.agent_count() + (len(pending) - pi),
         "t_start_s": round(t_start, 1),
     }
+    if prep.smoke:
+        res["smoke"] = {"people_exposed": len(exposed), "exposure_s_total": round(sum(exposed.values()), 1),
+                        "rerouted": rerouted,
+                        "corridor_reached_s": next((ev["t"] for ev in prep.smoke if any(
+                            g.space_meta.get(x, {}).get("category") == "corridor" for x in ev["spaces"])), None)}
     if record:
         res["queue_series"] = {k: v for k, v in qlen.items()}
         res["inflow_wait_series"] = stair_wait
@@ -339,6 +422,7 @@ def run_one(prep: Prep, seed: int, record: bool = False, people: list[dict] | No
         res["density"] = {"cell_m": cell, "origin": [bx0, by0], "nx": nx, "ny": ny,
                           "peak": np.round(peak, 2).tolist(), "over4_s": np.round(over4, 1).tolist()}
         res["frames"] = frames
+        res["smoke_events"] = prep.smoke
         res["agents"] = {int(a): {"group": p["group"], "space": p["space"], "kind": p["kind"]}
                          for a, p in agent_meta.items()}
     return res

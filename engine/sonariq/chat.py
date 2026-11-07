@@ -172,7 +172,7 @@ class Chat:
         from sim.smoke import origin_near_stair
         from sim.geometry import build
         g = build(self.S.model)
-        r = from_words(text, list(g.stairs), list(g.spaces), self.S.llm)
+        r = from_words(text, list(g.stairs), list(g.spaces), self.S.llm, list(g.doors))
         if not r["ok"]:
             return {"cards": [{"type": "error", "text": "; ".join(r["errors"])}]}
         sc = r["scenario"]
@@ -181,7 +181,8 @@ class Chat:
         rev = sc.pop("revision", None)
         from sim.runner import Scenario
         scen = Scenario(case=sc.get("case", "night"), route=sc.get("route", "primary"),
-                        closed_stair=sc.get("closed_stair"), fire_origin=sc.get("fire_origin"))
+                        closed_stair=sc.get("closed_stair"), closed_door=sc.get("closed_door"),
+                        fire_origin=sc.get("fire_origin"))
         model_label = rev or f"{self.S.model.revision} (open model{', with edits' if self._edited() else ''})"
         return {"cards": [{"type": "scenario_preview", "text": scen.label(), "scenario": scen.key(),
                            "model": model_label, "runs": 500, "source": r["source"],

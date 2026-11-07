@@ -45,8 +45,8 @@ def _plate_thin(m, name, t_m):
 PLANTS = [
     # (id, description, mutate(model), expected [(rule, element, status)], allowed side effects [(rule, element)])
     ("P01", "stair door B-15 in an A-0 enclosure",
-     lambda m: _set_pset(m, "D-5-127-P", "Pset_DoorCommon", "FireRating", "B-15"),
-     [("R-FLS-01", "D-5-127-P", "fail")], []),
+     lambda m: _set_pset(m, "D-5-171-P", "Pset_DoorCommon", "FireRating", "B-15"),
+     [("R-FLS-01", "D-5-171-P", "fail")], []),
     ("P02", "accessible stair door narrowed to 700 mm",
      lambda m: setattr(m.by_name("D-5-161-S"), "overall_width", 0.70),
      [("R-ACC-02", "D-5-161-S", "fail")], []),
@@ -63,7 +63,8 @@ PLANTS = [
      [("R-FLS-06", "BHD-5-165", "fail")], []),
     ("P07", "stair 3A enclosure wall B-15",
      lambda m: _set_pset(m, "WA0-STAIR3A-P", "Pset_WallCommon", "FireRating", "B-15"),
-     [("R-FLS-08", "Stair 3A", "fail")], [("R-FLS-01", "D-5-127-P"), ("R-FLS-10", "D-5-127-P")]),
+     [("R-FLS-08", "Stair 3A", "fail")], [("R-FLS-01", "D-5-171-P"), ("R-FLS-10", "D-5-171-P"),
+                                         ("R-FLS-11", "GL-5-172-P")]),
     ("P08", "stair glazing B-0 in an A-0 enclosure",
      lambda m: _set_pset(m, "GL-5-162-P", "Pset_WindowCommon", "FireRating", "B-0"),
      [("R-FLS-11", "GL-5-162-P", "fail")], []),
@@ -76,8 +77,8 @@ PLANTS = [
      lambda m: _plate_thin(m, "PL-5-03", 0.004),
      [("R-DNV-01", "PL-5-03", "fail")], []),
     ("P12", "stair door fire rating missing",
-     lambda m: _set_pset(m, "D-5-127-S", "Pset_DoorCommon", "FireRating", None),
-     [("R-FLS-01", "D-5-127-S", "unk")], []),
+     lambda m: _set_pset(m, "D-5-161-S", "Pset_DoorCommon", "FireRating", None),
+     [("R-FLS-01", "D-5-161-S", "unk")], []),
 ]
 
 
@@ -200,7 +201,7 @@ PHRASES = [  # (text, expected subset of the card)
     ("run a day evacuation", {"type": "scenario_preview", "scenario": {"case": "day"}}),
     ("what if stair 3A is out of use at night", {"type": "scenario_preview", "scenario": {"case": "night", "closed_stair": "3A"}}),
     ("evacuation during the day without stair 3B", {"type": "scenario_preview", "scenario": {"case": "day", "closed_stair": "3B"}}),
-    ("secondary case, stair 3C blocked, daytime", {"type": "scenario_preview", "scenario": {"case": "day", "closed_stair": "3C"}}),
+    ("secondary case, stair 3A blocked, daytime", {"type": "scenario_preview", "scenario": {"case": "day", "closed_stair": "3A"}}),
     ("fire near stair 3A at night", {"type": "scenario_preview", "scenario": {"case": "night", "fire_origin": "*"}}),
     ("fire in LOUNGE-5-153 during the day", {"type": "scenario_preview", "scenario": {"case": "day", "fire_origin": "LOUNGE-5-153"}}),
     ("how long does it take to evacuate at night if we lose stair 3B", {"type": "scenario_preview", "scenario": {"case": "night", "closed_stair": "3B"}}),

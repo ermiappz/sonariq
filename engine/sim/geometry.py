@@ -84,7 +84,7 @@ def _deck_of(e) -> str:
 
 
 def build(model: Model, deck: str = "5", closed_stairs: tuple[str, ...] = (),
-          blocked_spaces: tuple[str, ...] = ()) -> DeckGeometry:
+          blocked_spaces: tuple[str, ...] = (), closed_doors: tuple[str, ...] = ()) -> DeckGeometry:
     spaces = {e.name: e.poly for e in model.spaces(deck=deck) if e.poly is not None}
     meta = {e.name: dict(e.sq) for e in model.spaces(deck=deck)}
     walls = [(w.name, w.poly, w.prop("Pset_WallCommon", "FireRating")) for w in model.by_class("IfcWall")
@@ -105,11 +105,11 @@ def build(model: Model, deck: str = "5", closed_stairs: tuple[str, ...] = (),
         sc = d.prop("Pset_DoorCommon", "SelfClosing")
         doors[d.name] = Door(d.name, d.guid, op, w, None if sc is None else bool(sc),
                              d.prop("Pset_DoorCommon", "FireRating"))
-        doors[d.name].spaces = [n for n, p in spaces.items() if p.buffer(0.01).intersects(op)][:2]
+        doors[d.name].spaces = [n for n, p in spaces.items() if p.buffer(0.01).intersects(op)]
 
     base = unary_union([p.buffer(0.01, join_style=2) for n, p in spaces.items() if n not in blocked_spaces])
     walk = base.difference(wall_u)
-    openings = unary_union([d.poly for d in doors.values()])
+    openings = unary_union([d.poly for n, d in doors.items() if n not in closed_doors])
     walk = unary_union([walk, openings])
     # stairs
     stairs: dict[str, Stair] = {}
@@ -150,7 +150,7 @@ def build(model: Model, deck: str = "5", closed_stairs: tuple[str, ...] = (),
     keep = [p for p in parts if any(p.buffer(0.05).contains(Point(*h)) for s in live for h in s.landings)]
     walk_keep = unary_union(keep) if keep else max(parts, key=lambda p: p.area)
     dropped = [n for n, p in spaces.items() if walk_keep.intersection(p).area < 0.3 * p.area
-               and not n.startswith("STAIR-")]
+               and not n.startswith("STAIR-") and n not in blocked_spaces]
     if isinstance(walk_keep, MultiPolygon):
         walk_keep = walk_keep  # several connected parts, each with a stair
     # open edges for smoke: spaces whose footprints touch where there is no wall
