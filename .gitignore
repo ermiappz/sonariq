@@ -6,6 +6,7 @@
 __pycache__/
 data/cache/
 data/out/
+data/uploads/
 data/rcrv/*.csv
 data/rcrv/*.ifc
 data/rcrv/*.json

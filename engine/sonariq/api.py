@@ -5,9 +5,11 @@ import csv
 import os as _os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+import hashlib
 import json
+import re
 
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -19,6 +21,40 @@ from .session import DATA, REVISIONS, Session
 app = FastAPI(title="SonarIQ engine", version="0.2")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 S = Session("A")
+# Hosted on the VM (behind Caddy + basic auth): clients may only open files inside data/ (uploads included).
+HOSTED = _os.getenv("SONARIQ_HOSTED", "0").lower() in ("1", "true", "on", "yes")
+UPLOADS = DATA / "uploads"
+_LAST_BCF: dict = {}
+
+
+def _check_path(path: str | None) -> str | None:
+    if not path:
+        return path
+    p = Path(path)
+    if not p.is_absolute():
+        p = (DATA.parent / p)
+    p = p.resolve()
+    if HOSTED and DATA.resolve() not in p.parents:
+        raise HTTPException(403, "On the hosted engine only files inside data/ can be opened; upload the IFC instead.")
+    return str(p)
+
+
+def _sha(p: Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+_REV_SHA: dict[str, tuple[float, str]] = {}
+
+
+def _revision_for(sha: str) -> str | None:
+    for rev, p in REVISIONS.items():
+        if p.exists():
+            m = p.stat().st_mtime
+            if _REV_SHA.get(rev, (None,))[0] != m:
+                _REV_SHA[rev] = (m, _sha(p))
+            if _REV_SHA[rev][1] == sha:
+                return rev
+    return None
 
 
 class AnalyseReq(BaseModel):
@@ -55,8 +91,30 @@ def rules():
     return {"groups": PACK_GROUPS, "rules": [r.model_dump() | {"ref": r.ref, "group": r.group} for r in load_rules()]}
 
 
+@app.post("/upload")
+async def upload(request: Request, name: str = "model.ifc"):
+    """Remote clients (the FreeCAD panel on a Mac) send the IFC bytes. A byte-identical demo file maps to its
+    revision (A / B / Bfix2), so edits and simulations keep working; anything else is stored under data/uploads."""
+    body = await request.body()
+    if not body.startswith(b"ISO-10303-21"):
+        raise HTTPException(422, "Not an IFC (STEP) file.")
+    if len(body) > 400 * 1024 * 1024:
+        raise HTTPException(413, "IFC larger than 400 MB.")
+    sha = hashlib.sha256(body).hexdigest()
+    rev = _revision_for(sha)
+    if rev:
+        return {"revision": rev, "path": None, "sha": sha[:12], "known": True}
+    UPLOADS.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", Path(name).name)[:80] or "model.ifc"
+    out = UPLOADS / f"{sha[:12]}_{safe}"
+    if not out.exists():
+        out.write_bytes(body)
+    return {"revision": None, "path": str(out), "sha": sha[:12], "known": False}
+
+
 @app.post("/open")
 def open_(req: AnalyseReq):
+    req.path = _check_path(req.path)
     try:
         return S.open(req.revision or "A", req.path)
     except FileNotFoundError as e:
@@ -65,6 +123,7 @@ def open_(req: AnalyseReq):
 
 @app.post("/analyse")
 def analyse(req: AnalyseReq):
+    req.path = _check_path(req.path)
     # Reopen on a new path, a new revision, or a revision whose demo file is not the open model
     # (after a file opened by path, e.g. an RCRV deck, which also carries revision "A").
     # Same revision + same file keeps the model, including confirmed edits.
@@ -129,7 +188,19 @@ def recheck(revision: str | None = None):
 
 @app.post("/export/bcf")
 def bcf():
-    return S.export_bcf()
+    r = S.export_bcf()
+    _LAST_BCF["path"] = r.get("path")
+    r["download"] = "/export/bcf/file"
+    return r
+
+
+@app.get("/export/bcf/file")
+def bcf_file():
+    """The last BCF written, for clients that are not on the engine's machine."""
+    p = Path(_LAST_BCF.get("path") or "")
+    if not _LAST_BCF.get("path") or not p.exists():
+        raise HTTPException(404, "Export BCF first.")
+    return FileResponse(p, media_type="application/zip", filename=p.name)
 
 
 @app.get("/history")
@@ -139,6 +210,8 @@ def history():
 
 @app.get("/model/ifc/{rev}")
 def ifc(rev: str):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", rev):
+        raise HTTPException(404, "no such model")
     p = REVISIONS.get(rev) or (DATA / "rcrv" / f"{rev}.ifc")
     if not p.exists():
         raise HTTPException(404, "no such model")
