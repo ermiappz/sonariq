@@ -446,10 +446,21 @@ class FreeCADBridge:
         n = self.focus(f, zoom=False, ghost=False)
         if not self.ok or not n:
             return n
+        import FreeCAD
+        doc = FreeCAD.ActiveDocument
+        focus = [doc.getObject(nm) for nm in self._focus if doc.getObject(nm)]
+        keep = set(self._focus)
+        for o in focus:   # the element's own parts (e.g. a stair's flights) stay
+            keep |= {c.Name for c in getattr(o, "OutListRecursive", [])}
         for o in self._shapes():
-            if o.Name not in self._focus and o.ViewObject.Visibility:
+            if o.Name not in keep and o.ViewObject.Visibility:
                 self._hidden[o.Name] = o
                 o.ViewObject.Visibility = False
+        # hiding a container also hides its children: switch the element and its parts back on afterwards
+        for nm in keep:
+            o = doc.getObject(nm)
+            if o is not None and getattr(o, "ViewObject", None) is not None and not o.ViewObject.Visibility:
+                o.ViewObject.Visibility = True
         self.zoom()
         return n
 
@@ -508,7 +519,7 @@ class FreeCADBridge:
             pass
 
 
-TREE_DOCKS = ("Combo View", "Model", "Tree view", "Property view")
+TREE_DOCKS = ("Combo View", "Model", "Tree view", "Property view", "Tasks", "BIM Views Manager")
 
 
 def set_tree_visible(on: bool | None = None) -> bool:
@@ -591,6 +602,12 @@ class SonarIQPanel(QtWidgets.QWidget):
         hl.addWidget(self.proj, 1)
         hl.addWidget(self.analyse_btn)
         hl.addWidget(self.export_btn)
+        self.ai_btn = QtWidgets.QPushButton("✦ Assistant")
+        self.ai_btn.setStyleSheet("QPushButton { color: #e392c8; border: 1px solid #e392c8; border-radius: 4px; "
+                                  "padding: 0 8px; min-height: 26px; font-weight: 600; background: transparent; }")
+        self.ai_btn.setToolTip("Assistant Engineer · ask why a check fails or describe a change")
+        self.ai_btn.clicked.connect(self.show_assistant)
+        hl.addWidget(self.ai_btn)
         root.addWidget(head)
         self.progress = QtWidgets.QProgressBar()
         self.progress.setRange(0, 0)
@@ -739,6 +756,9 @@ class SonarIQPanel(QtWidgets.QWidget):
         # ---- tabs: Findings · History
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.setDocumentMode(True)
+        self.tabs.tabBar().setUsesScrollButtons(False)
+        self.tabs.tabBar().setElideMode(QtCore.Qt.ElideNone)
+        self.tabs.tabBar().setStyleSheet("QTabBar::tab { min-width: 96px; }")
         self.findings_page = QtWidgets.QStackedWidget()
         self.list_scroll = QtWidgets.QScrollArea()
         self.list_scroll.setWidgetResizable(True)
@@ -763,12 +783,6 @@ class SonarIQPanel(QtWidgets.QWidget):
         self.chat = ChatView(self)
         self.chat_tab = True     # FreeCAD moves the chat into its own (floatable) dock, see show_in_freecad
         self.tabs.addTab(self.chat, "Assistant")
-        self.ai_btn = QtWidgets.QPushButton("✦ Assistant Engineer")
-        self.ai_btn.setStyleSheet("QPushButton { color: #e392c8; border: 1px solid #e392c8; border-radius: 12px; "
-                                  "padding: 0 10px; min-height: 24px; font-weight: 600; margin: 3px 8px; }")
-        self.ai_btn.setToolTip("Ask why a check fails or describe a change")
-        self.ai_btn.clicked.connect(self.show_assistant)
-        self.tabs.setCornerWidget(self.ai_btn, QtCore.Qt.TopRightCorner)
         self.tabs.currentChanged.connect(lambda i: self._load_history() if self.tabs.widget(i) is self.hist else None)
         root.addWidget(self.tabs, 1)
 
