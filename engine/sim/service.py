@@ -34,6 +34,24 @@ def pct(vals, q):
     return float(np.percentile(np.array(vals, float), q)) if vals else None
 
 
+def smoke_summary(runs: list[dict]) -> dict | None:
+    """Fire what-if: smoke exposure over all runs (time to assemble barely moves at night; exposure does)."""
+    sm = [r["smoke"] for r in runs if r.get("smoke")]
+    if not sm:
+        return None
+    q = PARAMS["runs"]["percentile"]
+    ex = [x.get("people_exposed", 0) for x in sm]
+    es = [x.get("exposure_s_total", 0) for x in sm]
+    rr = [x.get("rerouted", 0) for x in sm]
+    cr = [x["corridor_reached_s"] for x in sm if x.get("corridor_reached_s") is not None]
+    return {"runs": len(sm),
+            "people_exposed_p95": round(pct(ex, q), 1), "people_exposed_mean": round(float(np.mean(ex)), 1),
+            "people_exposed_max": int(max(ex)),
+            "exposure_s_mean": round(float(np.mean(es)), 1), "exposure_s_p95": round(pct(es, q), 1),
+            "rerouted_mean": round(float(np.mean(rr)), 1),
+            "corridor_reached_s": round(float(np.median(cr)), 1) if cr else None}
+
+
 def summarize(runs: list[dict], prep_info: dict) -> dict:
     tA = [r["tA_s"] for r in runs]
     q = PARAMS["runs"]["percentile"]
@@ -67,6 +85,7 @@ def summarize(runs: list[dict], prep_info: dict) -> dict:
         "histogram": {"edges": [round(e, 1) for e in hist_edges], "counts": hist},
         "p95_seed": nearest["seed"] if nearest else None,
         "people_deck5": runs[0]["people_deck5"] if runs else None,
+        "smoke": smoke_summary(runs),
         **prep_info,
         "label": LABEL,
         "percentile": q,
@@ -280,7 +299,13 @@ class SimService:
         p = CACHE / jid / "summary.json"
         if not p.exists():
             raise KeyError(jid)
-        return json.loads(p.read_text())
+        s = json.loads(p.read_text())
+        if "smoke" not in s and (s.get("scenario") or {}).get("fire_origin") and (CACHE / jid / "runs.jsonl").exists():
+            # summaries cached before smoke_summary existed: backfill from the stored runs, once
+            runs = [json.loads(x) for x in (CACHE / jid / "runs.jsonl").read_text().splitlines() if x.strip()]
+            s["smoke"] = smoke_summary(runs)
+            p.write_text(json.dumps(s, indent=1, default=str))
+        return s
 
     def replay(self, jid: str) -> dict:
         p, m = CACHE / jid / "replay.json", CACHE / jid / "meta.json"

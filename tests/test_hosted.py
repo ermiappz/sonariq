@@ -46,3 +46,13 @@ def test_bcf_download():
     r = c.post("/export/bcf").json()
     f = c.get(r["download"])
     assert f.status_code == 200 and f.content[:2] == b"PK"
+
+
+def test_smoke_summary_aggregates_runs():
+    from sim.service import smoke_summary
+    runs = [{"smoke": {"people_exposed": n, "exposure_s_total": 10 * n, "rerouted": 1, "corridor_reached_s": 90.0}}
+            for n in range(1, 101)]
+    s = smoke_summary(runs)
+    assert s["runs"] == 100 and s["people_exposed_max"] == 100 and s["rerouted_mean"] == 1.0
+    assert 94 <= s["people_exposed_p95"] <= 96 and s["corridor_reached_s"] == 90.0
+    assert smoke_summary([{"smoke": None}, {}]) is None
