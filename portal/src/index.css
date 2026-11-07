@@ -59,14 +59,15 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .ib-table td:nth-child(6), .ib-table td:nth-child(7), .ib-table td:nth-child(8) { white-space: nowrap; }
 
 /* ---- Studio (web review) */
-.studio { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 0; height: calc(100vh - 54px - 40px); margin: -20px -24px; }
-.page:has(.studio) { overflow: hidden; }
+.studio { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 0; height: 100%; }
+.page:has(.studio) { overflow: hidden; padding: 0; height: calc(100vh - 54px); }
 .studio-left { position: relative; min-width: 0; }
 .studio-3d { height: 100%; border: 0; border-radius: 0; border-right: 1px solid var(--line); }
 .studio-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fg-3); padding: 24px; text-align: center; }
 .studio-panel { display: flex; flex-direction: column; min-height: 0; background: var(--bg-1); }
 .studio-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-.studio-file { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.studio-title { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.studio-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; max-width: 150px; }
 .studio-sum { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .studio-setup { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; overflow: auto; max-height: 55vh; }
 .studio-model { display: flex; justify-content: space-between; gap: 8px; text-align: left; background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; color: var(--fg-1); padding: 7px 10px; cursor: pointer; font: inherit; font-size: 13px; }

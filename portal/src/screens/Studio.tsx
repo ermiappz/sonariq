@@ -100,7 +100,7 @@ function Viewer3D({ url, bounds, onReady, apiRef }: { url: string | null; bounds
       setLabels(labelPts.map(({ text, v, dashed }) => { const p = v.clone().project(cam); return { text, dashed, x: (p.x + 1) / 2 * w, y: (1 - p.y) / 2 * h, visible: p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2 }; }));
     };
     const fit = (b: THREE.Box3) => {
-      const bb = b.clone(); const size = bb.getSize(new THREE.Vector3()); bb.expandByVector(new THREE.Vector3(Math.max(4, size.x), 3, Math.max(4, size.z)));
+      const bb = b.clone(); const size = bb.getSize(new THREE.Vector3()); bb.expandByVector(new THREE.Vector3(Math.max(9, size.x * 2), 4, Math.max(9, size.z * 2)));
       world.camera.controls.fitToBox(bb, true);
     };
     const focus = (c: Check) => {
@@ -271,8 +271,8 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
       </div>
       <aside className="studio-panel">
         <header className="studio-head">
-          <b>Studio</b>
-          <span className="sq-chip mono studio-file" title={label ?? ""}>{label ? label.replace(/\.ifc$/i, "") : "No model open"}{shown && !target ? ` · Rev ${shown.meta.revision}` : ""}</span>
+          <span className="studio-title"><b>Studio</b>
+            <span className="mono sq-muted studio-file" title={label ?? ""}>{label ? label.replace(/\.ifc$/i, "") : "No model open"}{shown && !target ? ` · Rev ${shown.meta.revision}` : target ? " · not analysed yet" : ""}</span></span>
           <span style={{ flex: 1 }} />
           <button className="sq-btn" onClick={() => setSetup(!setup)}>{setup ? "Close" : "Open model"}</button>
           <button className="sq-btn is-primary" disabled={busy || (!target && !shown) || !packs.length} title={!target && !shown ? "Open an IFC model to analyse" : ""} onClick={analyse}>{busy ? "Analysing…" : "Analyse"}</button>
