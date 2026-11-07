@@ -23,6 +23,26 @@ OR117 = {"kind": "add_cabin_block", "frame_from": 140.0, "count": 4, "berths_per
 FIX2 = {"kind": "add_cabin_block", "frame_from": 140.0, "count": 4, "berths_per_cabin": 1, "change_request": "OR-117"}
 
 
+CLICK_PATHS = """## Click paths (v2, 8 Nov)
+
+**A. Browser only (Studio).** https://34-88-130-224.sslip.io → **Login** → **Studio** → *Open model* → `deck5_revB.ifc` →
+**Analyse** → card **F-08**: the corridor outline lights orange, the rest is ghosted, dimension labels *depth 4.2 m* and
+*width 1.2 m = allowed depth* with the legend *Measured by rule engine · check on drawing* → **Isolate** → **Show all** →
+card **U-01** → **Incorrect finding** → type a reason → **Mark incorrect** (card greys, *not exported*) → **Export** →
+*Create report from this run?* (shows *Left out: U-01*) → **Create report** → toast *Report R-00n created* + banner →
+**Tasks** → **Assign** (mock people).
+
+**B. FreeCAD.** File → Open `deck5_revA.ifc` (tree hides, isometric, fit) → **Analyse** → card **F-01** (door orange,
+rest ghosted) → File → Open `deck5_revB.ifc` (panel resets) → **Analyse** → **F-08** (overlay + legend in the 3D view)
+→ **F-07** → **Isolate** → **Show all** → **U-01** → **Incorrect finding** → reason → **Export** (browser opens the
+report dialog for this run) → **Create report**.
+
+**C. Change + re-check (FreeCAD ✦ Assistant), then simulation in the portal.** The steps below. The panel has no
+Simulate button: simulation lives in the portal (**Simulate** in the left rail).
+
+"""
+
+
 def models():
     from sonariq.session import Session
     s = Session("A")
@@ -135,21 +155,22 @@ def write_demo(svc, index):
         "",
         f"Every result screen carries: *{LABEL}*.",
         "",
+        *CLICK_PATHS.splitlines(),
         "## Before you start",
         "",
         "1. Hosted: https://34-88-130-224.sslip.io (engine with Simulate on; `scripts/deploy_vm.sh`). "
         "Local: `make api-sim` (port 8765) and `make portal` (http://localhost:5173).",
-        "2. FreeCAD: open `data/deck5_revA.ifc`. The panel shows **Analyse** and **Simulate**.",
+        "2. FreeCAD: open `data/deck5_revA.ifc`. The panel shows **Analyse** and **Export**; the ✦ Assistant opens the chat.",
         "3. The simulations below are cached (500 runs each), so Confirm shows the result at once. "
         "If the cache is missing, set the runs stepper to 20 and say so.",
         "",
         "## Steps",
         "",
         "1. **Analyse** Rev A. Point at F-01 (MVZ door A-0 in A-60).",
-        "2. Chat: *Add 4 cabins inboard at Fr 140 for OR-117* → preview → **Confirm**. The ping re-runs the "
+        "2. ✦ Assistant: *Add 4 cabins inboard at Fr 140 for OR-117* → preview → **Confirm**. The ping re-runs the "
         "affected checks; **F-07 Stair 3B fails** (and F-08 dead end).",
-        "3. Chat: *Why does F-07 fail?* → cited answer (FSS reading + Circ.1533 text), numbers checked.",
-        "4. **Simulate** → *Simulation preview* (people on Deck 5, inflow to 3B, model gaps) → **Confirm** → result card.",
+        "3. ✦ Assistant: *Why does F-07 fail?* → cited answer (FSS reading + Circ.1533 text), numbers checked.",
+        "4. Portal → **Simulate** → *Simulation preview* (people on Deck 5, inflow to 3B, model gaps) → **Confirm** → result card.",
     ]
     if g1:
         w = max(g1["landings"].items(), key=lambda kv: kv[1]["queue_max_p95"])
@@ -158,14 +179,14 @@ def write_demo(svc, index):
                   f"from {g1['longest_route']['space']}."]
         lines += [f"   - Replay (W10, **Open replay**): the queue chart shows Stair {w[0][:2]} (longest p95 queue); "
                   "click the hotspot → **Pin to review** (BCF viewpoint + comment on the finding)."]
-    lines += ["5. Chat: *Apply fix 2* (four cabins, one berth each) → **Confirm** → F-07 clears (rule engine)."]
+    lines += ["5. ✦ Assistant: *Apply fix 2* (four cabins, one berth each) → **Confirm** → F-07 clears (rule engine)."]
     if g1 and g2:
-        lines += [f"6. **Simulate** again → compare: p95 {_mmss(g1['tA_p95_s'])} → {_mmss(g2['tA_p95_s'])} "
+        lines += [f"6. Portal **Simulate** again → compare: p95 {_mmss(g1['tA_p95_s'])} → {_mmss(g2['tA_p95_s'])} "
                   f"({round(g2['tA_p95_s'] - g1['tA_p95_s'], 1):+} s); 3B landing queue p95 "
                   f"3BP {landing(g1, '3BP')} → {landing(g2, '3BP')}, 3BS {landing(g1, '3BS')} → {landing(g2, '3BS')}.",
                   "   - Say it straight: fix 2 makes the **rule** pass; in the night case the evacuation time is driven by "
                   f"the response-time spread ({_resp()}), so read the change against that. That is the design insight."]
-    lines += ["7. Chat: *Fire near stair 3A at night* → *Fire what-if · preview* (mini plan, hatched smoke) → **Confirm**."]
+    lines += ["7. Portal **Simulate** → *Describe it*: *fire near stair 3A at night* → **Read** → *Fire what-if · preview* (mini plan, hatched smoke) → **Confirm**."]
     if gf:
         sm = gf.get("smoke") or {}
         base = f" (without the fire: {_mmss(g2['tA_p95_s'])})" if g2 else ""
@@ -178,7 +199,7 @@ def write_demo(svc, index):
                       "the origin fill before people leave."]
     lines += [
         "8. Portal W3 (F-07 thread): Source text, the pinned replay moment, **Approve** (signed row) → "
-        "**Export BCF** from the panel (topics carry the pin viewpoint and the sign-off comment).",
+        "**Export** from the panel → *Create report* (findings marked incorrect are left out).",
         "9. Optional: W10 **Try fixes** → each fix re-checked by the rule engine and re-simulated with 100 runs; "
         "rejected ideas listed, not simulated.",
         "",

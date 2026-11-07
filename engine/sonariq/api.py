@@ -243,20 +243,26 @@ def runs_get(rid: str):
 def _run_file(d: dict) -> Path | None:
     """The IFC a stored run read: its recorded path, else a demo file or the newest upload with that name."""
     p = Path(d["path"]) if d.get("path") else None
+    if p is not None and not _owned(p):
+        p = None   # e.g. written by another engine (staging) with its own data folder: find the file by name
     if p is None:
         name = d.get("file") or ""
         p = next((q for q in REVISIONS.values() if q.name == name), None)
         if p is None and UPLOADS.exists():
             hits = sorted(UPLOADS.glob(f"*_{name}"), key=lambda q: q.stat().st_mtime, reverse=True)
             p = hits[0] if hits else None
-    if p is None or not p.exists():
-        return None
-    try:   # only files the engine owns (demo models, uploads)
+    return p if p is not None and _owned(p) else None
+
+
+def _owned(p: Path) -> bool:
+    """Only files this engine owns (demo models, uploads) are served."""
+    if not p.exists():
+        return False
+    try:
         p.resolve().relative_to(DATA.resolve())
+        return True
     except ValueError:
-        if p.resolve() not in [q.resolve() for q in REVISIONS.values()]:
-            return None
-    return p
+        return p.resolve() in [q.resolve() for q in REVISIONS.values()]
 
 
 @app.get("/runs/{rid}/ifc")

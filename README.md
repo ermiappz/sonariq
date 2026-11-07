@@ -12,16 +12,27 @@ Since AI 2026 · Meyer Turku challenge. One deterministic rule engine serves thr
 | `scripts/make_deck.py` | Writes the Deck 5 test model: `data/deck5_revA.ifc`, `deck5_revB.ifc` (OR-117), `deck5_revB_fix2.ifc` |
 | `scripts/aps_translate.py`, `scripts/node/svf_to_gltf.js`, `scripts/rcrv_cache.py`, `scripts/rcrv_to_ifc.py` | RCRV .nwd → SVF → glTF + properties → IFC4 |
 | `freecad_addon/SonarIQ/` | FreeCAD 1.x dock panel (P1, P3, P4), styled by `design/panel.qss` |
-| `portal/` | Web portal (Vite + React + TS + That Open Engine): Inbox, Thread, Model, Rules, Mapping, Simulate |
-| `scripts/deploy_vm.sh`, `scripts/setup_freecad_mac.sh` | Hosted deployment (Caddy HTTPS + basic auth, systemd) and the one-line Mac setup |
+| `portal/` | Web portal (Vite + React + TS + That Open Engine): Home, Inbox, Tasks, Studio (open · analyse · findings in 3D), Thread, Rules, Revisions, Mapping, Simulate |
+| `scripts/deploy_vm.sh`, `scripts/deploy_next.sh`, `scripts/caddy_write.sh`, `scripts/setup_freecad_mac.sh` | Hosted deployment (Caddy HTTPS, systemd), staging at `/next`, and the one-line Mac setup |
 | `tests/` | Rule tests (violation, control, exact threshold), handoff contract, impact, guards |
 
-## Try it
+## Try it in the browser
+
+**https://34-88-130-224.sslip.io** → **Login** (demo workspace, no account) → **Studio** → *Open model* → `deck5_revB.ifc`
+→ **Analyse** → click **F-08** (the corridor lights up in its status colour, with the measured and allowed dimensions from
+the rule engine) → **Isolate** / **Show all** → on **U-01** press **Incorrect finding** and give a reason → **Export** →
+*Create report*. You can also upload your own IFC4 file (up to 60 MB in the browser).
+
+## Add it to FreeCAD (macOS, one line)
+
+```bash
+curl -fsSL https://34-88-130-224.sslip.io/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh
+```
 
 | | |
 |---|---|
-| **Web portal (hosted)** | https://34-88-130-224.sslip.io (user `sonariq`; ask the team for the password) |
-| **Downloads** | https://34-88-130-224.sslip.io/downloads/ (FreeCAD add-on, demo IFC models, Mac setup script) |
+| **Web portal + Studio** | https://34-88-130-224.sslip.io (public pages; the API takes the portal's demo key or the panel's login) |
+| **Downloads** | https://34-88-130-224.sslip.io/downloads/ (public: FreeCAD add-on, demo IFC models, Mac setup script) |
 | **FreeCAD** | 1.0.x, free: https://www.freecad.org/downloads.php |
 
 The rule engine, AI and simulation run on the server. On your own computer you only need **FreeCAD** and the
@@ -30,10 +41,10 @@ The rule engine, AI and simulation run on the server. On your own computer you o
 ### macOS: one command (about 5 minutes)
 
 ```bash
-curl -fsSL -u sonariq https://34-88-130-224.sslip.io/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh
+curl -fsSL https://34-88-130-224.sslip.io/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh
 ```
 
-curl asks for the password once, then the script asks for it again (it writes it to `~/.sonariq.json` for the panel). It:
+The script asks for the engine password once (ask the team; it writes it to `~/.sonariq.json` for the panel). It:
 1. installs FreeCAD with Homebrew if it is missing (or tells you to download it from https://www.freecad.org/downloads.php
    and drag it to Applications: pick the Apple Silicon build on M1–M4 Macs, Intel otherwise);
 2. installs the add-on into `~/Library/Application Support/FreeCAD/Mod/SonarIQ` (and `v1-1/Mod` for FreeCAD 1.1);
