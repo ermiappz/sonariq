@@ -516,6 +516,15 @@ class SonarIQPanel(QtWidgets.QWidget):
         import datetime as dt
         self.meta.setText(f"{r['total_checks']} checks · {r['duration_s']:.2f} s · Rev {r['revision']} · "
                           f"{dt.datetime.now():%H:%M}")
+        if r.get("scope_note"):   # the engine fell back to the whole model (e.g. an RCRV deck has no Deck 5)
+            self.meta.setToolTip(r["scope_note"])
+            self.meta.setText(self.meta.text() + " · whole model")
+            for k, b in self.scope_btns.items():
+                b.setChecked(k == "whole")
+            self.scope = "whole"
+            self._style_scope()
+        else:
+            self.meta.setToolTip("")
         self.proj.setText(f"Demo ship · Rev {r['revision']}")
         for st, b in self.cells.items():
             b.setText(f"{GLYPH[st]} {r['counts'][st]}\n{WORD[st]}")
