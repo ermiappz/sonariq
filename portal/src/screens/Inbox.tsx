@@ -1,6 +1,6 @@
 // W2 Discipline inbox: tabs per discipline, findings table. Approve stays one by one so each is signed.
 import { useMemo, useState } from "react";
-import type { Check, Run } from "../api";
+import { ORDER, type Check, type Run } from "../api";
 import { Loc, Pill, RuleBadge } from "../components/ui";
 
 const TABS = [
@@ -17,7 +17,8 @@ export default function Inbox({ run, hvac, onOpen }: { run: Run | null; hvac: Ru
   const [tab, setTab] = useState<string>("fire_life_safety");
   const [filter, setFilter] = useState<string>("all");
   const all = useMemo(() => [...(run?.findings ?? []), ...(hvac?.findings ?? [])], [run, hvac]);
-  const rows = all.filter((c) => c.discipline === tab).filter((c) => filter === "all" || c.status === filter);
+  const rows = all.filter((c) => c.discipline === tab).filter((c) => filter === "all" || c.status === filter)
+    .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || (a.id ?? "").localeCompare(b.id ?? ""));
   if (!run) return <p className="sq-muted">Loading findings from the rule engine…</p>;
   return (
     <div className="flex flex-col gap-4">

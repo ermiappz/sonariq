@@ -54,8 +54,13 @@ class Session:
         counts: dict[str, int] = {}
         for e in m.elements.values():
             counts[e.ifc_class] = counts.get(e.ifc_class, 0) + 1
+        geo = [e for e in m.elements.values() if e.poly is not None and e.z0 is not None]
+        bounds = None
+        if geo:
+            bounds = [min(e.poly.bounds[0] for e in geo), min(e.poly.bounds[1] for e in geo), min(e.z0 for e in geo),
+                      max(e.poly.bounds[2] for e in geo), max(e.poly.bounds[3] for e in geo), max(e.z1 for e in geo)]
         return {"name": m.ship.get("name", "Demo ship"), "revision": m.revision, "path": m.path,
-                "schema": "IFC4", "ship": m.ship, "element_counts": counts}
+                "schema": "IFC4", "ship": m.ship, "element_counts": counts, "bounds": bounds}
 
     # ------------------------------------------------------------ analyse
     def analyse(self, scope: str | None = None, packs: list[str] | None = None,

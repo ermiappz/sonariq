@@ -369,13 +369,30 @@ def main(max_detail_tris: int = 20000):
         return V, BOX_F, "box"
 
     def write(path, sel, title):
+        """Direct entity creation (ifcopenshell.api's container/pset helpers are O(n^2) at this size)."""
         f, body, storeys, place = new_file(title)
-        run = ifcopenshell.api.run
+        owner = f.by_type("IfcOwnerHistory")[0] if f.by_type("IfcOwnerHistory") else None
         by_storey = collections.defaultdict(list)
         n_mesh = 0
+
+        def pset(e, name, props):
+            vals = []
+            for k, v in props.items():
+                if v in (None, ""):
+                    continue
+                if isinstance(v, bool):
+                    nv = f.create_entity("IfcBoolean", v)
+                elif isinstance(v, (int, float)):
+                    nv = f.create_entity("IfcReal", float(v))
+                else:
+                    nv = f.create_entity("IfcLabel", str(v)[:250])
+                vals.append(f.createIfcPropertySingleValue(k, None, nv, None))
+            ps = f.createIfcPropertySet(ifcopenshell.guid.new(), owner, name, None, vals)
+            f.createIfcRelDefinesByProperties(ifcopenshell.guid.new(), owner, None, None, [e], ps)
+
         for o in sel:
             e = f.create_entity(o["ifc"], GlobalId=ifcopenshell.guid.compress(uuid.uuid5(NS, str(o["dbid"])).hex),
-                                Name=o["name"][:250])
+                                OwnerHistory=owner, Name=o["name"][:250])
             if o.get("otype"):
                 e.ObjectType = o["otype"]
             if o["ifc"] == "IfcDoor" and o.get("leaf_w"):
@@ -393,14 +410,12 @@ def main(max_detail_tris: int = 20000):
                 sq["accessible_route"] = not re.search(r"W/?T|WATERTIGHT|WEATHERTIGHT|GRATING|HATCH", o["name"], re.I)
                 if "A-CLASS" in o["name"].upper():
                     sq["fire_class_hint"] = "A-class (from source name; FireRating left empty until confirmed)"
-            src = {"source_id": str(o["dbid"]), "source_name": o["name"][:250], "layer": o["layer"][:250],
-                   "source_file": o["file"][:250]}
-            for pn, pv in (("SonarIQ_Source", src), ("SonarIQ_Ship", sq)):
-                ps = run("pset.add_pset", f, product=e, name=pn)
-                run("pset.edit_pset", f, pset=ps, properties={k: v for k, v in pv.items() if v not in (None, "")})
+            pset(e, "SonarIQ_Source", {"source_id": str(o["dbid"]), "source_name": o["name"], "layer": o["layer"],
+                                       "source_file": o["file"]})
+            pset(e, "SonarIQ_Ship", sq)
             by_storey[o["deck"]].append(e)
         for k, els in by_storey.items():
-            run("spatial.assign_container", f, products=els, relating_structure=storeys[k])
+            f.createIfcRelContainedInSpatialStructure(ifcopenshell.guid.new(), owner, None, None, els, storeys[k])
         f.write(str(path))
         return len(sel), n_mesh
 

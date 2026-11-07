@@ -25,6 +25,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json() as Promise<T>;
 }
 export const api = {
+  model: () => j<{ bounds: number[] | null; revision: string }>("/model"),
   health: () => j<{ ok: boolean; ai: { endpoint: string; online: boolean } }>("/health"),
   analyse: (revision: string, packs?: string[]) =>
     j<Run>("/analyse", { method: "POST", body: JSON.stringify({ revision, scope: "deck:5", packs }) }),

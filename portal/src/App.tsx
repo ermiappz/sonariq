@@ -11,7 +11,8 @@ type Screen = "projects" | "inbox" | "thread" | "model" | "rules" | "mapping" | 
 const USER = { name: "Mikko Saari", role: "Fire & life safety lead", initials: "MS" }; // sample person from the design
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("inbox");
+  const [screen, setScreenState] = useState<Screen>(((location.hash.slice(1) || "inbox") as Screen));
+  const setScreen = (s: Screen) => { setScreenState(s); history.replaceState(null, "", "#" + s); };
   const [rev, setRev] = useState("B");
   const [units, setUnits] = useState<"mm" | "in">("mm");
   const [run, setRun] = useState<Run | null>(null);

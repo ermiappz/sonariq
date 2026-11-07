@@ -19,6 +19,7 @@ export default function Viewer({ rev, run, hvac, onOpen }: { rev: string; run: R
   useEffect(() => {
     if (!host.current) return;
     let disposed = false;
+    let timer = 0;
     const components = new OBC.Components();
     const worlds = components.get(OBC.Worlds);
     const world = worlds.create<OBC.SimpleScene, OBC.SimpleCamera, OBC.SimpleRenderer>();
@@ -29,14 +30,20 @@ export default function Viewer({ rev, run, hvac, onOpen }: { rev: string; run: R
     world.scene.setup();
     (world.scene.three as THREE.Scene).background = new THREE.Color(getComputedStyle(host.current).getPropertyValue("--plan-bg").trim() || "#17191c");
     const loader = components.get(OBC.IfcLoader);
-    const pts = findings.filter((c) => c.evidence?.bbox).map((c) => {
-      const [x0, y0, x1, y1] = c.evidence!.bbox!;
-      const z = (c.evidence!.z ?? 14.5) + 2.0;
-      return { c, v: new THREE.Vector3((x0 + x1) / 2, z, -(y0 + y1) / 2) }; // IFC z-up -> three y-up
-    });
+    let pts: { c: Check; v: THREE.Vector3 }[] = [];
+    // IFC (x, y, z-up) -> three (x, z, -y), then calibrated against the loaded model's box (the loader may recentre)
+    const place = (b: number[], box: THREE.Box3) => {
+      const off = new THREE.Vector3(box.min.x - b[0], box.min.y - b[2], box.min.z + b[4]);
+      pts = findings.filter((c) => c.evidence?.bbox).map((c) => {
+        const [x0, y0, x1, y1] = c.evidence!.bbox!;
+        const z = (c.evidence!.z ?? b[2]) + 1.4;
+        return { c, v: new THREE.Vector3((x0 + x1) / 2 + off.x, z + off.y, -(y0 + y1) / 2 + off.z) };
+      });
+    };
     const update = () => {
       if (disposed || !host.current) return;
       const cam = world.camera.three as THREE.Camera;
+      cam.updateMatrixWorld();
       const w = host.current.clientWidth, h = host.current.clientHeight;
       setPins(pts.map(({ c, v }) => {
         const p = v.clone().project(cam);
@@ -54,9 +61,14 @@ export default function Viewer({ rev, run, hvac, onOpen }: { rev: string; run: R
         if (disposed) return;
         world.scene.three.add(model);
         const box = new THREE.Box3().setFromObject(model);
-        const c = box.getCenter(new THREE.Vector3());
-        await world.camera.controls.setLookAt(c.x - 10, c.y + 45, c.z + 35, c.x, c.y, c.z);
+        const info = await api.model();
+        if (info.bounds) place(info.bounds, box);
+        host.current?.setAttribute("data-box", JSON.stringify([box.min.toArray(), box.max.toArray(), info.bounds]));
+        await world.camera.controls.fitToBox(box, false);
+        await world.camera.controls.rotateTo(-0.35, 0.75, false);
+        await world.camera.controls.fitToBox(box, false, { paddingTop: 2, paddingBottom: 2, paddingLeft: 2, paddingRight: 2 });
         world.camera.controls.addEventListener("update", update);
+        timer = window.setInterval(update, 250);
         update();
         setState("ready");
       } catch (e) {
@@ -64,7 +76,7 @@ export default function Viewer({ rev, run, hvac, onOpen }: { rev: string; run: R
         setState("error");
       }
     })();
-    return () => { disposed = true; components.dispose(); };
+    return () => { disposed = true; window.clearInterval(timer); components.dispose(); };
   }, [rev, nonce, run?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

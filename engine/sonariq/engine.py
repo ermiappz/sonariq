@@ -149,8 +149,11 @@ def check_dict(r: CheckResult, run: Run, model: Model | None = None) -> dict:
     if model is not None:
         els = [model.elements.get(g) for g in r.depends_on if not g.startswith(("berths:", "members:"))]
         d["evidence"] = {"guids": [e.guid] if e else [], "related": [x.guid for x in els if x is not None],
-                         "bbox": evidence_bbox(e) if e is not None else None,
-                         "z": None if e is None else e.z0}
+                         "bbox": (evidence_bbox(e) or evidence_bbox(*[model.elements.get(g) for g in e.parts]))
+                         if e is not None else None,
+                         "z": None if e is None else (e.z0 if e.z0 is not None else
+                                                      next((model.elements[g].z0 for g in e.parts
+                                                            if g in model.elements), None))}
     return d
 
 
