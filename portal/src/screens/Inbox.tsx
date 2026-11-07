@@ -1,6 +1,6 @@
 // W2 Discipline inbox: tabs per discipline, findings table. Approve stays one by one so each is signed.
 import { useMemo, useState } from "react";
-import { ORDER, type Check, type Run } from "../api";
+import { ORDER, useIncorrect, type Check, type Run } from "../api";
 import { Loc, Pill, RuleBadge } from "../components/ui";
 
 const TABS = [
@@ -16,6 +16,7 @@ const EMPTY: Record<string, string> = {
 export default function Inbox({ run, hvac, onOpen }: { run: Run | null; hvac: Run | null; onOpen: (c: Check) => void }) {
   const [tab, setTab] = useState<string>("fire_life_safety");
   const [filter, setFilter] = useState<string>("all");
+  const [incorrect] = useIncorrect();
   const all = useMemo(() => [...(run?.findings ?? []), ...(hvac?.findings ?? [])], [run, hvac]);
   const rows = all.filter((c) => c.discipline === tab).filter((c) => filter === "all" || c.status === filter)
     .sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || (a.id ?? "").localeCompare(b.id ?? ""));
@@ -45,14 +46,15 @@ export default function Inbox({ run, hvac, onOpen }: { run: Run | null; hvac: Ru
         <thead><tr><th>Status</th><th>Finding</th><th>Location</th><th>Rule</th><th>Owner</th><th>Decision</th></tr></thead>
         <tbody>
           {rows.map((c) => (
-            <tr key={c.check_key} style={{ cursor: "pointer" }} onClick={() => onOpen(c)}>
+            <tr key={c.check_key} className={incorrect[c.check_key] ? "is-incorrect" : ""} style={{ cursor: "pointer" }} onClick={() => onOpen(c)}>
               <td><Pill s={c.status} /></td>
               <td><div className="sq-faint mono" style={{ fontSize: 11 }}>{c.id}</div><div>{c.title}</div>
-                <div className="sq-faint" style={{ fontSize: 12 }}>{c.summary}</div></td>
+                <div className="sq-faint" style={{ fontSize: 12 }}>{c.summary}</div>
+                {incorrect[c.check_key] && <div className="inc-why">Marked incorrect · {incorrect[c.check_key].reason} · not exported</div>}</td>
               <td><Loc text={c.location.label} /></td>
               <td><RuleBadge c={c} /></td>
               <td className="sq-muted">{c.discipline_label} lead</td>
-              <td>{c.decision ? <span className="sq-st s-acc">Awaiting your approval</span> :
+              <td>{incorrect[c.check_key] ? <span className="sq-muted">Marked incorrect</span> : c.decision ? <span className="sq-st s-acc">Awaiting your approval</span> :
                 c.status === "unk" ? <span className="sq-muted">Needs data</span> : <span className="sq-muted">Open</span>}</td>
             </tr>
           ))}

@@ -268,7 +268,12 @@ def reports_create(req: ReportReq):
     import datetime as _dt
     rep = {"id": f"R-{len(reps) + 1:03d}", "run_id": req.run_id, "time": _dt.datetime.now().isoformat(timespec="seconds"),
            "file": r.get("file"), "revision": r.get("revision"), "counts": r.get("counts"),
-           "total_checks": r.get("total_checks"), "open_findings": len(r["run"].get("findings", []))}
+           "total_checks": r.get("total_checks")}
+    inc = incorrect_map()
+    fs = r["run"].get("findings", [])
+    rep["open_findings"] = sum(1 for f in fs if f["check_key"] not in inc)
+    rep["excluded"] = [{"finding": f.get("id"), "check_key": f["check_key"], "reason": inc[f["check_key"]]["reason"]}
+                       for f in fs if f["check_key"] in inc]
     reps.append(rep)
     _jsave(REPORTS, reps)
     return rep
@@ -377,9 +382,68 @@ def recheck(revision: str | None = None):
     return S.switch_revision(revision) if revision else S.recheck()
 
 
+# ------------------------------------------------------------------ "Incorrect finding" (a reviewer says the engine is wrong here)
+INCORRECT = Path(_os.getenv("SONARIQ_INCORRECT", str(DATA / "incorrect.json")))
+
+
+def incorrect_map() -> dict:
+    try:
+        return json.loads(INCORRECT.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+class IncorrectReq(BaseModel):
+    check_key: str
+    reason: str
+    finding: str | None = None
+    by: str = "Designer"
+    revision: str | None = None
+    file: str | None = None
+
+
+@app.get("/incorrect")
+def incorrect_list():
+    """Findings marked incorrect, by check key. They stay in every run (the verdict is the engine's) but are greyed
+    and left out of BCF and reports."""
+    return {"incorrect": incorrect_map()}
+
+
+@app.post("/incorrect")
+def incorrect_mark(req: IncorrectReq):
+    reason = (req.reason or "").strip()
+    if not reason:
+        raise HTTPException(422, "Say why the finding is wrong.")
+    if len(reason) > 200 or len(req.check_key) > 200:
+        raise HTTPException(422, "Keep the reason short (200 characters).")
+    import datetime as _dt
+    m = incorrect_map()
+    rec = {"finding": req.finding, "reason": reason, "by": req.by[:80], "revision": req.revision, "file": req.file,
+           "time": _dt.datetime.now().isoformat(timespec="seconds")}
+    m[req.check_key] = rec
+    INCORRECT.parent.mkdir(parents=True, exist_ok=True)
+    INCORRECT.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+    S.history.append({"time": rec["time"][11:16], "event": "incorrect", "finding": req.finding, "check_key": req.check_key,
+                      "reason": reason, "by": rec["by"]})
+    return {"check_key": req.check_key, **rec}
+
+
+@app.delete("/incorrect/{check_key:path}")
+def incorrect_undo(check_key: str):
+    m = incorrect_map()
+    rec = m.pop(check_key, None)
+    if rec is None:
+        raise HTTPException(404, "Not marked incorrect.")
+    INCORRECT.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+    import datetime as _dt
+    S.history.append({"time": _dt.datetime.now().strftime("%H:%M"), "event": "incorrect_undone",
+                      "finding": rec.get("finding"), "check_key": check_key})
+    return {"check_key": check_key, "undone": True}
+
+
 @app.post("/export/bcf")
 def bcf():
-    r = S.export_bcf()
+    r = S.export_bcf(exclude=set(incorrect_map()))
     _LAST_BCF["path"] = r.get("path")
     r["download"] = "/export/bcf/file"
     return r

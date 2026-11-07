@@ -45,3 +45,6 @@ body { background: #131417; }
 .home-ship { width: min(1180px, calc(100% - 32px)); margin: 8px auto 0; display: block; border: 1px solid #1d2633; border-radius: 6px; }
 .home-foot { padding: 18px clamp(16px, 4vw, 48px); font-size: 12px; text-align: center; }
 @media (max-width: 760px) { .home-main { grid-template-columns: 1fr; } .home-team { max-width: 260px; } }
+tr.is-incorrect td { opacity: .5; }
+tr.is-incorrect td .inc-why, .inc-why { opacity: 1; color: var(--fg-2); font-size: 12px; margin-top: 2px; }
+tr.is-incorrect td:has(.inc-why) { opacity: .85; }

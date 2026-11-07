@@ -159,6 +159,28 @@ def main():
     lgs = [w for w in Gui.getMainWindow().findChildren(QtWidgets.QLabel, "SonarIQLegend") if w.isVisible()]
     check("Show all removes the overlay", not panel.bridge.has_overlay() and sg.getNumChildren() == n0 and not lgs)
 
+    # 3c. Incorrect finding: U-01 greyed, recorded in History, left out of the BCF; Undo brings it back
+    u01 = next(c for c in rB["findings"] if c["id"] == "U-01")
+    panel.select_finding(u01)
+    ok = panel.mark_incorrect(u01, "Door sits in a B-class lining, rule does not apply")
+    pump(0.5)
+    check("Mark U-01 incorrect", ok and u01["check_key"] in panel.incorrect)
+    card = panel._cards.get(u01["check_key"])
+    check("U-01 card greyed with reason + Undo", card is not None and "#6b7079" in card.styleSheet() and
+          any(b.text() == "Undo" for b in card.findChildren(QtWidgets.QPushButton)))
+    check("Export note shown", panel.export_note.isVisible(), panel.export_note.text())
+    b = panel.engine.bcf()
+    check("BCF leaves U-01 out", b.get("excluded") == 1 and b.get("topics") == len(rB["findings"]) - 1, "topics", b.get("topics"), "excluded", b.get("excluded"))
+    panel._load_history()
+    check("History records it", "U-01 marked incorrect" in panel.hist.toPlainText())
+    panel.open_evidence(u01)
+    pump(0.3)
+    btns = [x.text() for x in panel.ev_scroll.widget().findChildren(QtWidgets.QPushButton)]
+    check("Details: only Zoom to + Undo/Incorrect", "Fix options" not in btns and "Send to review" not in btns and "Zoom to" in btns, btns)
+    shot("6_incorrect")
+    panel.findings_page.setCurrentIndex(0)
+    check("Undo", panel.undo_incorrect(u01["check_key"]) and u01["check_key"] not in panel.incorrect)
+
     # 4. fix2 (new document while Rev B stays open)
     doc2 = open_ifc("deck5_revB_fix2.ifc")
     check("fix2: panel switched + reset", "deck5_revB_fix2" in panel.proj.text() and panel.run is None, panel.proj.text())

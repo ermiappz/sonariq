@@ -169,6 +169,16 @@ class Engine:
     def history(self):
         return self._req("GET", "/history")
 
+    def incorrect(self) -> dict:
+        return self._req("GET", "/incorrect", timeout=10).get("incorrect", {})
+
+    def mark_incorrect(self, c: dict, reason: str, revision=None, file=None):
+        return self._req("POST", "/incorrect", {"check_key": c["check_key"], "finding": c.get("id"), "reason": reason,
+                                                "by": "Designer (FreeCAD)", "revision": revision, "file": file})
+
+    def undo_incorrect(self, check_key: str):
+        return self._req("DELETE", "/incorrect/" + urllib.parse.quote(check_key, safe=""), timeout=10)
+
     def recheck(self, revision=None):
         return self._req("POST", "/recheck" + (f"?revision={revision}" if revision else ""))
 
@@ -790,6 +800,7 @@ class SonarIQPanel(QtWidgets.QWidget):
         self._doc_key = None
         self._framed: set = set()
         self._cards: dict = {}
+        self.incorrect: dict = {}     # check_key -> {reason, time, ...} from the engine
         self._build()
         self._spin = QtCore.QTimer(self)
         self._spin.timeout.connect(self._tick)
@@ -833,6 +844,11 @@ class SonarIQPanel(QtWidgets.QWidget):
         self.ai_btn.clicked.connect(self.show_assistant)
         hl.addWidget(self.ai_btn)
         root.addWidget(head)
+        self.export_note = label("All findings are exported except those marked incorrect.", role="faint")
+        self.export_note.setAlignment(QtCore.Qt.AlignRight)
+        self.export_note.setContentsMargins(12, 0, 12, 6)
+        self.export_note.setVisible(False)
+        root.addWidget(self.export_note)
         self.progress = QtWidgets.QProgressBar()
         self.progress.setRange(0, 0)
         self.progress.setFixedHeight(2)
@@ -1084,6 +1100,7 @@ class SonarIQPanel(QtWidgets.QWidget):
         self.filter = None
         self._result = None
         self.export_btn.setVisible(False)
+        self.export_note.setVisible(False)
         self.summary.setVisible(False)
         self.results.setVisible(False)
         self.setup.setVisible(True)
@@ -1347,6 +1364,8 @@ class SonarIQPanel(QtWidgets.QWidget):
         self.summary.setVisible(True)
         self.results.setVisible(True)
         self.export_btn.setVisible(bool((r.get("run_meta") or {}).get("id")))
+        self.export_note.setVisible(self.export_btn.isVisible())
+        self._load_incorrect()
         for st, b in self.cells.items():
             b.setText(f"{GLYPH[st]} {r['counts'][st]} {WORD[st]}")
         self._fill_filters()
@@ -1488,13 +1507,15 @@ class SonarIQPanel(QtWidgets.QWidget):
     def _card(self, c: dict) -> QtWidgets.QWidget:
         """Compact finding card (~84 px): discipline stripe + tag, status, ID + title, location + rule, req vs meas."""
         code = GROUP_TAG.get(c["group"], "··")
-        color = DISC_COLOR.get(code, DARK["fg-3"])
+        inc = self.incorrect.get(c["check_key"])
+        color = DISC_COLOR.get(code, DARK["fg-3"]) if not inc else "#4a4e57"
         fr = QtWidgets.QFrame()
         fr.setObjectName("card")
         dashed = c["status"] == "unk"
         fr._qss = (f"QFrame#card {{ background: #24262b; border: 1px {'dashed' if dashed else 'solid'} #34373e; "
                    f"border-left: 3px solid {color}; border-radius: 4px; }}"
-                   " QFrame#card QLabel { background: transparent; }")
+                   " QFrame#card QLabel { background: transparent; }" +
+                   (" QFrame#card { background: #1b1d21; } QFrame#card QLabel { color: #6b7079; }" if inc else ""))
         fr._qss_sel = fr._qss.replace("border: 1px", "border: 1px").replace("#34373e;", f"{DARK['accent']};", 1)
         fr.setStyleSheet(fr._qss)
         fr.setCursor(QtCore.Qt.PointingHandCursor)
@@ -1531,8 +1552,23 @@ class SonarIQPanel(QtWidgets.QWidget):
         m = label(line, mono=True, wrap=True)
         m.setStyleSheet("font-size: 11px;")
         v.addWidget(m)
+        if inc:
+            why = label(f"Marked incorrect · {inc['reason']} · not exported", wrap=True)
+            why.setStyleSheet("color: #b7bbc3; font-size: 11px;")
+            undo = QtWidgets.QPushButton("Undo")
+            undo.setProperty("kind", "ghost")
+            undo.setStyleSheet("QPushButton { color: #e392c8; text-decoration: underline; padding: 0 4px; min-height: 20px; }")
+            undo.clicked.connect(lambda _=False, k=c["check_key"]: self.undo_incorrect(k))
+            row = QtWidgets.QHBoxLayout()
+            row.addWidget(why, 1)
+            row.addWidget(undo)
+            v.addLayout(row)
         acts = QtWidgets.QWidget()
-        al = QtWidgets.QHBoxLayout(acts)
+        outer = QtWidgets.QVBoxLayout(acts)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(4)
+        al = QtWidgets.QHBoxLayout()
+        outer.addLayout(al)
         al.setContentsMargins(0, 4, 0, 0)
         al.setSpacing(4)
         for text, fn in (("Zoom to", lambda: self.bridge.zoom()),
@@ -1546,6 +1582,15 @@ class SonarIQPanel(QtWidgets.QWidget):
             b.clicked.connect(lambda _=False, f=fn: f())
             al.addWidget(b)
         al.addStretch(1)
+        if not inc:
+            al2 = QtWidgets.QHBoxLayout()
+            bad = QtWidgets.QPushButton("Incorrect finding")
+            bad.setStyleSheet("QPushButton { color: #e69f00; border: 1px solid #e69f00; background: transparent; padding: 0 6px; min-height: 22px; font-size: 11px; }")
+            bad.setToolTip("Mark this finding as wrong: it is greyed and left out of Export")
+            bad.clicked.connect(lambda _=False, cc=c: self.mark_incorrect(cc))
+            al2.addWidget(bad)
+            al2.addStretch(1)
+            outer.addLayout(al2)
         acts.setVisible(False)
         v.addWidget(acts)
         fr._acts = acts
@@ -1698,22 +1743,105 @@ class SonarIQPanel(QtWidgets.QWidget):
         except Exception:  # noqa: BLE001
             pass
         if n3d:
-            cv.addWidget(label(f"Highlighted in 3D: {n3d} object(s).", role="faint"))
+            cv.addWidget(label("Shown in 3D" if n3d == 1 else f"Shown in 3D: {n3d} elements", role="faint"))
+        inc = self.incorrect.get(f.get("check_key"))
+        if inc:
+            cv.addWidget(label(f"Marked incorrect · {inc['reason']} · not exported", role="muted", wrap=True))
         v.addWidget(card)
 
-        acts = QtWidgets.QGridLayout()
-        for i, (text, fn) in enumerate( (("Fix options", self._fixes), ("Accept with reason", self._accept),
-                         ("Send to review", self._send), ("Zoom to", lambda: self.bridge.show(self.current)))):
-            b = QtWidgets.QPushButton(text)
-            if text == "Fix options" and f["status"] not in ("fail", "warn"):
-                b.setEnabled(False)
-            b.clicked.connect(fn)
-            acts.addWidget(b, i // 2, i % 2)
+        acts = QtWidgets.QHBoxLayout()
+        z = QtWidgets.QPushButton("Zoom to")
+        z.setProperty("kind", "primary")
+        z.clicked.connect(lambda: self.bridge.zoom() if self.bridge._focus else self.bridge.focus(self.current))
+        acts.addWidget(z)
+        if inc:
+            u = QtWidgets.QPushButton("Undo incorrect")
+            u.clicked.connect(lambda: self.undo_incorrect(f["check_key"]))
+            acts.addWidget(u)
+        else:
+            bad = QtWidgets.QPushButton("Incorrect finding")
+            bad.setStyleSheet("QPushButton { color: #e69f00; border: 1px solid #e69f00; background: transparent; padding: 0 6px; min-height: 26px; }")
+            bad.clicked.connect(lambda: self.mark_incorrect(self.current))
+            acts.addWidget(bad)
+        acts.addStretch(1)
         v.addLayout(acts)
         self.fix_box = QtWidgets.QVBoxLayout()
         v.addLayout(self.fix_box)
         v.addStretch(1)
         return w
+
+    # ---------------- Incorrect finding
+    def _load_incorrect(self):
+        try:
+            self.incorrect = self.engine.incorrect()
+        except Exception:  # noqa: BLE001 - older engine without /incorrect
+            self.incorrect = {}
+
+    def mark_incorrect(self, c: dict, reason: str | None = None) -> bool:
+        """Ask one line (why is it wrong?), record it in the engine: the card greys out and Export leaves it out."""
+        if reason is None:
+            dlg = QtWidgets.QDialog(self)
+            dlg.setWindowTitle("Incorrect finding")
+            dlg.setObjectName("SonarIQPanel")
+            dlg.setStyleSheet(panel_qss())
+            lay = QtWidgets.QVBoxLayout(dlg)
+            lay.addWidget(label(f"{c.get('id') or ''} · {c['title']}", wrap=True))
+            lay.addWidget(label("Why is this finding wrong?", role="label"))
+            box = QtWidgets.QLineEdit()
+            box.setMaxLength(140)
+            box.setPlaceholderText("e.g. the door is in a B-class wall, not the MVZ bulkhead")
+            lay.addWidget(box)
+            err = label("", role="faint")
+            lay.addWidget(err)
+            bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+            bb.button(QtWidgets.QDialogButtonBox.Ok).setText("Mark incorrect")
+            lay.addWidget(bb)
+            out = {}
+
+            def ok():
+                if not box.text().strip():
+                    err.setText("A short reason is required.")
+                    return
+                out["reason"] = box.text().strip()
+                dlg.accept()
+            bb.accepted.connect(ok)
+            bb.rejected.connect(dlg.reject)
+            box.returnPressed.connect(ok)
+            dlg.exec_() if hasattr(dlg, "exec_") else dlg.exec()
+            reason = out.get("reason")
+            if not reason:
+                return False
+        try:
+            self.engine.mark_incorrect(c, reason, revision=(self.run or {}).get("revision"),
+                                       file=Path(self._doc_key[1]).name if self._doc_key and self._doc_key[1] else None)
+        except Exception as e:  # noqa: BLE001
+            self.foot_r.setText(f"Not saved: {e}")
+            return False
+        self._load_incorrect()
+        self.foot_r.setText(f"{c.get('id') or 'Finding'} marked incorrect · not exported")
+        self._rerender_keep()
+        return True
+
+    def undo_incorrect(self, check_key: str) -> bool:
+        try:
+            self.engine.undo_incorrect(check_key)
+        except Exception as e:  # noqa: BLE001
+            self.foot_r.setText(f"Undo failed: {e}")
+            return False
+        self._load_incorrect()
+        self.foot_r.setText("Marked correct again · included in Export")
+        self._rerender_keep()
+        return True
+
+    def _rerender_keep(self):
+        if not self.run:
+            return
+        pos = self.list_scroll.verticalScrollBar().value()
+        on_details = self.findings_page.currentIndex() == 1
+        self.render_list()
+        if on_details and self.current:
+            self.ev_scroll.setWidget(self._evidence(self.current, len(self.bridge._focus)))
+        QtCore.QTimer.singleShot(0, lambda: self.list_scroll.verticalScrollBar().setValue(pos))
 
     def _previous_required(self, f):
         if not self.prev_run:
@@ -1800,6 +1928,12 @@ class SonarIQPanel(QtWidgets.QWidget):
             h = self.engine.history()
             lines = []
             for e in h["history"]:
+                if e["event"] == "incorrect":
+                    lines.append(f"{e['time']}  {e.get('finding') or ''} marked incorrect by {e.get('by')}: {e.get('reason')}")
+                    continue
+                if e["event"] == "incorrect_undone":
+                    lines.append(f"{e['time']}  {e.get('finding') or ''} marked correct again (undo)")
+                    continue
                 if e["event"] == "analyse":
                     c = e["counts"]
                     lines.append(f"{e['time']}  Rev {e['revision']} · Analyse · {e['checks']} checks · "

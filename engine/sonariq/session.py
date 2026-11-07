@@ -173,11 +173,12 @@ class Session:
         self.history.append({"time": _now(), "event": "accept_requested", **dec})
         return dec
 
-    def export_bcf(self, path: str | None = None) -> dict:
+    def export_bcf(self, path: str | None = None, exclude: set | None = None) -> dict:
+        """BCF of the open findings; findings marked incorrect (check keys in exclude) are left out."""
         run = self.ensure_run()
         d = run_dict(run, self.model)
         self.apply_decisions(d)
-        topics = [f for f in d["findings"]]
+        topics = [f for f in d["findings"] if f["check_key"] not in (exclude or set())]
         for f in topics:
             f["pins"] = [p for p in self.pins if p["finding"] == f["id"]]
             f["pins"] += [{"note": f"{r['action']}" + (f": {r['reason']}" if r["reason"] else "") +
@@ -187,6 +188,7 @@ class Session:
         res = _export_bcf(topics, out, project=self.model.ship.get("name", "Demo ship"))
         res["decisions"] = sum(1 for f in topics if f.get("decision"))
         res["open"] = len(topics) - res["decisions"]
+        res["excluded"] = sum(1 for f in d["findings"] if f["check_key"] in (exclude or set()))
         return res
 
 
