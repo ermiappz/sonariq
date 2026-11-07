@@ -7,6 +7,9 @@ import os
 import pytest
 
 os.environ.setdefault("SONARIQ_AI", "off")
+# tests must never add runs to the demo's run store (data/runs)
+import tempfile
+os.environ.setdefault("SONARIQ_RUNS", tempfile.mkdtemp(prefix="sonariq-test-runs-"))
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine"))
