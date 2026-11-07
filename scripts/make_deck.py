@@ -212,7 +212,7 @@ def describe(rev: str, fix2: bool = False) -> dict:
     door("FD-5-165P", "BHD-5-165", x(165), 6.85, 1.20, "A-0", along="y", frame="165", side="P", accessible_route=True)
     door("FD-5-165S", "BHD-5-165", x(165), -6.85, 1.20, "A-60", along="y", frame="165", side="S", accessible_route=True)
 
-    # ---- stairs: 3B (Fr 160-164, MVZ 4) and 3C (Fr 170-174, MVZ 5), enclosures A-0 --------------
+    # ---- stairs: 3B (Fr 160-164, MVZ 4) and 3A (Fr 170-174, MVZ 5, next to the lifts), enclosures A-0 --------------
     def stair(name, f0, f1, width, persons, d5_check, doors_fr, window_names):
         x0, x1 = x(f0), x(f1)
         space(f"STAIR-{name}", x0, Y_IN[0], x1, Y_IN[1], "stair", side="C", frame=f"{f0}-{f1}", solas_category="(2)",
@@ -228,7 +228,7 @@ def describe(rev: str, fix2: bool = False) -> dict:
             encl.append(wn)
         for sd, yy in (("P", Y_IN[1]), ("S", Y_IN[0])):
             rating = "A-0"
-            if name == "3C" and sd == "S":
+            if name == "3A" and sd == "S":
                 rating = None   # U-01: D-5-171-S has no FireRating
             door(f"D-5-{doors_fr}-{sd}", f"WA0-STAIR{name}-{sd}", x(doors_fr), yy, 0.90, rating, frame=str(doors_fr),
                  side=sd, accessible_route=True)
@@ -245,8 +245,8 @@ def describe(rev: str, fix2: bool = False) -> dict:
 
     stair("3B", 160, 164, 1.35, {"4": 40, "6": 44, "7": 24}, 60, 161,
           [("GL-5-162-P", "WA0-STAIR3B-P", x(162.5), Y_IN[1]), ("GL-5-162-S", "WA0-STAIR3B-S", x(162.5), Y_IN[0])])
-    stair("3C", 170, 174, 1.40, {"4": 40, "6": 40, "7": 20}, 56, 171,
-          [("GL-5-172-P", "WA0-STAIR3C-P", x(172.5), Y_IN[1])])
+    stair("3A", 170, 174, 1.40, {"4": 40, "6": 40, "7": 20}, 56, 171,
+          [("GL-5-172-P", "WA0-STAIR3A-P", x(172.5), Y_IN[1])])
 
     # ---- HVAC: VD-5-03 crosses the A-60 bulkhead with no damper (H-01); VD-5-01 has one ---------
     D["ducts"].append(Box("VD-5-03", 131.5, 2.9, 135.5, 3.3, z0=Z5 + 2.4, h=0.3,

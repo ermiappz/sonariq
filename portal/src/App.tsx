@@ -6,18 +6,21 @@ import Thread from "./screens/Thread";
 import Viewer from "./screens/Viewer";
 import Rulebook from "./screens/Rulebook";
 import Mapping from "./screens/Mapping";
+import Simulate from "./screens/Simulate";
 
-type Screen = "projects" | "inbox" | "thread" | "model" | "rules" | "mapping" | "benchmark" | "revisions" | "settings";
+type Screen = "simulate" | "projects" | "inbox" | "thread" | "model" | "rules" | "mapping" | "benchmark" | "revisions" | "settings";
 const USER = { name: "Mikko Saari", role: "Fire & life safety lead", initials: "MS" }; // sample person from the design
 
 export default function App() {
-  const [screen, setScreenState] = useState<Screen>(((location.hash.slice(1) || "inbox") as Screen));
+  const [screen, setScreenState] = useState<Screen>(((location.hash.slice(1).split("/")[0] || "inbox") as Screen));
+  const [simOn, setSimOn] = useState(false);
+  useEffect(() => { api.health().then((h: any) => setSimOn(!!h.simulate)).catch(() => {}); }, []);
   const setScreen = (s: Screen) => { setScreenState(s); history.replaceState(null, "", "#" + s); };
   const [rev, setRev] = useState("B");
   const [units, setUnits] = useState<"mm" | "in">("mm");
   const [run, setRun] = useState<Run | null>(null);
   const [hvac, setHvac] = useState<Run | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(location.hash.startsWith("#thread/") ? location.hash.split("/")[1] : null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -31,10 +34,10 @@ export default function App() {
     })();
   }, [rev]);
 
-  const openFinding = (c: Check) => { setOpen(c.id ?? c.check_key); setScreen("thread"); };
+  const openFinding = (c: Check) => { setOpen(c.id ?? c.check_key); setScreenState("thread"); history.replaceState(null, "", "#thread/" + (c.id ?? c.check_key)); };
   const inboxN = (run?.findings.length ?? 0) + (hvac?.findings.length ?? 0);
   const nav: [Screen, string, number?][] = [["projects", "Projects"], ["inbox", "Inbox", inboxN], ["model", "Model"],
-    ["rules", "Rules"], ["mapping", "Mapping review"], ["benchmark", "Benchmark"], ["revisions", "Revisions"]];
+    ...(simOn ? [["simulate", "Simulate"] as [Screen, string]] : []), ["rules", "Rules"], ["mapping", "Mapping review"], ["benchmark", "Benchmark"], ["revisions", "Revisions"]];
 
   return (
     <div className="sq sq-dark sq-portal app">
@@ -66,6 +69,7 @@ export default function App() {
           {screen === "inbox" && <Inbox run={run} hvac={hvac} onOpen={openFinding} />}
           {screen === "thread" && open && <Thread id={open} units={units} user={`${USER.name} · ${USER.role}`} back={() => setScreen("inbox")} />}
           {screen === "model" && <Viewer rev={rev} run={run} hvac={hvac} onOpen={openFinding} />}
+          {screen === "simulate" && <Simulate user={`${USER.name} · ${USER.role}`} rev={rev} run={run} />}
           {screen === "rules" && <Rulebook />}
           {screen === "mapping" && <Mapping />}
           {screen === "projects" && <Projects run={run} hvac={hvac} go={setScreen} />}

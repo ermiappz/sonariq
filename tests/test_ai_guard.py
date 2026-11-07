@@ -31,7 +31,7 @@ def test_template_uses_only_engine_numbers(sess):
 
 
 def test_explain_without_endpoint_is_engine_text(sess, monkeypatch):
-    sess.llm.base = None
+    sess.llm.enabled = False
     out = sess.explain("F-07")
     assert out["source"] == "template" and "1,380" in out["text"]
 

@@ -26,7 +26,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 }
 export const api = {
   model: () => j<{ bounds: number[] | null; revision: string }>("/model"),
-  health: () => j<{ ok: boolean; ai: { endpoint: string; online: boolean } }>("/health"),
+  health: () => j<{ ok: boolean; simulate?: boolean; ai: { endpoint: string; online: boolean } }>("/health"),
   analyse: (revision: string, packs?: string[]) =>
     j<Run>("/analyse", { method: "POST", body: JSON.stringify({ revision, scope: "deck:5", packs }) }),
   finding: (id: string) => j<Check>(`/findings/${encodeURIComponent(id)}`),
@@ -49,3 +49,51 @@ export function fmt(v: Val | null | undefined, units: "mm" | "in" = "mm"): strin
   if (typeof x === "boolean") return x ? "yes" : "no";
   return `${x}${v.unit && !["class", "bool", ""].includes(v.unit) ? " " + v.unit : ""}`;
 }
+
+// ---- Simulate (engine computes; UI only draws what the engine returns)
+export interface SimScenario { case: "night" | "day"; route?: "primary" | "secondary"; closed_stair?: string | null; closed_door?: string | null; fire_origin?: string | null }
+export interface SimStatus { id: string; state: string; runs_done: number; runs_target: number; elapsed_s?: number; scenario_label?: string;
+  revision?: string; label: string; error?: string | null; cached?: boolean; live?: { tA_p95_s: number; tA_p50_s: number } }
+export interface SimPreview { preview: { scenario: SimScenario; label: string; revision: string; runs: number; source: string }; confirm_required?: boolean }
+export interface Ring { outer: number[][]; holes: number[][][] }
+export interface SimGeometry { walkable: Ring | Ring[]; bounds: number[]; spaces: { name: string; category: string; poly: Ring; label_xy: number[] }[];
+  walls: { name: string; rating: string | null; poly: Ring }[]; doors: { name: string; self_closing: boolean | null; rating: string | null; width: number; poly: Ring }[];
+  stairs: { name: string; width: number; flight: Ring; landings: number[][]; persons_by_deck: Record<string, number> }[] }
+export interface SimResults { runs: number; target_runs: number; tA_p50_s: number; tA_p95_s: number; tA_min_s: number; tA_max_s: number; tA_mean_s: number;
+  deck5_last_p95_s: number; peak_density_p95: number; congestion_significant_share: number; unfinished_runs: number; people_deck5: number;
+  stairs: Record<string, { last_p95_s: number; capacity_p_s: number; deck5_mean: number; inflow: number; inflow_wait_max_p95: number }>;
+  landings: Record<string, { queue_max_p95: number; queue_max_mean: number; queue_max_max: number }>;
+  histogram: { edges: number[]; counts: number[] }; p95_seed: number; longest_route: { space: string; length_m: number; stair: string; path: number[][] };
+  scenario_label: string; revision: string; label: string; percentile: number; elapsed_s: number; replay_run?: { seed: number; tA_s: number } }
+export interface SimReplay { id: string; label: string; scenario_label: string; geometry: SimGeometry; seed: number; tA_s: number; t_start_s: number;
+  frames: [number, [number, number, number][]][]; queue_series: Record<string, number[]>; inflow_wait_series: Record<string, number[]>; series_t0_s: number;
+  density: { cell_m: number; origin: number[]; nx: number; ny: number; peak: number[][]; over4_s: number[][] }; smoke_label: string | null;
+  smoke_events?: { t: number; spaces: string[] }[]; smoke?: Record<string, number> }
+export interface SimCompare { before: { id: string; label: string; revision: string; tA_p95_s: number }; after: { id: string; label: string; revision: string; tA_p95_s: number };
+  delta: { tA_p95_s: number | null }; landings: Record<string, { before: number | null; after: number | null; delta: number | null }>; label: string }
+export const sim = {
+  preview: (body: { text?: string; scenario?: SimScenario; revision?: string; runs?: number }) =>
+    j<SimPreview>("/simulate", { method: "POST", body: JSON.stringify(body) }),
+  start: (body: { scenario: SimScenario; revision?: string; runs?: number }) =>
+    j<SimStatus & SimPreview>("/simulate", { method: "POST", body: JSON.stringify({ ...body, confirm: true }) }),
+  status: (id: string) => j<SimStatus>(`/simulate/${id}`),
+  results: (id: string) => j<SimResults>(`/simulate/${id}/results`),
+  replay: (id: string) => j<SimReplay>(`/simulate/${id}/replay`),
+  compare: (a: string, b: string) => j<SimCompare>(`/simulate/compare?a=${a}&b=${b}`),
+  list: () => j<{ results: { id: string; scenario_label: string; revision: string; runs: number; tA_p95_s: number }[] }>("/simulate"),
+  explain: (id: string, q?: string) => j<{ text: string; source: string; badge: string }>(`/simulate/${id}/explain${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  pin: (id: string, body: { t: number; x: number; y: number; finding?: string; note: string; by: string }) =>
+    j<{ ok: boolean; topic: string }>(`/simulate/${id}/pin`, { method: "POST", body: JSON.stringify(body) }),
+};
+
+// ---- RAG and review (engine computes; RAG never sets a verdict)
+export interface SourceHit { citation: string; text: string; title: string; url: string; source: string; score?: number }
+export interface Sources { finding: string; reading: SourceHit[]; public: SourceHit[]; note: string | null; links: { title: string; url: string }[]; backend: string }
+export const rag = {
+  sources: (id: string) => j<Sources>(`/findings/${encodeURIComponent(id)}/sources`),
+  draft: (query: string) => j<{ ok: boolean; draft?: Record<string, any>; source?: SourceHit; numbers_not_in_source?: string[]; error?: string; alternatives?: SourceHit[] }>(
+    "/rules/draft", { method: "POST", body: JSON.stringify({ query }) }),
+  approve: (draft: Record<string, any>, by: string) => j<{ ok: boolean; path: string; note: string }>("/rules/draft/approve", { method: "POST", body: JSON.stringify({ draft, by }) }),
+  review: (id: string, action: string, reason: string, by: string) =>
+    j<{ finding: string; action: string; reason: string; by: string; time: string; revision: string }>(`/findings/${encodeURIComponent(id)}/review`, { method: "POST", body: JSON.stringify({ action, reason, by }) }),
+};

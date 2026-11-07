@@ -25,6 +25,8 @@ except ImportError:  # standalone
         from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
 
 HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
 ENGINE = os.environ.get("SONARIQ_ENGINE", "http://127.0.0.1:8765")
 TOKENS = json.loads((HERE / "tokens.json").read_text())
 DARK = TOKENS["dark"]
@@ -357,7 +359,12 @@ class SonarIQPanel(QtWidgets.QWidget):
         self.analyse_btn.setShortcut(QtGui.QKeySequence("Ctrl+Shift+A"))
         self.analyse_btn.clicked.connect(self.analyse)
         self.meta = label("", role="faint", mono=True)
+        self.sim_btn = QtWidgets.QPushButton("Simulate")
+        self.sim_btn.setToolTip("Evacuation simulation of Deck 5 (night case) · design insight, not a full-ship analysis")
+        self.sim_btn.clicked.connect(self.simulate)
+        self.sim_btn.setVisible(False)
         al.addWidget(self.analyse_btn)
+        al.addWidget(self.sim_btn)
         al.addWidget(self.meta, 1)
         root.addWidget(arow)
 
@@ -397,18 +404,9 @@ class SonarIQPanel(QtWidgets.QWidget):
         self.findings_page.addWidget(self.list_scroll)
         self.findings_page.addWidget(self.ev_scroll)
         self.tabs.addTab(self.findings_page, "Findings")
-        chat = QtWidgets.QWidget()
-        cl = QtWidgets.QVBoxLayout(chat)
-        cl.setContentsMargins(12, 12, 12, 12)
-        cl.addWidget(label("Chat explains findings with the engine's numbers and previews the four allowed "
-                           "edits before anything changes. It is switched on in build round 2.", role="muted",
-                           wrap=True))
-        cl.addStretch(1)
-        inp = QtWidgets.QLineEdit()
-        inp.setPlaceholderText("Ask a question or describe a change")
-        inp.setEnabled(False)
-        cl.addWidget(inp)
-        self.tabs.addTab(chat, "Chat")
+        from chat_view import ChatView
+        self.chat = ChatView(self)
+        self.tabs.addTab(self.chat, "Chat")
         self.hist = QtWidgets.QPlainTextEdit()
         self.hist.setReadOnly(True)
         self.tabs.addTab(self.hist, "History")
@@ -468,7 +466,7 @@ class SonarIQPanel(QtWidgets.QWidget):
             self.foot_l.setText(f"IFC4 · {Path(m.get('path') or '').stem}")
             self.foot_r.setText("Rule engine ready")
             self.analyse_btn.setEnabled(True)
-            _ = h
+            self.sim_btn.setVisible(bool(h.get("simulate")))
         except Exception as e:  # noqa: BLE001
             self.foot_r.setText("Engine not reachable")
             self.foot_l.setText(f"Start it: make api ({ENGINE})")
@@ -477,7 +475,7 @@ class SonarIQPanel(QtWidgets.QWidget):
 
     def _idle(self):
         self._clear_list()
-        self.list_layout.addWidget(label("96 checks in 3 packs will run on Deck 5." if not self.run else "",
+        self.list_layout.addWidget(label("The checks in 3 packs will run on Deck 5." if not self.run else "",
                                          wrap=True))
         self.list_layout.addWidget(label("The rule engine decides every verdict. It needs no AI and no network.",
                                          role="muted", wrap=True))
@@ -527,6 +525,25 @@ class SonarIQPanel(QtWidgets.QWidget):
         self.foot_r.setText(f"{c['fail']} fail · {c['warn']} warning · {c['unk']} cannot verify")
         self.render_list()
         self.findings_page.setCurrentIndex(0)
+
+    def simulate(self):
+        """Simulate action: a night-case scenario preview in Chat; the engineer confirms before anything runs."""
+        self.tabs.setCurrentWidget(self.chat)
+        self.chat.send("Simulate night")
+
+    def refresh_after_edit(self):
+        """After a confirmed chat edit: re-read the engine's current run (no reload, so the edit is kept)."""
+        try:
+            self.prev_run = self.run
+            self.run = self.engine.analyse(self.scope, self._packs(), revision=None, path=None)
+        except Exception as e:  # noqa: BLE001
+            self.meta.setText(f"Engine error: {e}")
+            return
+        r = self.run
+        for st, b in self.cells.items():
+            b.setText(f"{GLYPH[st]} {r['counts'][st]}\n{WORD[st]}")
+        self.tabs.setTabText(0, f"Findings {len(r['findings'])}")
+        self.render_list()
 
     def _toggle_filter(self, st):
         self.filter = None if self.filter == st else st
@@ -708,6 +725,18 @@ class SonarIQPanel(QtWidgets.QWidget):
                 cv.addWidget(label(prev, role="muted", wrap=True))
         cv.addWidget(label("MEASUREMENT METHOD", role="label"))
         cv.addWidget(label(f.get("method") or "", role="muted", wrap=True))
+        try:   # Source text (public sources + our reading, with citation); retrieval never sets a verdict
+            src = self.engine._req("GET", f"/findings/{f['id']}/sources", timeout=8)
+            hits = (src.get("reading") or []) + (src.get("public") or [])
+            if hits:
+                cv.addWidget(label("SOURCE TEXT", role="label"))
+                if src.get("note"):
+                    cv.addWidget(label(src["note"], role="faint", wrap=True))
+                for h in hits[:2]:
+                    cv.addWidget(label(h["citation"], mono=True, wrap=True))
+                    cv.addWidget(label(h["text"][:240].replace("\n", " ") + "…", role="muted", wrap=True))
+        except Exception:  # noqa: BLE001
+            pass
         if n3d:
             cv.addWidget(label(f"Highlighted in 3D: {n3d} object(s).", role="faint"))
         v.addWidget(card)
