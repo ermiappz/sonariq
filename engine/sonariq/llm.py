@@ -55,10 +55,32 @@ def _norm(tok: str) -> set[str]:
     return out
 
 
+_UNITS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+          "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+          "eighteen": 18, "nineteen": 19}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+WORDNUM = re.compile(r"\b(" + "|".join(list(_TENS)) + r")(?:[- ](" + "|".join(["one"] + list(_UNITS)[:8]) + r"))?\b|\b("
+                     + "|".join(_UNITS) + r")\b", re.I)
+
+
+def _word_numbers(text: str) -> list[tuple[str, str]]:
+    """Number words in text -> (word, digits). 'one' alone is skipped (usually a pronoun)."""
+    out = []
+    for m in WORDNUM.finditer(text):
+        if m.group(1):
+            v = _TENS[m.group(1).lower()] + ({"one": 1} | _UNITS).get((m.group(2) or "").lower(), 0)
+        else:
+            v = _UNITS[m.group(3).lower()]
+        out.append((m.group(0), str(v)))
+    return out
+
+
 def check_numbers(text: str, facts) -> list[str]:
-    """Return the numbers in `text` that are not in the facts (empty list = honest)."""
+    """Return the numbers in `text` (digits or number words) that are not in the facts (empty list = honest)."""
     allowed = numbers_in(facts)
-    return [m for m in NUM.findall(text) if not (_norm(m) & allowed)]
+    bad = [m for m in NUM.findall(text) if not (_norm(m) & allowed)]
+    bad += [w for w, v in _word_numbers(text) if v not in allowed]
+    return bad
 
 
 def template_explanation(f: dict) -> str:

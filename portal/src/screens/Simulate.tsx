@@ -218,6 +218,8 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
   const [heat, setHeat] = useState(true);
   const [dim, setDim] = useState<"2D" | "3D">("2D");
   const [pick, setPick] = useState<{ x: number; y: number; peak: number; over4: number; t: number } | null>(null);
+  const [hot, setHot] = useState<{ text: string; badge: string } | null>(null);
+  const [hint, setHint] = useState(false);
   const [pinned, setPinned] = useState("");
   const [err, setErr] = useState("");
   useEffect(() => {
@@ -238,7 +240,9 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
     if (!rep) return;
     const d = rep.density, i = Math.floor((x - d.origin[0]) / d.cell_m), j = Math.floor((y - d.origin[1]) / d.cell_m);
     if (i < 0 || j < 0 || i >= d.nx || j >= d.ny) return;
-    setPick({ x: +x.toFixed(1), y: +y.toFixed(1), peak: d.peak[j][i], over4: d.over4_s[j][i], t: Math.round(clock.t) }); setPinned("");
+    const p = { x: +x.toFixed(1), y: +y.toFixed(1), peak: d.peak[j][i], over4: d.over4_s[j][i], t: Math.round(clock.t) };
+    setPick(p); setPinned(""); setHot(null); setHint(false);
+    sim.hotspot(id, p.x, p.y, p.t).then(setHot).catch(() => {});
   };
   const queuePeak = (r.events ?? []).find((e: any) => e.kind === "queue_peak");
   return (
@@ -269,6 +273,7 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
             <div className="sq-card flex flex-col gap-1" style={{ padding: 10 }}>
               <div className="sq-label">Hotspot · Deck 5 · Fr {Math.round(pick.x / 0.8)} · {pick.y > 0.3 ? "P" : pick.y < -0.3 ? "S" : "CL"}</div>
               <div className="mono">peak {pick.peak} p/m² · {pick.over4} s above 4 p/m² · viewed at t = {mmss(pick.t)}</div>
+              {hot ? <div><span className="sq-ai">{hot.badge}</span><p style={{ margin: "4px 0 0" }}>{hot.text}</p></div> : <span className="sq-faint">Reading the place…</span>}
               <div className="flex gap-2"><button className="sq-btn" onClick={async () => {
                 try { const p = await sim.pin(id, { t: pick.t, x: pick.x, y: pick.y, finding: "F-07", note: `Replay ${r.scenario_label} (${r.revision}): peak ${pick.peak} p/m² at Fr ${Math.round(pick.x / 0.8)}, t ${mmss(pick.t)}`, by: user }); setPinned(`Pinned to F-07 review · BCF viewpoint + comment (${p.topic})`); }
                 catch (e) { setPinned(String(e)); }
@@ -302,8 +307,9 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
                 <span style={{ flex: 1 }}>{c.label}</span>{c.finding && <span className="sq-tag">{c.finding}</span>}<span className="mono">{c.peak_p_m2}</span></div>))}
           </div>
           {ai && <div className="sq-card" style={{ padding: 12 }}><span className="sq-ai">{ai.badge}</span><p style={{ margin: "6px 0 0" }}>{ai.text}</p></div>}
+          {hint && !pick && <div className="sq-banner">Pause on the moment, then click the place on the plan. The pin keeps the time, the place and the density.</div>}
           <div className="flex gap-2">
-            <button className="sq-btn" onClick={() => pick ? null : setPick({ x: 0, y: 0, peak: 0, over4: 0, t: Math.round(clock.t) })} title="Click the plan to choose a moment and place">Pin to review</button>
+            <button className="sq-btn" onClick={() => setHint(true)} title="Click the plan to choose a moment and place">Pin to review</button>
             <button className="sq-btn is-primary" onClick={() => go(["compare", id, "fixes"])}>Try fixes</button>
           </div>
         </div>

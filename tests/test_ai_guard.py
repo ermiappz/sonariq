@@ -24,6 +24,13 @@ def test_invented_number_is_rejected(sess):
     assert check_numbers("About 72 people use it.", f) == ["72"]
 
 
+def test_number_words_are_checked_too(sess):
+    f = sess.finding("F-07")
+    assert check_numbers("Forty-four people come from Deck 6.", f) == []
+    assert check_numbers("Ninety-seven people queue there.", f) == ["Ninety-seven"]
+    assert check_numbers("One thing to check is the stair.", f) == []
+
+
 def test_template_uses_only_engine_numbers(sess):
     for fid in ("F-01", "F-07", "F-08", "F-09", "W-01", "U-01"):
         f = sess.finding(fid)

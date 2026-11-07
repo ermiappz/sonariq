@@ -332,6 +332,17 @@ def sim_replay(jid: str):
         raise HTTPException(404, "replay not ready")
 
 
+@app.get("/simulate/{jid}/hotspot")
+def sim_hotspot(jid: str, x: float, y: float, t: float):
+    """Click on the replay: density, time and the analyst's checked text for that place."""
+    from sim.analyst import hotspot
+    svc = _sim()
+    try:
+        return hotspot(S.llm, svc.results(jid), svc.replay(jid), x, y, t)
+    except KeyError:
+        raise HTTPException(404, "replay not ready")
+
+
 @app.get("/simulate/{jid}/explain")
 def sim_explain(jid: str, q: str | None = None):
     """Results analyst: the AI explains the results JSON; every number must be in it (number guard)."""

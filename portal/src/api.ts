@@ -82,6 +82,8 @@ export const sim = {
   compare: (a: string, b: string) => j<SimCompare>(`/simulate/compare?a=${a}&b=${b}`),
   list: () => j<{ results: { id: string; scenario_label: string; revision: string; runs: number; tA_p95_s: number }[] }>("/simulate"),
   explain: (id: string, q?: string) => j<{ text: string; source: string; badge: string }>(`/simulate/${id}/explain${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  hotspot: (id: string, x: number, y: number, t: number) =>
+    j<{ text: string; badge: string; source: string; facts: Record<string, any> }>(`/simulate/${id}/hotspot?x=${x}&y=${y}&t=${t}`),
   pin: (id: string, body: { t: number; x: number; y: number; finding?: string; note: string; by: string }) =>
     j<{ ok: boolean; topic: string }>(`/simulate/${id}/pin`, { method: "POST", body: JSON.stringify(body) }),
 };
