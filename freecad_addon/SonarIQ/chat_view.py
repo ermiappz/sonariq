@@ -16,7 +16,69 @@ except ImportError:
         from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
 
 PORTAL = os.environ.get("SONARIQ_PORTAL", "http://localhost:5173/")
-SUGGEST = ["Simulate night", "Why does F-07 fail?", "Apply fix 2", "Fire near stair 3A at night"]
+SUGGEST = ["simulate a night evacuation", "what if Stair 3B is out?", "Why does F-07 fail?", "Apply fix 2"]
+
+
+def mmss(s):
+    if s is None:
+        return "—"
+    m = int(s // 60)
+    return f"{m:02d}:{int(round(s - 60 * m)):02d}"
+
+
+class PlanWidget(QtWidgets.QWidget):
+    """Mini Deck 5 plan for the fire what-if preview: walkable area, walls, first smoke hops (hatched), origin."""
+    def __init__(self, plan: dict):
+        super().__init__()
+        self.plan = plan
+        self.setMinimumHeight(110)
+
+    def paintEvent(self, _):
+        g = self.plan["geometry"]
+        x0, y0, x1, y1 = g["bounds"]
+        w, h = self.width() - 8, self.height() - 8
+        k = min(w / (x1 - x0), h / (y1 - y0))
+        ox, oy = 4 + (w - (x1 - x0) * k) / 2, 4 + (h - (y1 - y0) * k) / 2
+        P = lambda x, y: QtCore.QPointF(ox + (x - x0) * k, oy + (y1 - y) * k)  # noqa: E731
+        qp = QtGui.QPainter(self)
+        qp.setRenderHint(QtGui.QPainter.Antialiasing)
+        pal = self.palette()
+        ink = pal.color(QtGui.QPalette.WindowText)
+
+        def path(r):
+            pp = QtGui.QPainterPath()
+            rings = r if isinstance(r, list) else [r]
+            for rr in rings:
+                pts = [P(*p) for p in rr["outer"]]
+                pp.addPolygon(QtGui.QPolygonF(pts))
+                for hole in rr["holes"]:
+                    pp.addPolygon(QtGui.QPolygonF([P(*p) for p in hole]))
+            pp.setFillRule(QtCore.Qt.OddEvenFill)
+            return pp
+        base = QtGui.QColor(ink)
+        base.setAlpha(28)
+        qp.fillPath(path(g["walkable"]), base)
+        hatch = QtGui.QBrush(ink, QtCore.Qt.BDiagPattern)
+        for ev in self.plan.get("smoke", []):
+            for sp in ev["spaces"]:
+                if sp in self.plan["spaces"]:
+                    qp.fillPath(path(self.plan["spaces"][sp]), hatch)
+        pen = QtGui.QPen(ink)
+        pen.setWidthF(0.6)
+        qp.setPen(pen)
+        for wl in g["walls"]:
+            xs = [p[0] for p in wl["poly"]["outer"]]
+            ys = [p[1] for p in wl["poly"]["outer"]]
+            if max(xs) - min(xs) >= max(ys) - min(ys):
+                qp.drawLine(P(min(xs), (min(ys) + max(ys)) / 2), P(max(xs), (min(ys) + max(ys)) / 2))
+            else:
+                qp.drawLine(P((min(xs) + max(xs)) / 2, min(ys)), P((min(xs) + max(xs)) / 2, max(ys)))
+        o = self.plan.get("origin")
+        if o:
+            pen.setWidthF(1.6)
+            qp.setPen(pen)
+            qp.drawEllipse(P(*o["xy"]), 5, 5)
+        qp.end()
 
 
 def _label(text, role=None, mono=False, wrap=True, bold=False):
@@ -147,12 +209,27 @@ class ChatView(QtWidgets.QWidget):
             l.addWidget(_label(f"Read by {c.get('source')}", role="faint"))
             self._buttons(l, f, "Confirm", c["confirm"])
         elif t == "scenario_preview":
-            l.addWidget(_label("Scenario preview · confirm to run", role="faint"))
-            l.addWidget(_label(c["text"], bold=True))
-            l.addWidget(_label(f"Model {c['model']} · {c['runs']} runs · read by {c.get('source')}", role="muted"))
-            if c["scenario"].get("fire_origin"):
-                l.addWidget(_label("Illustrative smoke spread, not a fire model.", role="faint"))
-            self._buttons(l, f, "Confirm and run", c["confirm"])
+            fire = bool(c["scenario"].get("fire_origin"))
+            hd = QtWidgets.QHBoxLayout()
+            hd.addWidget(_label("FIRE WHAT-IF · PREVIEW" if fire else "SIMULATION PREVIEW", role="faint", wrap=False))
+            hd.addStretch(1)
+            hd.addWidget(_label("Illustrative smoke spread" if fire else
+                                ("AI draft · you decide" if str(c.get("source", "")).startswith("ai") else "Read from your words · you decide"),
+                                role="faint", wrap=False))
+            l.addLayout(hd)
+            grid = QtWidgets.QGridLayout()
+            grid.setHorizontalSpacing(10)
+            rows = [("Scenario", c["text"]), ("People", f"{c['people']} on Deck 5" if c.get("people") is not None else None),
+                    ("Inflow 3B", c.get("inflow_3B")), ("Runs", str(c["runs"])), ("Model", c["model"])]
+            rows += [("", g) for g in c.get("gaps", [])]
+            for i, (k, v) in enumerate([r for r in rows if r[1]]):
+                grid.addWidget(_label(k, role="faint", wrap=False), i, 0, QtCore.Qt.AlignTop)
+                grid.addWidget(_label(v), i, 1)
+            l.addLayout(grid)
+            if c.get("plan"):
+                l.addWidget(PlanWidget(c["plan"]))
+                l.addWidget(_label("Hatched: smoke in the first hops · not a fire model", role="faint"))
+            self._buttons(l, f, "Confirm", c["confirm"], note="Nothing runs until you confirm.")
         elif t == "ping":
             l.addWidget(_label(f"Applied: {c['text']}", bold=True))
             l.addWidget(_label(f"Re-checked {c['rerun']} checks in {c.get('duration_s')} s", role="muted", mono=True))
@@ -161,31 +238,56 @@ class ChatView(QtWidgets.QWidget):
             k = c.get("counts", {})
             l.addWidget(_label(" · ".join(str(k.get(s, 0)) for s in ("fail", "warn", "unk", "pass", "dor")), mono=True))
         elif t == "sim_progress":
-            l.addWidget(_label(f"{c.get('scenario_label')} · {c.get('revision')}", bold=True))
+            hd = QtWidgets.QHBoxLayout()
+            hd.addWidget(_label("Simulating", bold=True, wrap=False))
+            hd.addStretch(1)
+            hd.addWidget(_label(f"{c.get('scenario_label')} · {c.get('revision')}", role="faint", wrap=False))
+            l.addLayout(hd)
             bar = QtWidgets.QProgressBar()
             bar.setRange(0, int(c.get("runs_target") or 500))
             bar.setValue(int(c.get("runs_done") or 0))
-            bar.setFormat("%v / %m runs")
+            bar.setFormat("%v of %m runs")
             l.addWidget(bar)
             st = _label(c.get("state", ""), role="faint", mono=True)
             l.addWidget(st)
-            l.addWidget(_label(c.get("label", ""), role="faint"))
+            row = QtWidgets.QHBoxLayout()
+            row.addWidget(_label("Rule checks are not affected.", role="faint"), 1)
+            cancel = QtWidgets.QPushButton("Cancel")
+            cancel.setProperty("kind", "ghost")
+            cancel.clicked.connect(lambda _=False, j=c["id"]: self._cancel(j, cancel))
+            row.addWidget(cancel)
+            l.addLayout(row)
             self._poll(c["id"], bar, st, c.get("state") == "done")
         elif t == "sim_result":
-            l.addWidget(_label(c["title"], bold=True))
-            l.addWidget(_label(f"Assembly time p95 {c['tA_p95_s']} s (p50 {c['tA_p50_s']} s) over {c['runs']} runs",
-                               mono=True))
-            if c.get("worst_landing"):
-                l.addWidget(_label(f"Longest landing queue: {c['worst_landing']} · {c['worst_queue_p95']} people (p95)",
-                                   mono=True))
-            if c.get("last_stair"):
-                l.addWidget(_label(f"Clears last: Stair {c['last_stair']} at {c['last_stair_p95_s']} s (p95)", mono=True))
+            hd = QtWidgets.QHBoxLayout()
+            hd.addWidget(_label(c["title"], bold=True))
+            hd.addWidget(_label(f"Simulation · {c['runs']} runs", role="faint", wrap=False))
+            l.addLayout(hd)
+            grid = QtWidgets.QGridLayout()
+            lr = c.get("longest_route") or {}
+            rows = [("p95 time", f"{c.get('tA_p95_mmss')} mm:ss"),
+                    ("Peak density", f"{c.get('peak_density_p95')} p/m² (p95)"),
+                    ("Longest route", f"{lr.get('length_m')} m from {lr.get('space')}"),
+                    ("Longest queue", f"{c['worst_landing']} · {c['worst_queue_p95']} people (p95)" if c.get("worst_landing") else None),
+                    ("Clears last", f"Stair {c['last_stair']} at {mmss(c.get('last_stair_p95_s'))}" if c.get("last_stair") else None)]
+            for i, (k, v) in enumerate([r for r in rows if r[1]]):
+                grid.addWidget(_label(k, role="faint", wrap=False), i, 0)
+                grid.addWidget(_label(v, mono=True), i, 1)
+            l.addLayout(grid)
             l.addWidget(_label(c.get("badge", ""), role="faint"))
             l.addWidget(_label(c.get("analyst", "")))
             l.addWidget(_label(c.get("label", ""), role="faint"))
+            row = QtWidgets.QHBoxLayout()
             b = QtWidgets.QPushButton("Open replay")
+            b.setProperty("kind", "primary")
             b.clicked.connect(lambda _=False, u=c["replay_url"]: QtGui.QDesktopServices.openUrl(QtCore.QUrl(PORTAL + u)))
-            l.addWidget(b)
+            rr = QtWidgets.QPushButton("Re-run")
+            rr.clicked.connect(lambda _=False, sc=c.get("scenario"): self.confirm(
+                {"kind": "simulate", "scenario": sc, "revision": None, "runs": c["runs"]}, QtWidgets.QWidget()))
+            row.addWidget(b)
+            row.addWidget(rr)
+            row.addStretch(1)
+            l.addLayout(row)
         elif t == "explain":
             l.addWidget(_label(c.get("badge", ""), role="faint"))
             l.addWidget(_label(c["text"]))
@@ -201,7 +303,14 @@ class ChatView(QtWidgets.QWidget):
             l.addWidget(_label(c.get("text", "?"), role="muted"))
         self._add(f)
 
-    def _buttons(self, l, card, ok_text, action):
+    def _cancel(self, jid, btn):
+        btn.setEnabled(False)
+        try:
+            self.engine._req("POST", f"/simulate/{jid}/cancel", {}, timeout=5)
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _buttons(self, l, card, ok_text, action, note=None):
         row = QtWidgets.QHBoxLayout()
         ok = QtWidgets.QPushButton(ok_text)
         ok.setProperty("kind", "primary")
@@ -211,7 +320,10 @@ class ChatView(QtWidgets.QWidget):
         no.clicked.connect(lambda: [b.setEnabled(False) for b in card.findChildren(QtWidgets.QPushButton)])
         row.addWidget(ok)
         row.addWidget(no)
-        row.addStretch(1)
+        if note:
+            row.addWidget(_label(note, role="faint"), 1)
+        else:
+            row.addStretch(1)
         l.addLayout(row)
 
     def _poll(self, jid, bar, st, done):
@@ -224,7 +336,7 @@ class ChatView(QtWidgets.QWidget):
             bar.setValue(int(s.get("runs_done") or 0))
             live = s.get("live")
             st.setText(f"{s['state']}" + (f" · so far p95 {live['tA_p95_s']} s (not final)" if live else ""))
-            if s["state"] in ("done", "error"):
+            if s["state"] in ("done", "error", "cancelled"):
                 timer.stop()
                 if s["state"] == "done":
                     try:
@@ -233,6 +345,7 @@ class ChatView(QtWidgets.QWidget):
                         self.render({"type": "error", "text": str(e)})
                 else:
                     self.render({"type": "error", "text": s.get("error") or "Simulation failed"})
+                    bar.setFormat(f"{s['state']} · %v of %m runs")
         timer = QtCore.QTimer(self)
         timer.timeout.connect(tick)
         timer.start(1000)

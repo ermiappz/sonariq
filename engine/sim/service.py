@@ -155,6 +155,7 @@ class Job:
         self.lock = threading.Lock()
         self.partial: list[dict] = []
         self.prep_info: dict = {}
+        self.cancelled = False
 
     def status(self) -> dict:
         s = {"id": self.id, "state": self.state, "runs_done": self.count, "runs_target": self.n,
@@ -180,6 +181,8 @@ class Job:
             runs_f = (self.dir / "runs.jsonl").open("w")
 
             def on(r, k):
+                if self.cancelled:
+                    raise RuntimeError("cancelled by the engineer")
                 with self.lock:
                     self.partial.append(r)
                     self.count = k
@@ -201,9 +204,12 @@ class Job:
             self.state = "done"
         except Exception as e:  # noqa: BLE001
             import traceback
-            self.error = f"{type(e).__name__}: {e}"
-            traceback.print_exc()
-            self.state = "error"
+            if self.cancelled:
+                self.error, self.state = "Cancelled · nothing saved", "cancelled"
+            else:
+                self.error = f"{type(e).__name__}: {e}"
+                traceback.print_exc()
+                self.state = "error"
         finally:
             self.finished = time.time()
 
@@ -234,7 +240,7 @@ class SimService:
         if (CACHE / jid / "summary.json").exists():
             return {"id": jid, "state": "done", "cached": True, "runs_done": n, "runs_target": n, "label": LABEL,
                     "scenario_label": label or sc.label(), "scenario": sc.key(), "revision": revision}
-        if jid in self.jobs and self.jobs[jid].state not in ("error",):
+        if jid in self.jobs and self.jobs[jid].state not in ("error", "cancelled"):
             return self.jobs[jid].status()
         job = Job(jid, model.copy(), sc, n, revision, label)
         self.jobs[jid] = job
@@ -253,6 +259,13 @@ class SimService:
                     "scenario": s.get("scenario"), "scenario_label": s.get("scenario_label"),
                     "revision": s.get("revision"), "label": LABEL}
         raise KeyError(jid)
+
+    def cancel(self, jid: str) -> dict:
+        j = self.jobs.get(jid)
+        if not j:
+            raise KeyError(jid)
+        j.cancelled = True
+        return j.status()
 
     def model_of(self, jid: str):
         if jid in self.jobs:

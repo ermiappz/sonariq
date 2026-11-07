@@ -186,9 +186,25 @@ class Chat:
                         closed_stair=sc.get("closed_stair"), closed_door=sc.get("closed_door"),
                         fire_origin=sc.get("fire_origin"))
         model_label = rev or f"{self.S.model.revision} (open model{', with edits' if self._edited() else ''})"
-        return {"cards": [{"type": "scenario_preview", "text": scen.label(), "scenario": scen.key(),
-                           "model": model_label, "runs": 500, "source": r["source"],
-                           "confirm": {"kind": "simulate", "scenario": scen.key(), "revision": rev, "runs": 500}}]}
+        model = self.S.load(rev) if rev else self.S.model
+        card = {"type": "scenario_preview", "text": scen.label(), "scenario": scen.key(), "model": model_label,
+                "runs": 500, "source": r["source"],
+                "confirm": {"kind": "simulate", "scenario": scen.key(), "revision": rev, "runs": 500}}
+        try:   # what the simulation will read: people, inflow, gaps (computed, not typed)
+            su = self.sim.setup(model, scen)
+            s3b = next((x for x in su["stairs"] if x["name"] == "3B"), None)
+            card["people"] = su["people"]["deck5"]
+            card["inflow_3B"] = " · ".join(f"D{d} {n}" for d, n in sorted(s3b["persons_by_deck"].items(),
+                                                                          key=lambda kv: -kv[1])) if s3b else None
+            card["gaps"] = [g["text"] for g in su["gaps"][:2]]
+            card["sentence"] = su["sentence"]
+            if scen.fire_origin:
+                card["plan"] = {"geometry": {k: su["geometry"][k] for k in ("walkable", "bounds", "walls", "stairs")},
+                                "spaces": {x["name"]: x["poly"] for x in su["geometry"]["spaces"]},
+                                "origin": su["fire_origin"], "smoke": su["smoke"][:3]}
+        except Exception:  # noqa: BLE001
+            pass
+        return {"cards": [card]}
 
     def _edited(self) -> bool:
         return any(h.get("event") == "edit" for h in self.S.history)

@@ -274,6 +274,14 @@ def sim_status(jid: str):
         raise HTTPException(404, "no such simulation")
 
 
+@app.post("/simulate/{jid}/cancel")
+def sim_cancel(jid: str):
+    try:
+        return _sim().cancel(jid)
+    except KeyError:
+        raise HTTPException(404, "no running simulation")
+
+
 @app.get("/simulate/{jid}/results")
 def sim_results(jid: str):
     try:
@@ -407,7 +415,11 @@ def sim_card(jid: str):
     last = max(r["stairs"].items(), key=lambda kv: kv[1]["last_p95_s"]) if r["stairs"] else (None, {})
     ai = explain_results(S.llm, r)
     _chat().last_sim = {"id": jid}
+    from sim.analyst import _mmss
     return {"type": "sim_result", "id": jid, "title": f"{r['scenario_label']} · {r['revision']}", "runs": r["runs"],
+            "tA_p95_mmss": _mmss(r["tA_p95_s"]), "peak_density_p95": r.get("peak_density_p95"),
+            "longest_route": {k: (r.get("longest_route") or {}).get(k) for k in ("space", "length_m", "stair")},
+            "scenario": r.get("scenario"),
             "tA_p95_s": r["tA_p95_s"], "tA_p50_s": r["tA_p50_s"], "worst_landing": worst[0],
             "worst_queue_p95": worst[1].get("queue_max_p95"), "last_stair": last[0],
             "last_stair_p95_s": last[1].get("last_p95_s"), "label": r["label"], "analyst": ai["text"],
