@@ -2,7 +2,7 @@
 # SonarIQ on a Mac: FreeCAD + the SonarIQ panel, talking to the engine hosted on the VM.
 # Nothing else is installed (no Python, Node or repo): rules, AI and simulation run on the VM.
 #
-#   curl -fsSL -u __USER__ __URL__/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh
+#   curl -fsSL __URL__/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh
 #
 # (deploy_vm.sh fills in the URL and user when it publishes this script.)
 set -euo pipefail
