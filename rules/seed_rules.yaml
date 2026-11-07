@@ -1,0 +1,272 @@
+# SonarIQ seed rules (15). Authored 7 Nov 2026 overnight from the brief, design/handoff.md and the
+# W6 Rulebook artboard, because the starter-kit seed_rules.yaml was not on the VM (see docs/DECISIONS.md).
+#
+# status:  verified = the clause and threshold match the widely cited text; Meyer still confirms at Q&A 1
+#          verify   = paragraph number or reading unconfirmed; verdicts carry "To verify"
+# finding_no: the number in finding IDs (F-07, W-01 ...). Prefix comes from the verdict:
+#          F = Fail, W = Warning, U = Cannot verify; findings of the hvac pack use H.
+# check:   the measure function in engine/sonariq/checks.py. Thresholds live here, never in code.
+# severity: what a violation becomes. Draft sources give "warning", never "fail".
+# applicability: vessel-profile conditions; when false the check is "Not applicable" (shown, not hidden).
+
+rules:
+  - id: R-FLS-01
+    finding_no: 1
+    pack: fire
+    discipline: fire_life_safety
+    title: Fire door class below bulkhead class
+    source: SOLAS II-2
+    clause: II-2/9.2.2.1.1
+    clause_text: "Main vertical zones are bounded by A-60 divisions; openings in them keep the division's fire integrity (see also II-2/9.4.1.1.1)."
+    reading: "A door in a fire-rated division has at least the division's fire class (A-60 > A-30 > A-15 > A-0 > B-15 > B-0)."
+    applies_to: "IfcDoor hosted in an A-class division"
+    inputs: [Pset_DoorCommon.FireRating, host Pset_WallCommon.FireRating]
+    check: door_fire_class
+    params: {}
+    severity: fail
+    cannot_verify_when: "door or host wall FireRating empty"
+    applicability: {passengers_gt: 36}
+    status: verified
+
+  - id: R-FLS-02
+    finding_no: 8
+    pack: escape
+    discipline: fire_life_safety
+    title: Dead-end corridor deeper than wide
+    source: SOLAS II-2
+    clause: II-2/13.3.1.2
+    clause_text: "Dead-end corridors are not permitted in passenger ships; a recess no deeper than it is wide is not a dead end (interpretation)."
+    reading: "A corridor with escape in one direction only (leaf of the corridor graph, no stair, no continuation) fails when its depth exceeds its clear width."
+    applies_to: "IfcSpace with SonarIQ_Ship.category = corridor"
+    inputs: [space footprint, corridor adjacency graph, SonarIQ_Ship.escape_continues]
+    check: dead_end
+    params: {}
+    severity: fail
+    applicability: {passengers_gt: 36}
+    status: verify
+
+  - id: R-FLS-03
+    finding_no: 7
+    pack: escape
+    discipline: fire_life_safety
+    title: Stair narrower than the people it serves need
+    source: FSS Code
+    clause: Ch.13 §2.1.2
+    clause_text: "Stairway clear width shall not be less than W, worked out from the persons served on each deck the stair connects."
+    reading: "W = (N1 + N2 + 0.5 N3 + 0.25 N4) x 10 mm, N1..N4 = persons per deck served, largest first. Deck 5 persons = berths of the cabins in the stair's MVZ on Deck 5 (from the model); other decks from SonarIQ_Ship.persons_by_deck."
+    applies_to: "IfcStair with SonarIQ_Ship.persons_by_deck"
+    inputs: [cabin berths, SonarIQ_Ship.persons_by_deck, stair flight clear width]
+    check: stair_width_formula
+    params: {D_mm: 10, weights: [1.0, 1.0, 0.5, 0.25]}
+    severity: fail
+    cannot_verify_when: "berths missing on a served deck, or stair flight not modelled"
+    applicability: {passengers_gt: 36}
+    status: verified
+
+  - id: R-FLS-04
+    finding_no: 9
+    pack: escape
+    discipline: fire_life_safety
+    title: Escape corridor narrower than 900 mm
+    source: FSS Code
+    clause: Ch.13 §2.1.2
+    clause_text: "Escape corridors are dimensioned like stairways and have a clear width of at least 900 mm."
+    reading: "Clear width of each corridor space (short side of its footprint) >= 900 mm."
+    applies_to: "IfcSpace with SonarIQ_Ship.category = corridor"
+    inputs: [space footprint]
+    check: corridor_width
+    params: {min_mm: 900}
+    severity: fail
+    applicability: {passengers_gt: 36}
+    status: verify
+
+  - id: R-FLS-05
+    finding_no: 1
+    pack: hvac
+    discipline: hvac
+    title: Duct through A-class division without fire damper
+    source: SOLAS II-2
+    clause: II-2/9.7
+    clause_text: "Ducts passing through A-class divisions are fitted with fire dampers (conditions in 9.7.3)."
+    reading: "Each duct segment whose axis crosses an A-class wall needs an IfcDamper within 1 m of the crossing."
+    applies_to: "IfcDuctSegment crossing an A-class IfcWall"
+    inputs: [duct axis, wall footprint, IfcDamper positions]
+    check: duct_damper
+    params: {search_radius_m: 1.0}
+    severity: fail
+    applicability: {}
+    status: verify
+
+  - id: R-FLS-06
+    finding_no: 2
+    pack: fire
+    discipline: fire_life_safety
+    title: MVZ bulkhead below A-60
+    source: SOLAS II-2
+    clause: II-2/9.2.2.1.1
+    clause_text: "Hull, superstructure and deckhouses are subdivided into main vertical zones by A-60 class divisions."
+    reading: "Every wall with SonarIQ_Ship.mvz_boundary = true is A-60."
+    applies_to: "IfcWall with SonarIQ_Ship.mvz_boundary"
+    inputs: [Pset_WallCommon.FireRating]
+    check: mvz_bulkhead_class
+    params: {required: A-60}
+    severity: fail
+    cannot_verify_when: "FireRating empty"
+    applicability: {passengers_gt: 36}
+    status: verified
+
+  - id: R-FLS-07
+    finding_no: 3
+    pack: fire
+    discipline: fire_life_safety
+    title: Main vertical zone longer than 40 m
+    source: SOLAS II-2
+    clause: II-2/9.2.2.1.1
+    clause_text: "The mean length of a main vertical zone on any deck does not in general exceed 40 m."
+    reading: "Length of each MVZ on the deck (extent along the ship of its spaces) <= 40 m. The 48 m extension in 9.2.2.1.2 is not applied."
+    applies_to: "IfcZone with SonarIQ_Ship.category = mvz"
+    inputs: [member space footprints]
+    check: mvz_length
+    params: {max_m: 40.0}
+    severity: fail
+    applicability: {passengers_gt: 36}
+    status: verified
+
+  - id: R-FLS-08
+    finding_no: 4
+    pack: fire
+    discipline: fire_life_safety
+    title: Stair enclosure below A-0
+    source: SOLAS II-2
+    clause: II-2/9.2.2.3 / 9.2.2.4
+    clause_text: "Stairways are enclosed by A-class divisions (table category (2) stairways)."
+    reading: "Every wall listed as the stair's enclosure is at least A-0."
+    applies_to: "IfcStair with enclosure walls (SonarIQ_Ship.encloses)"
+    inputs: [Pset_WallCommon.FireRating]
+    check: stair_enclosure_class
+    params: {required: A-0}
+    severity: fail
+    cannot_verify_when: "no enclosure walls or FireRating empty"
+    applicability: {passengers_gt: 36}
+    status: verify
+
+  - id: R-FLS-09
+    finding_no: 5
+    pack: escape
+    discipline: fire_life_safety
+    title: Stair narrower than 900 mm
+    source: FSS Code
+    clause: Ch.13 §2.1.1
+    clause_text: "Stairways are not less than 900 mm in clear width."
+    reading: "Stair flight clear width >= 900 mm, independent of persons served."
+    applies_to: "IfcStair"
+    inputs: [stair flight clear width]
+    check: stair_min_width
+    params: {min_mm: 900}
+    severity: fail
+    applicability: {}
+    status: verify
+
+  - id: R-FLS-10
+    finding_no: 6
+    pack: fire
+    discipline: fire_life_safety
+    title: Fire door not self-closing
+    source: SOLAS II-2
+    clause: II-2/9.4.1.1.4
+    clause_text: "Fire doors in main vertical zone bulkheads, galley boundaries and stairway enclosures are self-closing."
+    reading: "Doors hosted in A-class divisions have Pset_DoorCommon.SelfClosing = true."
+    applies_to: "IfcDoor hosted in an A-class division"
+    inputs: [Pset_DoorCommon.SelfClosing]
+    check: door_self_closing
+    params: {}
+    severity: fail
+    cannot_verify_when: "SelfClosing empty"
+    applicability: {passengers_gt: 36}
+    status: verify
+
+  - id: R-FLS-11
+    finding_no: 10
+    pack: fire
+    discipline: fire_life_safety
+    title: Glazing below the division's fire class
+    source: SOLAS II-2
+    clause: II-2/9.4.1.3
+    clause_text: "Windows and glazing in A-class divisions keep the integrity of the division they sit in (fire-rated glazing)."
+    reading: "IfcWindow hosted in an A-class wall has a FireRating at least the wall's."
+    applies_to: "IfcWindow hosted in an A-class division"
+    inputs: [Pset_WindowCommon.FireRating, host Pset_WallCommon.FireRating]
+    check: window_fire_class
+    params: {}
+    severity: fail
+    cannot_verify_when: "window or host FireRating empty"
+    applicability: {passengers_gt: 36}
+    status: verify
+
+  - id: R-ACC-01
+    finding_no: 1
+    pack: accessibility
+    discipline: accessibility
+    title: Corridor below width guideline
+    source: PVAG
+    clause: 2013 draft
+    clause_text: "Accessible route clear width 915 mm (36 in) minimum (Passenger Vessel Accessibility Guidelines, draft)."
+    reading: "Corridor clear width >= 915 mm. Draft source, so a violation is a Warning, never a Fail."
+    applies_to: "IfcSpace corridor on an accessible route"
+    inputs: [space footprint]
+    check: corridor_width
+    params: {min_mm: 915, unit: in}
+    severity: warning
+    applicability: {accessibility: true}
+    status: verified
+
+  - id: R-ACC-02
+    finding_no: 2
+    pack: accessibility
+    discipline: accessibility
+    title: Door narrower than 32 in clear
+    source: ADA 2010
+    clause: §404.2.3
+    clause_text: "Door openings provide a clear width of 32 inches (815 mm) minimum, measured with the door open 90 degrees."
+    reading: "Clear width of each door on an accessible route >= 32 in (812.8 mm)."
+    applies_to: "IfcDoor with SonarIQ_Ship.accessible_route = true"
+    inputs: [IfcDoor.OverallWidth (clear opening)]
+    check: door_clear_width
+    params: {min_in: 32}
+    severity: fail
+    applicability: {accessibility: true}
+    status: verified
+
+  - id: R-DNV-01
+    finding_no: 11
+    pack: class_dnv
+    discipline: structure
+    title: Deck plate thinner than class minimum
+    source: DNV
+    clause: "[to confirm] DNV-RU-SHIP Pt.3 (minimum plate thickness)"
+    clause_text: "Class rule placeholder. Minimum thickness of the form t0 = 4.5 + 0.02 L2 mm, L2 = L but not more than 300 m."
+    reading: "Deck plate thickness (from geometry) >= 4.5 + 0.02 x min(L, 300) mm, L from SonarIQ_Ship.length_m on the ship."
+    applies_to: "IfcPlate with SonarIQ_Ship.category = deck_plate"
+    inputs: [plate solid thickness, ship length]
+    check: plate_thickness
+    params: {a_mm: 4.5, b_mm_per_m: 0.02, l_cap_m: 300}
+    severity: fail
+    applicability: {}
+    status: verify
+
+  - id: R-DNV-02
+    finding_no: 12
+    pack: class_dnv
+    discipline: structure
+    title: Class rule placeholder (OCX stiffeners)
+    source: DNV
+    clause: "[to confirm]"
+    clause_text: "Class rule placeholder. Runs, but every verdict carries To verify. Needs OCX stiffener data; IFC deck has none."
+    reading: "No elements on Deck 5 IFC; reported as 0 checks."
+    applies_to: "OCX stiffeners (not in IFC)"
+    inputs: []
+    check: placeholder
+    params: {}
+    severity: fail
+    applicability: {}
+    status: verify

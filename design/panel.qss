@@ -1,0 +1,49 @@
+/* SonarIQ panel · starter QSS generated from design/sonariq.css (dark).
+   Apply to the dock widget only: dock.setStyleSheet(open('panel.qss').read()).
+   Set objectName / dynamic properties as noted; call style().polish(w) after changing a property. */
+#SonarIQPanel, #SonarIQPanel QWidget { background: #1b1d21; color: #e9eaed;
+  font-family: "IBM Plex Sans"; font-size: 13px; }
+#SonarIQPanel QLabel[role="faint"] { color: #959aa4; }
+#SonarIQPanel QLabel[role="muted"] { color: #b7bbc3; }
+#SonarIQPanel QLabel[role="label"] { color: #959aa4; font-size: 11px; font-weight: 600; }
+#SonarIQPanel QLabel[mono="true"] { font-family: "IBM Plex Mono"; }
+#SonarIQPanel QFrame[role="card"] { background: #24262b; border: 1px solid #34373e; border-radius: 4px; }
+#SonarIQPanel QFrame[role="card-dashed"] { background: transparent; border: 1px dashed #4a4e57; border-radius: 4px; }
+#SonarIQPanel QFrame[role="hr"] { background: #34373e; max-height: 1px; border: 0; }
+#SonarIQPanel QPushButton { background: #24262b; color: #e9eaed; border: 1px solid #4a4e57;
+  border-radius: 4px; padding: 0 12px; min-height: 26px; font-weight: 500; }
+#SonarIQPanel QPushButton:hover { background: #2d3036; }
+#SonarIQPanel QPushButton:focus { border: 2px solid #e392c8; }
+#SonarIQPanel QPushButton:disabled { color: #959aa4; border-color: #34373e; }
+#SonarIQPanel QPushButton[kind="primary"] { background: #e9eaed; color: #131417; border-color: #e9eaed; font-weight: 600; }
+#SonarIQPanel QPushButton[kind="primary"]:hover { background: #b7bbc3; border-color: #b7bbc3; }
+#SonarIQPanel QPushButton[kind="ghost"] { background: transparent; border-color: transparent; color: #b7bbc3; }
+#SonarIQPanel QLineEdit, #SonarIQPanel QPlainTextEdit, #SonarIQPanel QTextEdit { background: #131417;
+  border: 1px solid #4a4e57; border-radius: 4px; padding: 4px 8px; color: #e9eaed; }
+#SonarIQPanel QLineEdit:focus, #SonarIQPanel QPlainTextEdit:focus { border: 2px solid #e392c8; }
+#SonarIQPanel QTextBrowser { background: transparent; border: 0; }
+#SonarIQPanel QTabBar::tab { background: transparent; color: #b7bbc3; padding: 7px 10px; border: 0;
+  border-bottom: 2px solid transparent; font-weight: 500; }
+#SonarIQPanel QTabBar::tab:selected { color: #e9eaed; border-bottom: 2px solid #e392c8; }
+#SonarIQPanel QTabWidget::pane { border: 0; border-top: 1px solid #34373e; }
+#SonarIQPanel QTreeWidget, #SonarIQPanel QListWidget { background: #1b1d21; border: 0; outline: 0; }
+#SonarIQPanel QTreeWidget::item, #SonarIQPanel QListWidget::item { border-bottom: 1px solid #34373e; padding: 6px 4px; }
+#SonarIQPanel QTreeWidget::item:hover, #SonarIQPanel QListWidget::item:hover { background: #24262b; }
+#SonarIQPanel QTreeWidget::item:selected, #SonarIQPanel QListWidget::item:selected { background: rgba(227,146,200,.14);
+  color: #e9eaed; border: 1px solid #e392c8; }
+#SonarIQPanel QScrollBar:vertical { background: #1b1d21; width: 8px; }
+#SonarIQPanel QScrollBar::handle:vertical { background: #4a4e57; border-radius: 4px; min-height: 24px; }
+#SonarIQPanel QScrollBar::add-line, #SonarIQPanel QScrollBar::sub-line { height: 0; }
+/* Status pills: QLabel with property status = fail|warn|pass|acc|unk|dor|na. Text must include the word; prefix the glyph. */
+#SonarIQPanel QLabel[status] { border: 1px solid #4a4e57; border-radius: 4px; padding: 1px 6px; font-size: 12px; font-weight: 500; }
+#SonarIQPanel QLabel[status="fail"] { color: #ff8a50; border-color: #d55e00; background: rgba(213,94,0,.16); }
+#SonarIQPanel QLabel[status="warn"] { color: #e69f00; border-color: #e69f00; background: rgba(230,159,0,.14); }
+#SonarIQPanel QLabel[status="pass"] { color: #3cc49a; border-color: #009e73; background: rgba(0,158,115,.14); }
+#SonarIQPanel QLabel[status="acc"] { color: #62b8ec; border-color: #0072b2; background: rgba(0,114,178,.18); }
+#SonarIQPanel QLabel[status="unk"] { color: #c9cdd4; border: 1px dashed #c9cdd4; }
+#SonarIQPanel QLabel[status="dor"], #SonarIQPanel QLabel[status="na"] { color: #959aa4; }
+/* Chips: location (mono), rule badge, engine/AI badges */
+#SonarIQPanel QLabel[chip="loc"] { font-family: "IBM Plex Mono"; font-size: 11px; background: #24262b; border: 1px solid #34373e; border-radius: 4px; padding: 1px 6px; }
+#SonarIQPanel QLabel[chip="rule"] { font-family: "IBM Plex Mono"; font-size: 11px; border: 1px solid #4a4e57; border-radius: 4px; padding: 1px 6px; }
+#SonarIQPanel QLabel[chip="engine"] { font-size: 10px; font-weight: 600; color: #b7bbc3; border: 1px solid #34373e; border-radius: 4px; padding: 1px 6px; }
+#SonarIQPanel QLabel[chip="ai"] { font-size: 10px; color: #b7bbc3; border: 1px dashed #34373e; border-radius: 4px; padding: 1px 6px; }

@@ -1,0 +1,30 @@
+[project]
+name = "sonariq"
+version = "0.2.0"
+description = "SonarIQ rule engine, MCP server and tools"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "ifcopenshell>=0.8",
+  "shapely>=2.0",
+  "networkx>=3.2",
+  "pint>=0.23",
+  "pydantic>=2.6",
+  "pyyaml>=6",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "mcp>=1.2",
+  "openai>=1.30",
+  "requests>=2.31",
+  "python-dotenv>=1.0",
+  "numpy>=1.26",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["engine", "."]

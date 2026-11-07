@@ -1,0 +1,3 @@
+Put the Claude Design exports here:
+  0-start.pdf  6-freecad.pdf  7-panel.pdf  8-portal.pdf  9-extras.pdf
+  plus PNGs of F0, P3, P4, P5, W2, W3, W4 if you exported them.

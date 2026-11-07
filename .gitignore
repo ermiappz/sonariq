@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+dist/
+data/rcrv/*.nwd
+data/rcrv/gltf/
+data/rcrv/*.ifc
+data/rcrv/*.log
+data/rcrv/*.json
+data/out/
+.pytest_cache/
+.DS_Store
