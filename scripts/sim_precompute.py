@@ -51,13 +51,14 @@ def plan(runs: int):
         ("revB_night", revB, night, "B", "files"),
         ("revBfix2_night", s.load("Bfix2"), night, "Bfix2", "files"),
         ("revB_fire_3A", revB, Scenario("night", "primary", fire_origin=fireB), "B", "files"),
+        ("golden_or117_3B_out", m1, Scenario("night", "secondary", closed_stair="3B"), "A + 4×2 berth OR-117", "extra"),
     ], m1
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", type=int, default=500)
-    ap.add_argument("--only", default="golden,files,fixes")
+    ap.add_argument("--only", default="golden,files,fixes,extra")
     ap.add_argument("--doc-only", action="store_true")
     a = ap.parse_args()
     from sim.service import SimService
@@ -184,6 +185,7 @@ def write_demo(svc, index):
         line(gf, "… + fix 2, fire what-if near Stair 3A"),
         line(rA, "Rev A (IFC)"), line(rB, "Rev B (IFC)"), line(rBf, "Rev B + fix 2 (IFC)"),
         line(rBfire, "Rev B, fire what-if near Stair 3A"),
+        line(R("golden_or117_3B_out"), "Rev A + OR-117, Stair 3B out (secondary)"),
         "",
     ]
     fx = index.get("fixes_or117")
