@@ -49,7 +49,7 @@ function Team() {
   // four engineers as flat silhouettes around a drawing table; no faces, no photos
   const people = [[60, "#5c9dff"], [130, "#e27dff"], [200, "#3fd0e6"], [270, "#b98cff"]] as const;
   return (
-    <svg viewBox="0 0 330 150" className="home-team" role="img" aria-label="Illustration: four engineers around a drawing table">
+    <svg viewBox="0 -50 330 200" className="home-team" role="img" aria-label="Illustration: four engineers around a drawing table">
       {people.map(([x, c], i) => (
         <g key={i} transform={`translate(${x} ${i % 2 ? 18 : 10})`}>
           <path d="M-14 -38 a14 14 0 0 1 28 0 v2 h-28z" fill={c} opacity=".9" />{/* hard hat */}
@@ -66,7 +66,7 @@ function Team() {
 
 export default function Home({ onLogin }: { onLogin: () => void }) {
   return (
-    <div className="home">
+    <div className="sq sq-dark home">
       <header className="home-top">
         <b style={{ fontSize: 18 }}>SonarIQ</b>
         <span style={{ flex: 1 }} />
