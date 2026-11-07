@@ -12,43 +12,79 @@ Since AI 2026 · Meyer Turku challenge. One deterministic rule engine serves thr
 | `scripts/make_deck.py` | Writes the Deck 5 test model: `data/deck5_revA.ifc`, `deck5_revB.ifc` (OR-117), `deck5_revB_fix2.ifc` |
 | `scripts/aps_translate.py`, `scripts/node/svf_to_gltf.js`, `scripts/rcrv_cache.py`, `scripts/rcrv_to_ifc.py` | RCRV .nwd → SVF → glTF + properties → IFC4 |
 | `freecad_addon/SonarIQ/` | FreeCAD 1.x dock panel (P1, P3, P4), styled by `design/panel.qss` |
-| `portal/` | Vite + React + TS + Tailwind + That Open Engine (scaffold; screens in build round 1) |
+| `portal/` | Web portal (Vite + React + TS + That Open Engine): Inbox, Thread, Model, Rules, Mapping, Simulate |
+| `scripts/deploy_vm.sh`, `scripts/setup_freecad_mac.sh` | Hosted deployment (Caddy HTTPS + basic auth, systemd) and the one-line Mac setup |
 | `tests/` | Rule tests (violation, control, exact threshold), handoff contract, impact, guards |
 
-## Quick start (Linux or macOS)
+## Try it
+
+| | |
+|---|---|
+| **Web portal (hosted)** | https://34-88-130-224.sslip.io (user `sonariq`; ask the team for the password) |
+| **Downloads** | https://34-88-130-224.sslip.io/downloads/ (FreeCAD add-on, demo IFC models, Mac setup script) |
+| **FreeCAD** | 1.0.x, free: https://www.freecad.org/downloads.php |
+
+The rule engine, AI and simulation run on the server. On your own computer you only need **FreeCAD** and the
+**SonarIQ add-on**: the panel uploads the IFC you open to the hosted engine and shows the results in FreeCAD.
+
+### macOS: one command (about 5 minutes)
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh   # once
-uv sync --python 3.11                              # engine deps
-make test        # builds the test deck, runs 49 tests
-make api         # engine HTTP API on http://127.0.0.1:8765 (the FreeCAD panel talks to this)
-make mcp         # MCP server on stdio
-make bench       # timing gate: Analyse < 3 s, ping < 2 s
-make qa          # rewrites docs/meyer_qa1.md from live engine runs
+curl -fsSL -u sonariq https://34-88-130-224.sslip.io/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh
 ```
 
-## FreeCAD on macOS (about 15 minutes)
+curl asks for the password once, then the script asks for it again (it writes it to `~/.sonariq.json` for the panel). It:
+1. installs FreeCAD with Homebrew if it is missing (or tells you to download it from https://www.freecad.org/downloads.php
+   and drag it to Applications: pick the Apple Silicon build on M1–M4 Macs, Intel otherwise);
+2. installs the add-on into `~/Library/Application Support/FreeCAD/Mod/SonarIQ` (and `v1-1/Mod` for FreeCAD 1.1);
+3. downloads the demo models to `~/SonarIQ/` (`deck5_revA.ifc`, `deck5_revB.ifc`, `deck5_revB_fix2.ifc`, `rcrv_deck_7.ifc`);
+4. writes the panel settings to `~/.sonariq.json` (engine URL + login);
+5. checks that the engine answers.
 
-1. Install FreeCAD 1.x from freecad.org (Apple Silicon or Intel build). Open it once, then quit.
-2. Check IfcOpenShell: open View → Panels → Python console and type `import ifcopenshell`. If that errors, use BIM workbench → Utils → IfcOpenShell installer.
-3. Get the repo and the engine:
-   ```bash
-   git clone <repo> ~/sonariq && cd ~/sonariq
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   uv sync --python 3.11 && make test
-   ```
-4. Install the add-on. It is a symlink, so `git pull` updates it. The folder depends on the FreeCAD version: open the Python console and run `App.getUserAppDataDir()`, then link into its `Mod` folder:
-   ```bash
-   MOD="$HOME/Library/Application Support/FreeCAD/Mod"        # FreeCAD 1.0
-   # MOD="$HOME/Library/Application Support/FreeCAD/v1-1/Mod"  # FreeCAD 1.1
-   mkdir -p "$MOD" && ln -s ~/sonariq/freecad_addon/SonarIQ "$MOD/SonarIQ"
-   ```
-5. Start the engine in a terminal and leave it running: `cd ~/sonariq && make api`.
-6. Start FreeCAD and open `~/sonariq/data/deck5_revA.ifc` (File → Open; FreeCAD 1.x opens IFC natively). The SonarIQ panel docks on the right after about 2 seconds. If it doesn't, run in the Python console: `import sonariq_panel; sonariq_panel.show_in_freecad()`.
-7. Press **Analyse** (or Ctrl+Shift+A). Expected on Rev A: 96 checks, 1 Fail · 1 Warning · 1 Cannot verify · 89 Pass · 4 Dormant. Click **F-01**: door FD-5-165P is selected and coloured in the 3D view, and the evidence card opens.
-8. For Rev B, open `data/deck5_revB.ifc` and press Analyse again. The panel sends the open file's path, so the engine checks whichever IFC is open.
+Then in FreeCAD: **File → Open → `~/SonarIQ/deck5_revA.ifc`** (close the BIM welcome dialog if it appears). The SonarIQ
+panel docks on the right; press **Analyse** (Ctrl+Shift+A). Expected on Rev A: **96 checks · 1 Fail · 1 Warning ·
+1 Cannot verify · 89 Pass · 4 Dormant**. Click **F-01**: door FD-5-165P is selected and coloured. Rev B (`deck5_revB.ifc`)
+gives 4 · 1 · 1 · 86 · 4 with F-07 (Stair 3B, 1,380 mm required vs 1,350 mm). The full checklist is in
+`docs/LOCAL_TESTING.md`.
 
-If the panel says "Engine not reachable", the API is not running (step 5). Set `SONARIQ_ENGINE=http://host:8765` before starting FreeCAD to use an engine on another machine.
+If macOS blocks FreeCAD on first launch: System Settings → Privacy & Security → *Open Anyway*. If the panel does not
+appear: View → Panels → Python console, `import sonariq_panel; sonariq_panel.show_in_freecad()`.
+
+### Windows / Linux (manual, about 10 minutes)
+
+1. Install FreeCAD 1.0 from https://www.freecad.org/downloads.php.
+2. Download `SonarIQ-addon.zip` and the models from https://34-88-130-224.sslip.io/downloads/ and unzip the add-on into
+   FreeCAD's `Mod` folder (`App.getUserAppDataDir()` in FreeCAD's Python console shows the folder; on Windows usually
+   `%APPDATA%\FreeCAD\Mod`, on Linux `~/.local/share/FreeCAD/Mod`).
+3. Create `~/.sonariq.json` (Windows: `C:\Users\<you>\.sonariq.json`):
+   ```json
+   {"engine": "https://34-88-130-224.sslip.io/api", "user": "sonariq", "password": "<password>"}
+   ```
+4. Restart FreeCAD, open a model, press **Analyse**.
+
+### Everything on your own machine (developers)
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh   # Python 3.11 + deps
+# Node.js 20+ for the portal: https://nodejs.org/en/download
+git clone <repo or sonariq.bundle from /downloads> ~/sonariq && cd ~/sonariq
+make setup       # uv sync + portal npm install
+make test        # builds the test deck, runs the tests
+make api         # engine on http://127.0.0.1:8765 (make api-sim = with Simulate)
+make portal      # portal on http://localhost:5173
+make mcp         # MCP server on stdio
+```
+Link the add-on instead of copying it (`ln -s ~/sonariq/freecad_addon/SonarIQ "<Mod folder>/SonarIQ"`) and delete
+`~/.sonariq.json`, so the panel uses the local engine (it then sends the file path instead of uploading).
+`make bench` (Analyse < 3 s, ping < 2 s), `make qa` (rewrites `docs/meyer_qa1.md`), `make eval` (benchmarks, see `docs/EVAL.md`).
+
+### Hosting (the VM)
+
+`scripts/deploy_vm.sh` deploys branch `main` (or `BRANCH=...`) from a separate worktree (`~/sonariq-deploy`): engine as a
+systemd user service (`sonariq-api`, 127.0.0.1:8780, `SONARIQ_HOSTED=1` so only files under `data/` can be opened,
+Simulate on), the built portal and the downloads in `/srv/sonariq`, and Caddy on `https://<ip>.sslip.io` with a
+Let's Encrypt certificate and basic auth (password in `~/.sonariq_deploy`). Re-run it after merging to `main`.
+Logs: `journalctl --user -u sonariq-api -f`, `sudo journalctl -u caddy -f`.
 
 ## AI explanations (optional)
 
