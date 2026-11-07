@@ -425,8 +425,6 @@ def main(max_detail_tris: int = 20000):
         per_deck[o["deck"]].append(o)
     deck_files = {}
     for k in sorted(per_deck):
-        if k == 0:
-            continue
         p = RC / f"rcrv_deck_{k + 1}.ifc"
         deck_files[k] = (p.name, *write(p, per_deck[k], f"RCRV {deck_names[k]}"))
         log("wrote", p.name, deck_files[k][1:])
@@ -439,7 +437,9 @@ def main(max_detail_tris: int = 20000):
     json.dump({"decks_m": decks, "ship_length_m": ship_len, "counts": cnt, "labels": lab,
                "doors": [{k: o.get(k) for k in ("dbid", "name", "file", "deck", "leaf_w", "block_w", "height", "bbox")}
                          for o in doors]}, open(RC / "rcrv_objects.json", "w"), indent=1, default=str)
-    sample = sorted([o for o in doors if o.get("leaf_w")], key=lambda o: (o["deck"], o["name"]))
+    sample = sorted([o for o in doors if o.get("leaf_w") and o["leaf_w"] > 0.5 and re.search(r"DOOR", o["name"], re.I)
+                     and not re.search(r"W/?T|GRATING|HATCH|SLIDING", o["name"], re.I)],
+                    key=lambda o: (o["deck"], o["name"]))
     pick = []
     seen = set()
     for o in sample:
@@ -478,6 +478,10 @@ def main(max_detail_tris: int = 20000):
         lines.append(f"| {i} | {o['name']} | {deck_names[o['deck']]} | {o['dbid']} | {w / IN2M:.1f} | {w * 1000:.0f} | "
                      f"{o['block_w'] * 1000:.0f} | {o['height'] * 1000:.0f} | "
                      f"{'✓ Pass' if w * 1000 >= 812.8 else '✕ Fail'} |")
+    odd = [o for o in doors if not (o.get("leaf_w") and o["leaf_w"] > 0.5)]
+    lines += ["", f"{len(doors)} door objects in total; {len(odd)} have no leaf found by this method (sliding, "
+                  "watertight or hatch-like doors, or a block whose parts are not separated). They stay in "
+                  "mapping_review.csv as Needs review; no width is reported for them.", ""]
     lines += ["", "## Caveats", "",
               "- Mesh, not solids: the IFC carries triangles. Flat faces (door leaves, bulkheads) are exact; curved "
               "hull surfaces are display-only and no check uses them.",
