@@ -49,6 +49,14 @@ function Workspace() {
   const [ask, setAsk] = useState<(RunMeta & { run: Run }) | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [toast, setToast] = useState("");
+  useEffect(() => {   // an Export link opened in a tab that already shows the portal
+    const on = () => {
+      const h = hashParts();
+      if (h[0] === "inbox" && RUN_RE.test(h[1] ?? "")) { setPinned(h[1]); setScreenState("inbox"); }
+    };
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
 
   // The portal never analyses on its own: it shows the newest stored run (or the pinned one) and polls every 2 s.
   const [runs, setRuns] = useState<RunMeta[] | null>(null);
