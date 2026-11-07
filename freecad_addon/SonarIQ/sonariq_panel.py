@@ -61,15 +61,15 @@ DISC_SHORT = {"fire_life_safety": "FS", "accessibility": "AC", "structure": "CL"
 PROFILES = ["Passenger ship · > 36 passengers", "Passenger ship · ≤ 36 passengers", "Cargo ship", "Research vessel"]
 # (code, name, colour, engine pack or None, rule sets: (label, ok|verify|coming))
 DISCS = [
-    ("FIRE", "Fire & Safety", "#e392c8", "fls", [("SOLAS II-2", "ok"), ("FSS Code", "ok"), ("LSA Code", "coming")]),
-    ("HULL", "Hull & Structure", "#62b8ec", "dnv", [("DNV Pt.3", "verify"), ("Load Line", "coming")]),
-    ("INT", "Accommodation & Interiors", "#b39ddb", "acc", [("Accessibility (PVAG/ADA)", "ok"),
+    ("FIRE", "Fire & Safety", "#e27dff", "fls", [("SOLAS II-2", "ok"), ("FSS Code", "ok"), ("LSA Code", "coming")]),
+    ("HULL", "Hull & Structure", "#5c9dff", "dnv", [("DNV Pt.3", "verify"), ("Load Line", "coming")]),
+    ("INT", "Accommodation & Interiors", "#b98cff", "acc", [("Accessibility (PVAG/ADA)", "ok"),
                                                             ("SOLAS II-2 materials", "coming")]),
-    ("HVAC", "HVAC", "#4fd1d9", "hvac", [("SOLAS II-2/9.7 fire dampers", "ok")]),
-    ("GA", "General arrangement", "#c9ccd2", None, []),
-    ("PIPE", "Piping", "#7fd18b", None, []),
-    ("ELEC", "Electrical", "#f2d04b", None, []),
-    ("MACH", "Machinery", "#d9a066", None, []),
+    ("HVAC", "HVAC", "#3fd0e6", "hvac", [("SOLAS II-2/9.7 fire dampers", "ok")]),
+    ("GA", "General arrangement", "#c3c9d4", None, []),
+    ("PIPE", "Piping", "#c4e35c", None, []),
+    ("ELEC", "Electrical", "#82dd8a", None, []),
+    ("MACH", "Machinery", "#a3a3ff", None, []),
 ]
 DEFAULT_DISCS = {"FIRE", "HULL", "INT"}          # = the engine's default packs fls, dnv, acc (demo contract counts)
 GROUP_TAG = {"fls": "FIRE", "dnv": "HULL", "acc": "INT", "hvac": "HVAC"}
@@ -264,7 +264,7 @@ def rule_badge(c: dict) -> str:
     src = c["source"]
     if src.startswith("SOLAS"):
         src = "SOLAS"
-    return f"{src}  {c['clause']}"
+    return f"{src} {c['clause']}"
 
 
 def loc_label(f: dict) -> str:
@@ -286,6 +286,9 @@ class FreeCADBridge:
         self._ghost: dict[str, tuple] = {}
         self._hidden: dict = {}
         self._focus: set = set()
+        self._shown: dict = {}
+        self._overlay = None          # (scene graph, coin node, legend widget)
+        self._overlay_f = None
 
     def _objects(self):
         import FreeCAD
@@ -368,24 +371,37 @@ class FreeCADBridge:
         for o in objs:
             vo = getattr(o, "ViewObject", None)
             if vo is not None and hasattr(vo, "ShapeColor"):
-                self._orig[o.Name] = (o, vo.ShapeColor, getattr(vo, "LineColor", None))
+                self._orig[o.Name] = (o, vo.ShapeColor, getattr(vo, "LineColor", None), getattr(vo, "LineWidth", None))
                 vo.ShapeColor = rgb
                 if hasattr(vo, "LineColor"):
                     vo.LineColor = rgb
+                if hasattr(vo, "LineWidth"):
+                    vo.LineWidth = 4.0
+                if not vo.Visibility:      # spaces are hidden by default in NativeIFC: show while highlighted
+                    self._shown[o.Name] = o
+                    vo.Visibility = True
             Gui.Selection.addSelection(o)
         if objs and zoom:
             Gui.SendMsgToActiveView("ViewSelection")
         return len(objs)
 
     def reset(self):
-        for o, sc, lc in self._orig.values():
+        for o, sc, lc, lw in self._orig.values():
             try:
                 o.ViewObject.ShapeColor = sc
                 if lc is not None:
                     o.ViewObject.LineColor = lc
+                if lw is not None:
+                    o.ViewObject.LineWidth = lw
             except Exception:  # noqa: BLE001
                 pass
         self._orig.clear()
+        for o in getattr(self, "_shown", {}).values():
+            try:
+                o.ViewObject.Visibility = False
+            except Exception:  # noqa: BLE001
+                pass
+        self._shown = {}
 
     def selection_guids(self) -> list[str]:
         if not self.ok:
@@ -421,6 +437,9 @@ class FreeCADBridge:
 
     def focus(self, f: dict, zoom: bool = True, ghost: bool = True) -> int:
         """Select and colour the finding's element by status, zoom to it, ghost everything else (15 % opacity)."""
+        self.clear_overlay()
+        self._unhide()
+        self._unghost()
         n = self.show(f, zoom=False)
         if not self.ok or not n:
             return n
@@ -433,19 +452,37 @@ class FreeCADBridge:
                     self._ghost[o.Name] = (o, o.ViewObject.Transparency)
                     o.ViewObject.Transparency = 85
         if zoom:
-            Gui.SendMsgToActiveView("ViewSelection")
+            self.zoom()
+        # FreeCAD's selection green would hide the status colour: zoom on the selection, then clear it
+        Gui.Selection.clearSelection()
         return n
 
     def zoom(self):
-        if self.ok:
-            import FreeCADGui as Gui
+        """Zoom to the focused element without leaving it selected (selection colour hides the status colour)."""
+        if not self.ok:
+            return
+        import FreeCAD
+        import FreeCADGui as Gui
+        doc = FreeCAD.ActiveDocument
+        objs = [doc.getObject(nm) for nm in self._focus] if doc else []
+        objs = [o for o in objs if o is not None]
+        if not objs:
             Gui.SendMsgToActiveView("ViewSelection")
+            return
+        Gui.Selection.clearSelection()
+        for o in objs:
+            Gui.Selection.addSelection(o)
+        Gui.SendMsgToActiveView("ViewSelection")
+        Gui.Selection.clearSelection()
 
     def isolate(self, f: dict) -> int:
         """Show only the finding's element(s)."""
+        ov = self._overlay_f
         n = self.focus(f, zoom=False, ghost=False)
         if not self.ok or not n:
             return n
+        if ov is not None:
+            self.overlay(ov)
         import FreeCAD
         doc = FreeCAD.ActiveDocument
         focus = [doc.getObject(nm) for nm in self._focus if doc.getObject(nm)]
@@ -468,6 +505,8 @@ class FreeCADBridge:
         """Everything visible and opaque again; the finding stays coloured and selected."""
         self._unhide()
         self._unghost()
+        self.clear_overlay()
+        self.reset()
         if self.ok:
             import FreeCADGui as Gui
             Gui.SendMsgToActiveView("ViewFit")
@@ -476,7 +515,7 @@ class FreeCADBridge:
         if not self.ok:
             return 0
         import FreeCADGui as Gui
-        cur = {o.Name for o in Gui.Selection.getSelection()}
+        cur = {o.Name for o in Gui.Selection.getSelection()} or set(self._focus)
         Gui.Selection.clearSelection()
         n = 0
         for o in self._shapes():
@@ -489,6 +528,7 @@ class FreeCADBridge:
         """Back to the model as opened: colours, transparency, visibility, selection."""
         self._unhide()
         self._unghost()
+        self.clear_overlay()
         self.reset()
         self._focus = set()
         if self.ok:
@@ -497,6 +537,190 @@ class FreeCADBridge:
                 Gui.Selection.clearSelection()
             except Exception:  # noqa: BLE001
                 pass
+
+    # ---- dimension overlay: lines + labels on the deck, numbers from the finding JSON only
+    @staticmethod
+    def overlay_spec(f: dict):
+        """Dimension lines for a finding, or None. Positions come from the engine's evidence box (metres);
+        labels are the engine's measured/required values as returned, never recomputed here."""
+        ev = f.get("evidence") or {}
+        bb, z = ev.get("bbox"), ev.get("z")
+        ms, rq = f.get("measured") or {}, f.get("required") or {}
+        if not bb or z is None or ms.get("value") is None or rq.get("value") is None:
+            return None
+        x0, y0, x1, y1 = bb
+        long_y = (y1 - y0) >= (x1 - x0)
+        off = 0.6
+        lines = []
+        if f.get("rule") == "R-FLS-02" and (f.get("extra") or {}).get("dead_end"):
+            # depth along the long side (measured, solid), width across the short side (allowed depth, dashed)
+            if long_y:
+                lines.append(((x1 + off, y0), (x1 + off, y1), f"depth {fmt_val(ms)}", False))
+                lines.append(((x0, y1 + off), (x1, y1 + off), f"width {fmt_val(rq)} = allowed depth", True))
+            else:
+                lines.append(((x0, y1 + off), (x1, y1 + off), f"depth {fmt_val(ms)}", False))
+                lines.append(((x1 + off, y0), (x1 + off, y1), f"width {fmt_val(rq)} = allowed depth", True))
+            title = f"Dead end {fmt_val(ms)} > width {fmt_val(rq)}"
+        elif f.get("rule") in ("R-FLS-03", "R-FLS-04", "R-FLS-09", "R-ACC-01") and ms.get("unit") == "mm":
+            # clear width across the short side: measured (solid) and required (dashed, drawn at its own length)
+            req_m = rq["value"] / 1000.0
+            if long_y:   # width runs along x
+                cy = y1 + off
+                lines.append(((x0, cy), (x1, cy), f"measured {fmt_val(ms)}", False))
+                cx = (x0 + x1) / 2
+                lines.append(((cx - req_m / 2, cy + off), (cx + req_m / 2, cy + off), f"required {fmt_val(rq)}", True))
+            else:        # width runs along y
+                cx = x1 + off
+                lines.append(((cx, y0), (cx, y1), f"measured {fmt_val(ms)}", False))
+                cy = (y0 + y1) / 2
+                lines.append(((cx + off, cy - req_m / 2), (cx + off, cy + req_m / 2), f"required {fmt_val(rq)}", True))
+            title = f"{(f.get('element') or {}).get('name') or f.get('id')} · {fmt_val(ms)} measured / {fmt_val(rq)} required"
+        else:
+            return None
+        return {"z": z + 0.15, "lines": lines, "title": title, "bbox": bb}
+
+    def overlay(self, f: dict) -> bool:
+        self.clear_overlay()
+        spec = self.overlay_spec(f)
+        if spec is None or not self.ok:
+            return False
+        try:
+            import FreeCADGui as Gui
+            from pivy import coin
+            view = Gui.ActiveDocument.ActiveView
+            sg = view.getSceneGraph()
+        except Exception:  # noqa: BLE001
+            return False
+        mm = 1000.0
+        z = spec["z"] * mm
+        root = coin.SoSeparator()
+        pick = coin.SoPickStyle()
+        pick.style = coin.SoPickStyle.UNPICKABLE
+        root.addChild(pick)
+        col = QtGui.QColor(STATUS_COLOR.get(f.get("status"), DARK["accent"]))
+        for (a, b, text, dashed) in spec["lines"]:
+            s = coin.SoSeparator()
+            c = coin.SoBaseColor()
+            c.rgb = (1.0, 1.0, 1.0) if not dashed else (col.redF(), col.greenF(), col.blueF())
+            s.addChild(c)
+            ds = coin.SoDrawStyle()
+            ds.lineWidth = 3
+            if dashed:
+                ds.linePattern = 0xF0F0
+            s.addChild(ds)
+            # the line plus end ticks
+            (ax, ay), (bx, by) = a, b
+            dx, dy = bx - ax, by - ay
+            ln = max((dx * dx + dy * dy) ** 0.5, 1e-6)
+            nx, ny = -dy / ln * 0.25, dx / ln * 0.25
+            pts = [(ax, ay), (bx, by), (ax + nx, ay + ny), (ax - nx, ay - ny), (bx + nx, by + ny), (bx - nx, by - ny)]
+            co = coin.SoCoordinate3()
+            co.point.setValues(0, len(pts), [(x * mm, y * mm, z) for x, y in pts])
+            s.addChild(co)
+            ls = coin.SoLineSet()
+            ls.numVertices.setValues(0, 3, [2, 2, 2])
+            s.addChild(ls)
+            t = coin.SoSeparator()
+            tr = coin.SoTranslation()
+            tr.translation = ((ax + bx) / 2 * mm + nx * 2 * mm, (ay + by) / 2 * mm + ny * 2 * mm, z)
+            t.addChild(tr)
+            fnt = coin.SoFont()
+            fnt.size = 20
+            t.addChild(fnt)
+            txt = coin.SoText2()
+            txt.string = text
+            t.addChild(txt)
+            s.addChild(t)
+            root.addChild(s)
+        # outline of the engine's evidence box in the status colour (spaces have no shape in FreeCAD to colour)
+        x0, y0, x1, y1 = spec["bbox"]
+        ob = coin.SoSeparator()
+        oc = coin.SoBaseColor()
+        oc.rgb = (col.redF(), col.greenF(), col.blueF())
+        ob.addChild(oc)
+        ods = coin.SoDrawStyle()
+        ods.lineWidth = 5
+        ob.addChild(ods)
+        ocoord = coin.SoCoordinate3()
+        ring = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
+        ocoord.point.setValues(0, 5, [(x * mm, y * mm, z) for x, y in ring])
+        ob.addChild(ocoord)
+        ols = coin.SoLineSet()
+        ols.numVertices.setValue(5)
+        ob.addChild(ols)
+        root.addChild(ob)
+        sg.addChild(root)
+        if not self._focus_has_shape():
+            self._look_at(view, ((x0 + x1) / 2 * mm, (y0 + y1) / 2 * mm, z), max(x1 - x0, y1 - y0) * mm)
+        legend = None
+        try:
+            mdi = Gui.getMainWindow().findChild(QtWidgets.QMdiArea)
+            host = mdi.activeSubWindow().widget() if mdi and mdi.activeSubWindow() else None
+            if host is not None:
+                legend = QtWidgets.QLabel(host)
+                legend.setObjectName("SonarIQLegend")
+                legend.setText(f"<b>{spec['title']}</b><br>Measured by rule engine · check on drawing<br>"
+                               "━━ measured &nbsp; ╍╍ required / allowed")
+                legend.setStyleSheet("QLabel { background: rgba(19,20,23,.92); color: #e9eaed; border: 1px solid "
+                                     "#4a4e57; border-radius: 4px; padding: 8px 10px; font-size: 12px; }")
+                legend.adjustSize()
+                legend.move(12, max(12, host.height() - legend.height() - 12))
+                legend.show()
+                legend.raise_()
+        except Exception:  # noqa: BLE001
+            legend = None
+        self._overlay = (sg, root, legend)
+        self._overlay_f = f
+        return True
+
+    def _focus_has_shape(self) -> bool:
+        import FreeCAD
+        doc = FreeCAD.ActiveDocument
+        for nm in self._focus:
+            o = doc.getObject(nm) if doc else None
+            try:
+                if o is not None and o.Shape.BoundBox.isValid():
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+        return False
+
+    @staticmethod
+    def _look_at(view, center, size_mm):
+        """Point the camera at a box (keeps the view direction): used when the element has no shape to zoom to."""
+        try:
+            from pivy import coin
+            cam = view.getCameraNode()
+            d = coin.SbVec3f(0, 0, -1)
+            d = cam.orientation.getValue().multVec(d)
+            dist = max(size_mm * 6, 15000)
+            c = coin.SbVec3f(*center)
+            cam.position.setValue(c - d * dist)
+            cam.focalDistance.setValue(dist)
+            if cam.getTypeId() == coin.SoOrthographicCamera.getClassTypeId():
+                cam.height.setValue(max(size_mm * 4, 8000))
+        except Exception:  # noqa: BLE001
+            pass
+
+    def clear_overlay(self):
+        if self._overlay:
+            sg, root, legend = self._overlay
+            try:
+                sg.removeChild(root)
+            except Exception:  # noqa: BLE001 - view closed
+                pass
+            if legend is not None:
+                try:
+                    legend.hide()
+                    legend.setParent(None)
+                    legend.deleteLater()
+                except Exception:  # noqa: BLE001
+                    pass
+        self._overlay = None
+        self._overlay_f = None
+
+    def has_overlay(self) -> bool:
+        return self._overlay is not None
 
     def doc_key(self):
         if not self.ok:
@@ -812,7 +1036,7 @@ class SonarIQPanel(QtWidgets.QWidget):
                "dor": DARK["st-dor"]}[st]
         return (f"QPushButton {{ background: transparent; color: {col}; border: 1px solid #34373e; border-radius: 4px;"
                 f" padding: 0 5px; min-height: 26px; font-size: 12px; }}"
-                f" QPushButton:checked {{ border-color: {col}; background: #24262b; }}")
+                f" QPushButton:checked {{ border: 1px solid #e392c8; background: rgba(227,146,200,.14); }}")
 
     # ================================================================ header / document state
     def _update_analyse_state(self):
@@ -852,6 +1076,9 @@ class SonarIQPanel(QtWidgets.QWidget):
         self.bridge._orig.clear()
         self.bridge._ghost.clear()
         self.bridge._hidden.clear()
+        self.bridge._overlay = None
+        self.bridge._overlay_f = None
+        self.bridge._shown = {}
         self.run = None
         self.current = None
         self.filter = None
@@ -1294,8 +1521,11 @@ class SonarIQPanel(QtWidgets.QWidget):
         rq, ms = c.get("required"), c.get("measured")
         if c["status"] == "unk":
             line = "missing " + ", ".join(c.get("missing") or ["data"]) + " · add it or confirm"
+        elif (c.get("extra") or {}).get("dead_end") and rq and ms:
+            line = f"depth {fmt_val(ms, self.unit_mode)} > width {fmt_val(rq, self.unit_mode)}"
         elif rq and ms and rq.get("value") is not None and ms.get("value") is not None:
-            line = f"required {fmt_val(rq, self.unit_mode)} · measured {fmt_val(ms, self.unit_mode)}"
+            word = "fitted" if ms.get("unit") == "class" else "measured"
+            line = f"{word} {fmt_val(ms, self.unit_mode)} · required {fmt_val(rq, self.unit_mode)}"
         else:
             line = c.get("summary") or ""
         m = label(line, mono=True, wrap=True)
@@ -1305,13 +1535,14 @@ class SonarIQPanel(QtWidgets.QWidget):
         al = QtWidgets.QHBoxLayout(acts)
         al.setContentsMargins(0, 4, 0, 0)
         al.setSpacing(4)
-        for text, fn in (("Zoom to", lambda cc=c: self.bridge.focus(cc, ghost=False)),
+        for text, fn in (("Zoom to", lambda: self.bridge.zoom()),
                          ("Isolate", lambda cc=c: self.isolate(cc)),
-                         ("Show all", lambda: self.show_all()),
                          ("Select inverse", lambda: self.bridge.select_inverse()),
+                         ("Show all", lambda: self.show_all()),
                          ("Details →", lambda cc=c: self.open_evidence(cc))):
             b = QtWidgets.QPushButton(text)
-            b.setStyleSheet("QPushButton { padding: 0 6px; min-height: 22px; font-size: 11px; }")
+            b.setStyleSheet("QPushButton { padding: 0 6px; min-height: 22px; font-size: 11px; }" +
+                            (" QPushButton { background: #e9eaed; color: #131417; }" if text == "Zoom to" else ""))
             b.clicked.connect(lambda _=False, f=fn: f())
             al.addWidget(b)
         al.addStretch(1)
@@ -1331,6 +1562,8 @@ class SonarIQPanel(QtWidgets.QWidget):
             fr._acts.setVisible(on)
             fr.setStyleSheet(fr._qss_sel if on else fr._qss)
         n = self.bridge.focus(c)
+        if n:
+            self.bridge.overlay(c)
         el = (c.get("element") or {}).get("name") or c.get("id")
         self.foot_l.setText(f"Selected: {el}" + ("" if n or not self.bridge.ok else " · not in this document"))
         return n
