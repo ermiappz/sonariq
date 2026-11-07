@@ -16,7 +16,7 @@ except ImportError:
         from PySide2 import QtCore, QtGui, QtWidgets  # type: ignore
 
 PORTAL = os.environ.get("SONARIQ_PORTAL", "http://localhost:5173/")
-SUGGEST = ["simulate a night evacuation", "what if Stair 3B is out?", "Why does F-07 fail?", "Apply fix 2"]
+SUGGEST = ["Summarise open fails", "Why does F-07 fail?", "What blocks sign-off?", "Apply fix 2"]
 
 
 def mmss(s):
@@ -123,8 +123,8 @@ class ChatView(QtWidgets.QWidget):
         self.lay = QtWidgets.QVBoxLayout(host)
         self.lay.setContentsMargins(12, 10, 12, 10)
         self.lay.setSpacing(8)
-        self.lay.addWidget(_label("Ask why a check fails, describe one of the four allowed edits, or ask for an "
-                                  "evacuation simulation. Nothing changes until you confirm.", role="muted"))
+        self.lay.addWidget(_label("Assistant Engineer · ask why a check fails, or describe one of the four allowed edits. "
+                                  "Nothing changes until you confirm. Evacuation simulation lives in the portal.", role="muted"))
         self.lay.addStretch(1)
         self.scroll.setWidget(host)
         root.addWidget(self.scroll, 1)
@@ -144,7 +144,7 @@ class ChatView(QtWidgets.QWidget):
         row = QtWidgets.QHBoxLayout()
         row.setContentsMargins(12, 6, 12, 10)
         self.inp = QtWidgets.QLineEdit()
-        self.inp.setPlaceholderText("Ask, describe a change, or 'simulate night'")
+        self.inp.setPlaceholderText("Ask about this run, or describe a change")
         self.inp.returnPressed.connect(lambda: self.send(self.inp.text()))
         go = QtWidgets.QPushButton("Send")
         go.setProperty("kind", "primary")
@@ -208,6 +208,15 @@ class ChatView(QtWidgets.QWidget):
             l.addWidget(_label(c["text"], bold=True))
             l.addWidget(_label(f"Read by {c.get('source')}", role="faint"))
             self._buttons(l, f, "Confirm", c["confirm"])
+        elif t in ("scenario_preview", "simulation_result", "sim_result") and getattr(self.panel, "bridge", None) \
+                and getattr(self.panel.bridge, "ok", False):
+            # the FreeCAD panel does not run simulations: point to the portal (Simulate screen)
+            import sonariq_panel as _sp
+            l.addWidget(_label("Simulation lives in the portal", bold=True))
+            l.addWidget(_label(f"Open {_sp.PORTAL}/#simulate to set up and run evacuation scenarios.", role="muted"))
+            b = QtWidgets.QPushButton("Open Simulate in the portal")
+            b.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(QtCore.QUrl(f"{_sp.PORTAL}/#simulate")))
+            l.addWidget(b)
         elif t == "scenario_preview":
             fire = bool(c["scenario"].get("fire_origin"))
             hd = QtWidgets.QHBoxLayout()
