@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import os as _os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -40,7 +41,8 @@ class AcceptReq(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"ok": True, "engine": "ready", "ai": S.llm.status(), "revision": S.model.revision}
+    return {"ok": True, "engine": "ready", "ai": S.llm.status(), "revision": S.model.revision,
+            "simulate": _os.getenv("SIMULATE_ENABLED", "0").lower() in ("1", "true", "on", "yes")}
 
 
 @app.get("/model")
@@ -145,3 +147,126 @@ def rcrv_mapping():
         return {"rows": []}
     with p.open() as f:
         return {"rows": list(csv.DictReader(f))[:2000]}
+
+
+# ------------------------------------------------------------------ Simulate (behind SIMULATE_ENABLED)
+import os as _os  # noqa: E402
+
+SIM_ON = _os.getenv("SIMULATE_ENABLED", "0").lower() in ("1", "true", "on", "yes")
+_SIM = None
+
+
+def _sim():
+    global _SIM
+    if not SIM_ON:
+        raise HTTPException(404, "Simulate is off (set SIMULATE_ENABLED=1)")
+    if _SIM is None:
+        from sim.service import SimService
+        _SIM = SimService()
+    return _SIM
+
+
+class SimReq(BaseModel):
+    text: str | None = None              # words -> scenario preview (confirm=False)
+    scenario: dict | None = None         # explicit scenario JSON
+    revision: str | None = None          # A | B | Bfix2; default = the open model (incl. confirmed edits)
+    runs: int | None = None
+    confirm: bool = False
+    label: str | None = None
+
+
+def _sim_model(revision: str | None):
+    if not revision:
+        return S.model, S.model.revision
+    return S.load(revision, None), revision
+
+
+def _names(model):
+    from sim.geometry import build
+    g = build(model)
+    return list(g.stairs), list(g.spaces), g
+
+
+@app.get("/simulate/enabled")
+def sim_enabled():
+    return {"enabled": SIM_ON}
+
+
+@app.post("/simulate")
+def simulate(req: SimReq):
+    from sim.runner import Scenario
+    from sim.words import from_words, validate
+    svc = _sim()
+    sc = dict(req.scenario or {})
+    parsed = None
+    model, rev = _sim_model(req.revision or sc.get("revision"))
+    stairs, spaces, g = _names(model)
+    if req.text and not req.scenario:
+        parsed = from_words(req.text, stairs, spaces, S.llm)
+        if not parsed["ok"]:
+            raise HTTPException(422, parsed)
+        sc = parsed["scenario"]
+        if sc.get("revision"):
+            model, rev = _sim_model(sc["revision"])
+    errs = validate({"case": sc.get("case", "night"), **sc}, stairs, spaces)
+    if errs:
+        raise HTTPException(422, {"errors": errs})
+    if (sc.get("fire_origin") or "").startswith("@near:"):
+        from sim.smoke import origin_near_stair
+        sc["fire_origin"] = origin_near_stair(g, sc["fire_origin"].split(":", 1)[1])
+    scen = Scenario(case=sc.get("case", "night"), route=sc.get("route", "primary"),
+                    closed_stair=sc.get("closed_stair"), fire_origin=sc.get("fire_origin"))
+    preview = {"scenario": scen.key(), "label": scen.label(), "revision": rev,
+               "runs": req.runs or 500, "source": parsed["source"] if parsed else "explicit"}
+    if not req.confirm:
+        return {"preview": preview, "confirm_required": True}
+    st = svc.start(model, scen, req.runs, revision=rev, label=req.label)
+    return {"preview": preview, **st}
+
+
+@app.get("/simulate")
+def sim_list():
+    return {"results": _sim().list()}
+
+
+@app.get("/simulate/compare")
+def sim_compare(a: str, b: str):
+    try:
+        return _sim().compare(a, b)
+    except KeyError as e:
+        raise HTTPException(404, f"no results {e}")
+
+
+@app.get("/simulate/{jid}")
+def sim_status(jid: str):
+    try:
+        return _sim().status(jid)
+    except KeyError:
+        raise HTTPException(404, "no such simulation")
+
+
+@app.get("/simulate/{jid}/results")
+def sim_results(jid: str):
+    try:
+        return _sim().results(jid)
+    except KeyError:
+        raise HTTPException(404, "results not ready")
+
+
+@app.get("/simulate/{jid}/replay")
+def sim_replay(jid: str):
+    try:
+        return _sim().replay(jid)
+    except KeyError:
+        raise HTTPException(404, "replay not ready")
+
+
+@app.get("/simulate/{jid}/explain")
+def sim_explain(jid: str, q: str | None = None):
+    """Results analyst: the AI explains the results JSON; every number must be in it (number guard)."""
+    from sim.analyst import explain_results
+    try:
+        res = _sim().results(jid)
+    except KeyError:
+        raise HTTPException(404, "results not ready")
+    return explain_results(S.llm, res, q)
