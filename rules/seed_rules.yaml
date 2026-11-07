@@ -15,6 +15,7 @@ rules:
     pack: fire
     discipline: fire_life_safety
     title: Fire door class below bulkhead class
+    unk_title: Door has no fire class in the model
     source: SOLAS II-2
     clause: II-2/9.2.2.1.1
     clause_text: "Main vertical zones are bounded by A-60 divisions; openings in them keep the division's fire integrity (see also II-2/9.4.1.1.1)."

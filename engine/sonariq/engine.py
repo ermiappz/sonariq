@@ -117,7 +117,7 @@ def check_dict(r: CheckResult, run: Run, model: Model | None = None) -> dict:
         "id": run.ids.get(r.key),
         "check_key": r.key,
         "rule": r.rule.id,
-        "title": r.rule.title,
+        "title": (r.rule.unk_title if r.status == "unk" and r.rule.unk_title else r.rule.title),
         "source": r.rule.source,
         "clause": r.rule.clause,
         "ref": r.rule.ref,

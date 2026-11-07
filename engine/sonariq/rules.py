@@ -41,6 +41,7 @@ class Rule(BaseModel):
     pack: str
     discipline: str
     title: str
+    unk_title: str | None = None
     source: str
     clause: str
     clause_text: str
