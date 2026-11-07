@@ -20,6 +20,30 @@ from .session import DATA, REVISIONS, Session
 
 app = FastAPI(title="SonarIQ engine", version="0.2")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+
+# ------------------------------------------------------------------ rate limits (public demo: chat / analyse / upload)
+import time as _time  # noqa: E402
+from collections import defaultdict, deque  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+
+_LIMITS = {"/chat": 20, "/chat/confirm": 20, "/analyse": 30, "/upload": 10, "/simulate": 10}   # requests per minute per IP
+_HITS: dict = defaultdict(deque)
+
+
+@app.middleware("http")
+async def _rate_limit(request: Request, call_next):
+    lim = _LIMITS.get(request.url.path) if request.method == "POST" else None
+    if lim and _os.getenv("SONARIQ_RATE_LIMIT", "1") != "0":
+        ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[0].strip()
+        q, now = _HITS[(ip, request.url.path)], _time.time()
+        while q and now - q[0] > 60:
+            q.popleft()
+        if len(q) >= lim:
+            return JSONResponse({"detail": f"Too many requests: {lim} per minute on {request.url.path}. Try again shortly."},
+                                status_code=429, headers={"Retry-After": "30"})
+        q.append(now)
+    return await call_next(request)
 S = Session("A")
 # Hosted on the VM (behind Caddy + basic auth): clients may only open files inside data/ (uploads included).
 HOSTED = _os.getenv("SONARIQ_HOSTED", "0").lower() in ("1", "true", "on", "yes")
@@ -203,6 +227,78 @@ def runs_diff(a: str, b: str):
 @app.get("/runs/{rid}")
 def runs_get(rid: str):
     return _load_run(rid)
+
+
+# ------------------------------------------------------------------ reports (a run exported from FreeCAD, frozen) + task board
+REPORTS = Path(_os.getenv("SONARIQ_REPORTS", str(DATA / "reports.json")))
+TASKS = Path(_os.getenv("SONARIQ_TASKS", str(DATA / "tasks.json")))
+
+
+def _jload(p: Path, default):
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - missing or half-written
+        return default
+
+
+def _jsave(p: Path, d) -> None:
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(p)
+
+
+class ReportReq(BaseModel):
+    run_id: str
+
+
+@app.get("/reports")
+def reports_list():
+    return {"reports": _jload(REPORTS, [])}
+
+
+@app.post("/reports")
+def reports_create(req: ReportReq):
+    """Freeze a stored run as a report R-00n. One report per run: asking again returns the existing one."""
+    r = _load_run(req.run_id)
+    reps = _jload(REPORTS, [])
+    for x in reps:
+        if x["run_id"] == req.run_id:
+            return {**x, "existing": True}
+    import datetime as _dt
+    rep = {"id": f"R-{len(reps) + 1:03d}", "run_id": req.run_id, "time": _dt.datetime.now().isoformat(timespec="seconds"),
+           "file": r.get("file"), "revision": r.get("revision"), "counts": r.get("counts"),
+           "total_checks": r.get("total_checks"), "open_findings": len(r["run"].get("findings", []))}
+    reps.append(rep)
+    _jsave(REPORTS, reps)
+    return rep
+
+
+class TaskReq(BaseModel):
+    column: str | None = None     # backlog | doing | done
+    assignee: str | None = None   # mock person id, "" clears
+
+
+@app.get("/tasks")
+def tasks_list():
+    return {"tasks": _jload(TASKS, {})}
+
+
+@app.put("/tasks/{key}")
+def tasks_put(key: str, req: TaskReq):
+    if len(key) > 200:
+        raise HTTPException(400, "bad key")
+    if req.column is not None and req.column not in ("backlog", "doing", "done"):
+        raise HTTPException(400, "column must be backlog, doing or done")
+    t = _jload(TASKS, {})
+    cur = t.get(key, {"column": "backlog", "assignee": None})
+    if req.column is not None:
+        cur["column"] = req.column
+    if req.assignee is not None:
+        cur["assignee"] = req.assignee or None
+    t[key] = cur
+    _jsave(TASKS, t)
+    return {"key": key, **cur}
 
 
 @app.post("/analyse")

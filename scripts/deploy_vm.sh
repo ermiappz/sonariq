@@ -10,7 +10,7 @@
 #   /srv/sonariq/portal         built portal (vite build)
 #   /srv/sonariq/downloads      FreeCAD add-on zip, demo IFCs, Mac setup script, git bundle
 #   systemd --user sonariq-api  uvicorn on 127.0.0.1:$PORT (SONARIQ_HOSTED=1, Simulate on)
-#   /etc/caddy/Caddyfile        https://<ip-with-dashes>.sslip.io -> portal, /api -> engine, /downloads
+#   /etc/caddy/Caddyfile        scripts/caddy_write.sh: v2 = public portal + /downloads, /api by portal key or login (panel)
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -98,34 +98,8 @@ systemctl --user daemon-reload
 systemctl --user enable -q sonariq-api
 systemctl --user restart sonariq-api
 
-echo "==> caddy ($URL)"
-HASH="$(caddy hash-password --plaintext "$SQ_PASS")"
-sudo tee /etc/caddy/Caddyfile >/dev/null <<EOF
-# Managed by sonariq/scripts/deploy_vm.sh
-$HOST {
-	bind $NIC
-	encode gzip
-	basicauth {
-		$SQ_USER $HASH
-	}
-	handle_path /api/* {
-		reverse_proxy 127.0.0.1:$PORT {
-			flush_interval -1
-		}
-	}
-	handle_path /downloads/* {
-		root * $SRV/downloads
-		file_server browse
-	}
-	handle {
-		root * $SRV/portal
-		try_files {path} /index.html
-		file_server
-	}
-}
-EOF
-sudo caddy validate --config /etc/caddy/Caddyfile >/dev/null
-sudo systemctl restart caddy
+echo "==> caddy ($URL, mode ${CADDY_MODE:-v2})"
+HOST="$HOST" NIC="$NIC" PORT="$PORT" SQ_USER="$SQ_USER" SQ_PASS="$SQ_PASS" CADDY_MODE="${CADDY_MODE:-v2}" "$REPO/scripts/caddy_write.sh"
 
 echo "==> health"
 for _ in $(seq 1 40); do

@@ -2,7 +2,7 @@
 // Every number here comes from the engine (setup, results, replay JSON). People are neutral dots; status colours
 // stay with findings.
 import { useEffect, useMemo, useState } from "react";
-import { sim, type Run, type SimCompare, type SimReplay, type SimResults, type SimScenario, type SimStatus } from "../api";
+import { apiFetch, sim, type Run, type SimCompare, type SimReplay, type SimResults, type SimScenario, type SimStatus } from "../api";
 import DeckPlan, { ringPath } from "../components/DeckPlan";
 import { Controls, Histogram, QueueChart, ReplayView, useClock, mmss } from "../components/Replay";
 import Deck3D, { Safe3D } from "../components/Deck3D";
@@ -46,7 +46,7 @@ function SetupView({ rev: topRev, run, open }: { rev: string; run: Run | null; o
   const scen = useMemo(() => ({ ...sc, fire_origin: fireOn ? (sc.fire_origin || "@near:3A") : null }), [sc, fireOn]);
   useEffect(() => {
     setErr("");
-    fetch("/api/simulate/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scenario: scen, revision: rev, explain: true }) })
+    apiFetch("/simulate/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scenario: scen, revision: rev, explain: true }) })
       .then(async (r) => { if (!r.ok) throw new Error(await r.text()); return r.json(); }).then(setSetup).catch((e) => setErr(String(e)));
   }, [JSON.stringify(scen), rev]);
   useEffect(() => { sim.list().then((r) => setList(r.results)).catch(() => {}); }, [job?.state]);
@@ -354,7 +354,7 @@ function Compare({ a, b, back, open, go }: { a: string; b: string; back: () => v
   useEffect(() => { sim.results(a).then(setRa); sim.replay(a).then(setRepA); }, [a]);
   useEffect(() => {
     if (b !== "fixes") return;
-    fetch(`/api/simulate/${a}/fixes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ finding: "F-07", ai: true }) })
+    apiFetch(`/simulate/${a}/fixes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ finding: "F-07", ai: true }) })
       .then(async (r) => { if (!r.ok) throw new Error(await r.text()); return r.json(); }).then(setFx).catch((e) => setErr(String(e)));
   }, [a, b]);
   useEffect(() => {

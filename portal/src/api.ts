@@ -19,8 +19,16 @@ export interface Run {
   findings: Check[]; checks: Check[]; not_applicable: { rule: string; title: string; ref: string; reason: string }[];
 }
 
+// The portal is served at / (live) or /next/ (staging); the API sits next to it. The demo key lets the browser reach
+// the API without the basic-auth prompt the FreeCAD panel still uses.
+export const BASE = import.meta.env.BASE_URL;            // "/" or "/next/"
+export const API = BASE + "api";
+export const HDR: Record<string, string> = { "X-SonarIQ-Key": (import.meta.env.VITE_SQ_KEY as string) || "sonariq-demo" };
+export const apiFetch = (path: string, init?: RequestInit) =>
+  fetch(API + path, { ...init, headers: { ...HDR, ...(init?.headers as Record<string, string> | undefined) } });
+
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch("/api" + path, { headers: { "Content-Type": "application/json" }, ...init });
+  const r = await fetch(API + path, { ...init, headers: { "Content-Type": "application/json", ...HDR } });
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json() as Promise<T>;
 }
@@ -35,11 +43,19 @@ export const api = {
   history: () => j<{ history: Record<string, unknown>[]; decisions: Decision[] }>("/history"),
   rules: () => j<{ rules: Record<string, any>[] }>("/rules"),
   mapping: () => j<{ rows: Record<string, string>[] }>("/rcrv/mapping"),
-  ifcUrl: (rev: string) => `/api/model/ifc/${rev}`,
+  ifcUrl: (rev: string) => `${API}/model/ifc/${rev}`,
+  reports: () => j<{ reports: Report[] }>("/reports"),
+  report: (run_id: string) => j<Report & { existing?: boolean }>("/reports", { method: "POST", body: JSON.stringify({ run_id }) }),
+  tasks: () => j<{ tasks: Record<string, Task> }>("/tasks"),
+  task: (key: string, body: Partial<Task>) => j<Task>(`/tasks/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(body) }),
   runs: () => j<{ runs: RunMeta[] }>("/runs"),
   runGet: (id: string) => j<RunMeta & { run: Run }>(`/runs/${encodeURIComponent(id)}`),
   runDiff: (a: string, b: string) => j<RunDiff>(`/runs/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
 };
+
+export interface Report { id: string; run_id: string; time: string; file: string; revision: string; counts: Record<string, number>;
+  total_checks: number; open_findings: number }
+export interface Task { column: "backlog" | "doing" | "done"; assignee: string | null }
 
 // ---- Stored runs (every Analyse, from the panel or the portal, is kept; never overwritten)
 export interface RunMeta { id: string; seq: number; time: string; file: string; revision: string; scope: string; packs: string[];

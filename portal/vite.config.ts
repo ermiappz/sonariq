@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 
 export default defineConfig({
+  base: process.env.VITE_BASE ?? "/",
   plugins: [react()],
   resolve: { alias: { "@design": fileURLToPath(new URL("../design", import.meta.url)) } },
   server: {
