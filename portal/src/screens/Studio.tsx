@@ -274,6 +274,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
           <b>Studio</b>
           <span className="sq-chip mono studio-file" title={label ?? ""}>{label ? label.replace(/\.ifc$/i, "") : "No model open"}{shown && !target ? ` · Rev ${shown.meta.revision}` : ""}</span>
           <span style={{ flex: 1 }} />
+          <button className="sq-btn" onClick={() => setSetup(!setup)}>{setup ? "Close" : "Open model"}</button>
           <button className="sq-btn is-primary" disabled={busy || (!target && !shown) || !packs.length} title={!target && !shown ? "Open an IFC model to analyse" : ""} onClick={analyse}>{busy ? "Analysing…" : "Analyse"}</button>
           {shown && !target && <button className="sq-btn" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}
         </header>
