@@ -153,7 +153,7 @@ function Workspace() {
               {pinned && <button className="sq-btn is-sm" onClick={() => setPinned(null)}>New · follow latest run</button>}
             </div>
           )}
-          {screen === "inbox" && (run || error ? <Inbox run={run} hvac={hvac} onOpen={openFinding} /> : <NoRuns loaded={runs !== null} />)}
+          {screen === "inbox" && (run || error ? <Inbox run={run} hvac={hvac} meta={latest} onOpen={openFinding} /> : <NoRuns loaded={runs !== null} />)}
           {screen === "board" && (run ? <Board run={run} hvac={hvac} onOpen={openFinding} /> : <NoRuns loaded={runs !== null} />)}
           {screen === "revisions" && <Revisions runs={runs} />}
           {screen === "thread" && open && <Thread id={open} units={units} user={`${USER.name} · ${USER.role}`} back={() => setScreen("inbox")} />}

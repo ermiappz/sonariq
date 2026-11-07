@@ -48,3 +48,11 @@ body { background: #131417; }
 tr.is-incorrect td { opacity: .5; }
 tr.is-incorrect td .inc-why, .inc-why { opacity: 1; color: var(--fg-2); font-size: 12px; margin-top: 2px; }
 tr.is-incorrect td:has(.inc-why) { opacity: .85; }
+.ib-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 4px; background: none; color: var(--fg-1); cursor: pointer; font: inherit; font-size: 13px; }
+.ib-chip.is-on { border-color: var(--accent); background: var(--accent-tint); }
+.ib-sel { height: 28px; background: var(--bg-1); color: var(--fg-1); border: 1px solid var(--line); border-radius: 4px; padding: 0 8px; font: inherit; font-size: 13px; }
+.ib-bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-color: var(--accent); background: var(--accent-tint); }
+.ib-table tr.is-sel td { background: var(--accent-tint); }
+.rev-row { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.rev-row:last-child { border-bottom: 0; }
+.rev-row.is-incorrect > span:not(:has(.inc-why)) { opacity: .5; }
