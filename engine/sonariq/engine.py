@@ -228,8 +228,9 @@ def impact(model_a: Model, run_a: Run, model_b: Model, run_b: Run) -> dict:
             changed.append({"key": k, "id": run_b.ids.get(k) or run_a.ids.get(k), "from": ra.status if ra else None,
                             "to": rb.status, "title": rb.rule.title, "location": rb.location,
                             "summary": rb.summary})
-        elif (ra.measured or {}).get("value") != (rb.measured or {}).get("value") or \
-                (ra.required or {}).get("value") != (rb.required or {}).get("value"):
+        elif (rb.measured or {}).get("value") is not None and (
+                (ra.measured or {}).get("value") != (rb.measured or {}).get("value") or
+                (ra.required or {}).get("value") != (rb.required or {}).get("value")):
             value_changed.append({"key": k, "id": run_b.ids.get(k), "status": rb.status, "title": rb.rule.title,
                                   "from": (ra.measured or {}).get("value"), "to": (rb.measured or {}).get("value"),
                                   "location": rb.location})

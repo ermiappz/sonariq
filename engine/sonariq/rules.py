@@ -57,6 +57,8 @@ class Rule(BaseModel):
 
     @property
     def ref(self) -> str:
+        if self.source.startswith("SOLAS") and self.clause.startswith("II-2"):
+            return f"SOLAS {self.clause}"
         return f"{self.source} {self.clause}"
 
     @property
