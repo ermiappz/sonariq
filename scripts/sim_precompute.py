@@ -116,10 +116,12 @@ def write_demo(svc, index):
 
     def line(r, label):
         if not r:
-            return f"| {label} | not computed yet | | | |"
+            return f"| {label} | not computed yet | | | | |"
         worst = max(r["landings"].items(), key=lambda kv: kv[1]["queue_max_p95"])
+        sm = r.get("smoke")
+        smoke = f"{sm['people_exposed_p95']}" if sm else "—"
         return (f"| {label} | {r['runs']} | {_mmss(r['tA_p95_s'])} ({r['tA_p95_s']} s) | "
-                f"{worst[0]} · {worst[1]['queue_max_p95']} | {r['peak_density_p95']} |")
+                f"{worst[0]} · {worst[1]['queue_max_p95']} | {r['peak_density_p95']} | {smoke} |")
 
     def landing(r, k):
         return (r or {}).get("landings", {}).get(k, {}).get("queue_max_p95", "—")
@@ -135,7 +137,8 @@ def write_demo(svc, index):
         "",
         "## Before you start",
         "",
-        "1. `make api-sim` (engine with Simulate on, port 8765) and `make portal` (http://localhost:5173).",
+        "1. Hosted: https://34-88-130-224.sslip.io (engine with Simulate on; `scripts/deploy_vm.sh`). "
+        "Local: `make api-sim` (port 8765) and `make portal` (http://localhost:5173).",
         "2. FreeCAD: open `data/deck5_revA.ifc`. The panel shows **Analyse** and **Simulate**.",
         "3. The simulations below are cached (500 runs each), so Confirm shows the result at once. "
         "If the cache is missing, set the runs stepper to 20 and say so.",
@@ -153,11 +156,8 @@ def write_demo(svc, index):
         lines += [f"   - Expect: p95 **{_mmss(g1['tA_p95_s'])}** over {g1['runs']} runs; longest landing queue "
                   f"**{w[0]} · {w[1]['queue_max_p95']} people** (p95); longest route {g1['longest_route']['length_m']} m "
                   f"from {g1['longest_route']['space']}."]
-        ev = {e["kind"]: e for e in g1.get("events", [])}
-        if "queue_peak" in ev:
-            lines += [f"   - Replay (W10, **Open replay**): the 3B queue peaks at {ev['queue_peak']['people']} on "
-                      f"{ev['queue_peak']['landing']} at {_mmss(ev['queue_peak']['t_s'])}; click the hotspot → "
-                      "**Pin to review** (BCF viewpoint + comment on the finding)."]
+        lines += [f"   - Replay (W10, **Open replay**): the queue chart shows Stair {w[0][:2]} (longest p95 queue); "
+                  "click the hotspot → **Pin to review** (BCF viewpoint + comment on the finding)."]
     lines += ["5. Chat: *Apply fix 2* (four cabins, one berth each) → **Confirm** → F-07 clears (rule engine)."]
     if g1 and g2:
         lines += [f"6. **Simulate** again → compare: p95 {_mmss(g1['tA_p95_s'])} → {_mmss(g2['tA_p95_s'])} "
@@ -167,10 +167,15 @@ def write_demo(svc, index):
                   f"the response-time spread ({_resp()}), so read the change against that. That is the design insight."]
     lines += ["7. Chat: *Fire near stair 3A at night* → *Fire what-if · preview* (mini plan, hatched smoke) → **Confirm**."]
     if gf:
-        sm = gf.get("replay_run", {})
-        lines += [f"   - Expect: p95 **{_mmss(gf['tA_p95_s'])}**; label *Illustrative smoke spread, not a fire model*; "
-                  "smoke stops at the self-closing stair and MVZ doors."]
-        _ = sm
+        sm = gf.get("smoke") or {}
+        base = f" (without the fire: {_mmss(g2['tA_p95_s'])})" if g2 else ""
+        lines += [f"   - Expect: label *Illustrative smoke spread, not a fire model*; p95 **{_mmss(gf['tA_p95_s'])}**{base}."]
+        if sm:
+            cr = f"smoke reaches a corridor at {_mmss(sm['corridor_reached_s'])}; " if sm.get("corridor_reached_s") is not None else ""
+            lines += [f"   - The fire shows in **exposure**, not in time: {cr}**{sm['people_exposed_p95']} people** walk through "
+                      f"smoke (p95 of {sm['runs']} runs), {sm['exposure_s_mean']} person-seconds in smoke on average, "
+                      f"{sm['rerouted_mean']} rerouted on average. Night response times ({_resp()}) mean the cabins near "
+                      "the origin fill before people leave."]
     lines += [
         "8. Portal W3 (F-07 thread): Source text, the pinned replay moment, **Approve** (signed row) → "
         "**Export BCF** from the panel (topics carry the pin viewpoint and the sign-off comment).",
@@ -179,8 +184,8 @@ def write_demo(svc, index):
         "",
         "## Results table (500 runs each, night case, Deck 5 sub-model)",
         "",
-        "| Model | Runs | p95 assembly | Longest landing queue (p95) | Peak density p95 (p/m²) |",
-        "|---|---|---|---|---|",
+        "| Model | Runs | p95 assembly | Longest landing queue (p95) | Peak density p95 (p/m²) | In smoke (p95) |",
+        "|---|---|---|---|---|---|",
         line(g1, "Rev A + OR-117 (typed edit)"), line(g2, "Rev A + OR-117 + fix 2"),
         line(gf, "… + fix 2, fire what-if near Stair 3A"),
         line(rA, "Rev A (IFC)"), line(rB, "Rev B (IFC)"), line(rBf, "Rev B + fix 2 (IFC)"),

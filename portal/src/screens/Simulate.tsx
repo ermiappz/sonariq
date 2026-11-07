@@ -298,7 +298,15 @@ function Results({ id, back, user, go, initial3d = false }: { id: string; back: 
             <table className="sq-table"><thead><tr><th>Landing</th><th>Queue p95</th><th>Mean of max</th><th>Max</th></tr></thead>
               <tbody>{Object.entries(r.landings).map(([k, s]) => <tr key={k}><td>{k}</td><td className="mono">{s.queue_max_p95}</td><td className="mono">{s.queue_max_mean}</td><td className="mono">{s.queue_max_max}</td></tr>)}</tbody></table>
           </div>
-          <div className="sq-faint" style={{ fontSize: 12 }}>Longest route: {r.longest_route.space} → Stair {r.longest_route.stair}, {r.longest_route.length_m} m · {r.people_deck5} people on Deck 5{(r as any).smoke ? "" : ""}</div>
+          <div className="sq-faint" style={{ fontSize: 12 }}>Longest route: {r.longest_route.space} → Stair {r.longest_route.stair}, {r.longest_route.length_m} m · {r.people_deck5} people on Deck 5</div>
+          {(r as any).smoke && (() => { const sm = (r as any).smoke; return (
+            <div className="sq-card is-dashed" style={{ padding: 10, fontSize: 12 }}>
+              <span className="sq-label">Smoke exposure · illustrative smoke spread, not a fire model</span>
+              <div className="mono" style={{ marginTop: 4 }}>
+                {sm.people_exposed_p95} people walk through smoke (p95 of {sm.runs} runs) · {sm.exposure_s_mean} person-seconds in smoke (mean)
+                · {sm.rerouted_mean} rerouted (mean){sm.corridor_reached_s != null ? ` · smoke in a corridor at ${mmss(sm.corridor_reached_s)}` : ""}
+              </div>
+            </div>); })()}
         </div>
         <div className="flex flex-col gap-3">
           <div className="sq-card" style={{ padding: 12 }}>
