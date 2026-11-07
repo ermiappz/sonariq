@@ -1,0 +1,58 @@
+npm warn deprecated eslint@9.39.5: This version is no longer supported. Please see https://eslint.org/version-support for other options.
+
+added 174 packages, and audited 175 packages in 1m
+
+46 packages are looking for funding
+  run `npm fund` for details
+
+9 vulnerabilities (8 moderate, 1 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn install-scripts   esbuild@0.21.5 (postinstall: node install.js)
+npm warn install-scripts
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+
+added 65 packages, changed 1 package, and audited 240 packages in 14s
+
+63 packages are looking for funding
+  run `npm fund` for details
+
+10 vulnerabilities (8 moderate, 2 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:
+npm warn install-scripts   esbuild@0.21.5 (postinstall: node install.js)
+npm warn install-scripts
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+npm error code ERESOLVE
+npm error ERESOLVE unable to resolve dependency tree
+npm error
+npm error While resolving: sonariq-portal@0.0.0
+npm error Found: @thatopen/fragments@2.4.0
+npm error node_modules/@thatopen/fragments
+npm error   @thatopen/fragments@"2.4.0" from the root project
+npm error
+npm error Could not resolve dependency:
+npm error peer @thatopen/fragments@"~3.0.0" from @thatopen/components@2.4.11
+npm error node_modules/@thatopen/components
+npm error   @thatopen/components@"2.4.11" from the root project
+npm error
+npm error Fix the upstream dependency conflict, or retry this command with --force or --legacy-peer-deps to accept an incorrect (and potentially broken) dependency resolution.
+npm error
+npm error
+npm error For a full report see:
+npm error /home/ermias/.npm/_logs/2026-11-07T02_49_47_735Z-eresolve-report.txt
+npm error A complete log of this run can be found in: /home/ermias/.npm/_logs/2026-11-07T02_49_47_735Z-debug-0.log

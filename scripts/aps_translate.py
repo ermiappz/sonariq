@@ -173,7 +173,7 @@ def poll(urn: str, max_minutes: int = 240) -> dict:
 def to_gltf(urn: str) -> None:
     out = RCRV / "gltf"
     out.mkdir(parents=True, exist_ok=True)
-    cmd = ["npx", "-y", "-p", "svf-utils", "svf-to-gltf", urn, "--output-folder", str(out),
+    cmd = ["npx", "-y", "-p", os.getenv("SVF_UTILS", "svf-utils@7.0.1"), "svf-to-gltf", urn, "--output-folder", str(out),
            "--deduplicate", "--skip-unused-uvs", "--ignore-lines", "--ignore-points"]
     log("running: " + " ".join(cmd))
     subprocess.run(cmd, check=True, env=os.environ.copy())
