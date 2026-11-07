@@ -17,3 +17,4 @@ data/rcrv/gltf/
 dist/
 node_modules/
 portal/public/wasm/web-ifc-node.wasm
+data/rag/src/

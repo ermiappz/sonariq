@@ -378,3 +378,46 @@ def sim_card(jid: str):
             "worst_queue_p95": worst[1].get("queue_max_p95"), "last_stair": last[0],
             "last_stair_p95_s": last[1].get("last_p95_s"), "label": r["label"], "analyst": ai["text"],
             "badge": ai["badge"], "replay_url": f"#simulate/{jid}"}
+
+
+# ------------------------------------------------------------------ RAG: source text, cited why, draft rule
+class DraftReq(BaseModel):
+    query: str
+
+
+class ApproveReq(BaseModel):
+    draft: dict
+    by: str = "Designer"
+
+
+@app.get("/findings/{fid}/sources")
+def finding_sources(fid: str):
+    from .sources import finding_sources as fs
+    try:
+        return fs(S.finding(fid))
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    except ImportError as e:
+        raise HTTPException(503, str(e))
+
+
+@app.get("/findings/{fid}/why")
+def finding_why(fid: str, q: str | None = None):
+    from .llm import template_explanation
+    from .sources import why
+    f = S.finding(fid)
+    out = why(S.llm, f, q or "Why does this fail?", template_explanation(f))
+    out["badge"] = "AI explanation · numbers checked · sources cited" if out["source"] == "ai" else "Rule engine text"
+    return out
+
+
+@app.post("/rules/draft")
+def rules_draft(req: DraftReq):
+    from .sources import draft_rule
+    return draft_rule(S.llm, req.query)
+
+
+@app.post("/rules/draft/approve")
+def rules_draft_approve(req: ApproveReq):
+    from .sources import approve_draft
+    return approve_draft(req.draft, req.by)

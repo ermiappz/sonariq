@@ -201,11 +201,24 @@ class Chat:
             cards.append({"type": "explain", "text": out["text"], "badge": out["badge"], "about": self.last_sim["id"]})
         elif fid:
             try:
+                f = self.S.finding(fid)
+            except KeyError:
+                f = None
+                cards.append({"type": "error", "text": f"{fid} is not open in Rev {self.S.model.revision}."})
+            if f is not None and self.rag is not None:
+                from .llm import template_explanation
+                from .sources import why
+                out = why(self.S.llm, f, text, template_explanation(f))
+                badge = "AI explanation · numbers checked · sources cited" if out["source"] == "ai" else "Rule engine text"
+                cards.append({"type": "explain", "text": out["text"], "badge": badge, "about": fid,
+                              "citations": out["citations"]})
+                src = out["sources"]["reading"] + out["sources"]["public"]
+                if src:
+                    cards.append({"type": "sources", "sources": src[:3], "note": out["sources"]["note"]})
+            elif f is not None:
                 out = self.S.explain(fid, text)
                 cards.append({"type": "explain", "text": out["text"], "badge": out["badge"], "about": fid})
-            except KeyError:
-                cards.append({"type": "error", "text": f"{fid} is not open in Rev {self.S.model.revision}."})
-        if self.rag is not None:
+        elif self.rag is not None:
             src = self.rag.search(text, k=3)
             if src:
                 cards.append({"type": "sources", "sources": src})
