@@ -28,6 +28,7 @@ class Session:
         self.decisions: list[dict] = []
         self.history: list[dict] = []
         self.pending: dict | None = None
+        self.pins: list[dict] = []     # replay moments pinned to a finding's review (BCF viewpoint + comment)
         self.groups = ["fls", "acc", "dnv"]
         self.scope = "deck:5"
         self.open(revision, path)
@@ -168,11 +169,25 @@ class Session:
         d = run_dict(run, self.model)
         self.apply_decisions(d)
         topics = [f for f in d["findings"]]
+        for f in topics:
+            f["pins"] = [p for p in self.pins if p["finding"] == f["id"]]
         out = Path(path) if path else DATA / "out" / f"sonariq_rev-{self.model.revision.lower()}.bcfzip"
         res = _export_bcf(topics, out, project=self.model.ship.get("name", "Demo ship"))
         res["decisions"] = sum(1 for f in topics if f.get("decision"))
         res["open"] = len(topics) - res["decisions"]
         return res
+
+
+def _pin(self, finding: str, note: str, by: str, x: float, y: float, t: float, sim_id: str) -> dict:
+    self.finding(finding)   # raises KeyError if unknown
+    p = {"finding": finding, "note": note, "by": by, "x": x, "y": y, "t": t, "sim_id": sim_id, "time": _now()}
+    self.pins.append(p)
+    self.history.append({"time": p["time"], "event": "pin", "text": f"{by} pinned a replay moment to {finding}: {note}",
+                         "finding": finding})
+    return p
+
+
+Session.pin = _pin
 
 
 def _now() -> str:

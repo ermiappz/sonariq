@@ -16,6 +16,21 @@ def _topic(f: dict, now: str, author: str) -> tuple[str, str, str]:
             f"{req.get('unit', '')}, measured {meas.get('value')} {meas.get('unit', '')}. {f.get('summary', '')}")
     if f.get("decision"):
         desc += f" Decision: {f['decision']}"
+    extra_vps, comments, pin_vps = "", "", []
+    for i, p in enumerate(f.get("pins") or []):
+        pvid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"sonariq/pin/{tid}/{i}/{p.get('time')}"))
+        extra_vps += f'  <Viewpoints Guid="{pvid}"><Viewpoint>pin_{i}.bcfv</Viewpoint></Viewpoints>\n'
+        comments += (f'  <Comment Guid="{uuid.uuid5(uuid.NAMESPACE_URL, pvid + "/c")}"><Date>{now}</Date>'
+                     f'<Author>{escape(p.get("by", author))}</Author><Comment>{escape(p["note"])}</Comment>'
+                     f'<Viewpoint Guid="{pvid}"/></Comment>\n')
+        z = p.get("z", 14.5)
+        pin_vps.append((f"pin_{i}.bcfv", f"""<?xml version="1.0" encoding="UTF-8"?>
+<VisualizationInfo Guid="{pvid}">
+  <OrthogonalCamera><CameraViewPoint><X>{p['x']}</X><Y>{p['y']}</Y><Z>{z + 30}</Z></CameraViewPoint>
+    <CameraDirection><X>0</X><Y>0</Y><Z>-1</Z></CameraDirection><CameraUpVector><X>0</X><Y>1</Y><Z>0</Z></CameraUpVector>
+    <ViewToWorldScale>20</ViewToWorldScale></OrthogonalCamera>
+</VisualizationInfo>
+"""))
     markup = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Markup>
   <Topic Guid="{tid}" TopicType="Issue" TopicStatus="{escape('Open' if not f.get('decision') else 'Decision')}">
@@ -27,7 +42,7 @@ def _topic(f: dict, now: str, author: str) -> tuple[str, str, str]:
     <ReferenceLink>{escape(f['ref'])}</ReferenceLink>
   </Topic>
   <Viewpoints Guid="{vid}"><Viewpoint>viewpoint.bcfv</Viewpoint></Viewpoints>
-</Markup>
+{extra_vps}{comments}</Markup>
 """
     guids = (f.get("evidence") or {}).get("guids") or ([f["element"]["guid"]] if f.get("element") else [])
     comps = "".join(f'<Component IfcGuid="{g}"/>' for g in guids)
@@ -36,7 +51,7 @@ def _topic(f: dict, now: str, author: str) -> tuple[str, str, str]:
   <Components><Selection>{comps}</Selection><Visibility DefaultVisibility="true"/></Components>
 </VisualizationInfo>
 """
-    return tid, markup, vp
+    return tid, markup, vp, pin_vps
 
 
 def export_bcf(findings: list[dict], path: str | Path, project: str = "Demo ship", author: str = "SonarIQ") -> dict:
@@ -51,8 +66,10 @@ def export_bcf(findings: list[dict], path: str | Path, project: str = "Demo ship
                                    f'{uuid.uuid5(uuid.NAMESPACE_URL, project)}"><Name>{escape(project)}</Name>'
                                    f'</Project><ExtensionSchema/></ProjectExtension>\n')
         for f in findings:
-            tid, markup, vp = _topic(f, now, author)
+            tid, markup, vp, pin_vps = _topic(f, now, author)
             z.writestr(f"{tid}/markup.bcf", markup)
             z.writestr(f"{tid}/viewpoint.bcfv", vp)
+            for name, body in pin_vps:
+                z.writestr(f"{tid}/{name}", body)
     tmp.replace(path)   # nothing is sent half-way
     return {"path": str(path), "topics": len(findings)}

@@ -270,3 +270,23 @@ def sim_explain(jid: str, q: str | None = None):
     except KeyError:
         raise HTTPException(404, "results not ready")
     return explain_results(S.llm, res, q)
+
+
+class PinReq(BaseModel):
+    t: float
+    x: float
+    y: float
+    note: str
+    by: str = "Designer"
+    finding: str = "F-07"
+
+
+@app.post("/simulate/{jid}/pin")
+def sim_pin(jid: str, req: PinReq):
+    """Pin to review: the replay moment becomes a BCF viewpoint + comment on the finding (W3)."""
+    _sim()
+    try:
+        p = S.pin(req.finding, req.note, req.by, req.x, req.y, req.t, jid)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    return {"ok": True, "topic": req.finding, "pin": p}
