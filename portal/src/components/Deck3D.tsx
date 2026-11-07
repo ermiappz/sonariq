@@ -1,17 +1,27 @@
 // 3D toggle (context only): That Open Engine world (same setup as W4) with a Deck 4–7 stack built from the
 // engine's Deck 5 geometry, the stair shafts, Deck 5 people from the replay, and the other decks' people
 // waiting at each stair (inflow_wait_series). The 2D replay stays the main view.
-import { useEffect, useRef } from "react";
+import { Component, useEffect, useRef, type ReactNode } from "react";
 import * as OBC from "@thatopen/components";
 import * as THREE from "three";
 import type { SimReplay } from "../api";
 
-const DECK_H = 2.9; // m between decks (display only)
+const DECK_H = 6; // display spacing between decks (exaggerated so the stack reads; not to scale)
 
 function shape(r: { outer: number[][]; holes: number[][][] }) {
   const s = new THREE.Shape(r.outer.map((p) => new THREE.Vector2(p[0], p[1])));
   r.holes.forEach((h) => s.holes.push(new THREE.Path(h.map((p) => new THREE.Vector2(p[0], p[1])))));
   return s;
+}
+
+export class Safe3D extends Component<{ children: ReactNode }, { err: string | null }> {
+  state = { err: null as string | null };
+  static getDerivedStateFromError(e: Error) { return { err: String(e) }; }
+  render() {
+    return this.state.err
+      ? <div className="sq-banner" style={{ height: 120 }}>3D view unavailable here ({this.state.err}). The 2D replay is the main view.</div>
+      : this.props.children;
+  }
 }
 
 export default function Deck3D({ rep, t, height = 400 }: { rep: SimReplay; t: number; height?: number }) {
@@ -68,7 +78,9 @@ export default function Deck3D({ rep, t, height = 400 }: { rep: SimReplay; t: nu
         new THREE.MeshBasicMaterial({ color: ink, transparent: true, opacity: 0.08 }));
       shaft.position.set((x0 + x1) / 2, (y0 + y1) / 2, (-DECK_H + 2 * DECK_H + 2.4) / 2);
       root.add(shaft);
-      root.add(Object.assign(new THREE.LineSegments(new THREE.EdgesGeometry(shaft.geometry), new THREE.LineBasicMaterial({ color: ink, transparent: true, opacity: 0.4 })), { position: shaft.position.clone() }));
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(shaft.geometry), new THREE.LineBasicMaterial({ color: ink, transparent: true, opacity: 0.4 }));
+      edges.position.copy(shaft.position);
+      root.add(edges);
       const im = new THREE.InstancedMesh(new THREE.SphereGeometry(0.2, 8, 6), new THREE.MeshBasicMaterial({ color: faint }), 400);
       im.count = 0;
       im.userData = { x: (x0 + x1) / 2, y: (y0 + y1) / 2, w: x1 - x0 };
@@ -79,8 +91,9 @@ export default function Deck3D({ rep, t, height = 400 }: { rep: SimReplay; t: nu
     people.count = 0;
     root.add(people);
     const box = new THREE.Box3().setFromObject(root);
-    world.camera.controls.fitToBox(box, false).then(() => world.camera.controls.rotateTo(-0.5, 0.95, false))
-      .then(() => world.camera.controls.fitToBox(box, false, { paddingTop: 1, paddingBottom: 1, paddingLeft: 1, paddingRight: 1 }));
+    const c = box.getCenter(new THREE.Vector3());
+    const span = box.getSize(new THREE.Vector3()).length();
+    world.camera.controls.setLookAt(c.x - span * 0.18, c.y + span * 0.42, c.z + span * 0.5, c.x, c.y, c.z, false);
     live.current = { people, waiting, render: () => world.renderer?.update() };
     return () => { live.current = null; components.dispose(); };
   }, [rep]);
@@ -114,7 +127,7 @@ export default function Deck3D({ rep, t, height = 400 }: { rep: SimReplay; t: nu
     <div style={{ position: "relative", height, border: "1px solid var(--line)" }}>
       <div ref={host} style={{ position: "absolute", inset: 0 }} />
       <div className="sq-faint" style={{ position: "absolute", left: 8, top: 8, fontSize: 11, background: "var(--bg-1)", padding: "2px 6px" }}>
-        3D · Decks 4–7 · context only · people from Decks 4, 6, 7 shown waiting at their stair</div>
+        3D · Decks 4–7 · context only · deck spacing not to scale · people from Decks 4, 6, 7 shown waiting at their stair</div>
     </div>
   );
 }

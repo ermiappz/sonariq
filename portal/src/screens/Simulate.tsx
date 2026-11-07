@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { sim, type Run, type SimCompare, type SimReplay, type SimResults, type SimScenario, type SimStatus } from "../api";
 import DeckPlan, { ringPath } from "../components/DeckPlan";
 import { Controls, Histogram, QueueChart, ReplayView, useClock, mmss } from "../components/Replay";
-import Deck3D from "../components/Deck3D";
+import Deck3D, { Safe3D } from "../components/Deck3D";
 
 const REVS = [["A", "Rev A"], ["B", "Rev B · OR-117"], ["Bfix2", "Rev B + fix 2"]] as const;
 const LABEL = "Deck 5 sub-model with inflows from Decks 4, 6, 7 · design insight, not a full-ship Circ.1533 analysis";
@@ -26,7 +26,7 @@ export default function Simulate({ user, rev, run }: { user: string; rev: string
   const [path, setPath] = useState<string[]>(parse());
   const go = (p: string[]) => { setPath(p); history.replaceState(null, "", "#simulate" + (p.length ? "/" + p.join("/") : "")); };
   if (path[0] === "compare" && path[1] && path[2]) return <Compare a={path[1]} b={path[2]} back={() => go([path[1]])} open={(id) => go([id])} go={go} />;
-  if (path[0]) return <Results id={path[0]} back={() => go([])} user={user} go={go} />;
+  if (path[0]) return <Results id={path[0]} back={() => go([])} user={user} go={go} initial3d={path[1] === "3d"} />;
   return <SetupView rev={rev} run={run} open={(id) => go([id])} />;
 }
 
@@ -211,12 +211,12 @@ function PlanSetup({ g, s, showF, run, onClick }: { g: any; s: Setup; showF: boo
 }
 
 // ------------------------------------------------------------------------------------------------ W10 results
-function Results({ id, back, user, go }: { id: string; back: () => void; user: string; go: (p: string[]) => void }) {
+function Results({ id, back, user, go, initial3d = false }: { id: string; back: () => void; user: string; go: (p: string[]) => void; initial3d?: boolean }) {
   const [r, setR] = useState<SimResults & { congestion?: any[]; events?: any[]; scenario?: any } | null>(null);
   const [rep, setRep] = useState<SimReplay | null>(null);
   const [ai, setAi] = useState<{ text: string; badge: string } | null>(null);
   const [heat, setHeat] = useState(true);
-  const [dim, setDim] = useState<"2D" | "3D">("2D");
+  const [dim, setDim] = useState<"2D" | "3D">(initial3d ? "3D" : "2D");
   const [pick, setPick] = useState<{ x: number; y: number; peak: number; over4: number; t: number } | null>(null);
   const [hot, setHot] = useState<{ text: string; badge: string } | null>(null);
   const [hint, setHint] = useState(false);
@@ -261,7 +261,7 @@ function Results({ id, back, user, go }: { id: string; back: () => void; user: s
           <div className="sq-faint mono" style={{ fontSize: 12 }}>t = {mmss(clock.t)} · illustrative frame from the p{r.percentile} run (seed {rep?.seed ?? "…"})</div>
           {rep ? (dim === "2D"
             ? <ReplayView rep={rep} t={clock.t} heat={heat} smoke={smokeNow} onPick={onPick} height={400} />
-            : <Deck3D rep={rep} t={clock.t} height={400} />) : <p className="sq-muted">Loading replay…</p>}
+            : <Safe3D><Deck3D rep={rep} t={clock.t} height={400} /></Safe3D>) : <p className="sq-muted">Loading replay…</p>}
           <div className="flex gap-3" style={{ flexWrap: "wrap", fontSize: 12 }}>
             <button className="sq-switch" onClick={() => setHeat(!heat)}>{heat ? "☑" : "☐"} Density heatmap</button>
             {rep?.smoke_label && <span className="sq-faint">▨ Smoke (illustrative) · {rep.smoke_label}</span>}
