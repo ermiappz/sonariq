@@ -56,3 +56,4 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .rev-row { display: flex; align-items: center; gap: 14px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .rev-row:last-child { border-bottom: 0; }
 .rev-row.is-incorrect > span:not(:has(.inc-why)) { opacity: .5; }
+.ib-table td:nth-child(6), .ib-table td:nth-child(7), .ib-table td:nth-child(8) { white-space: nowrap; }
