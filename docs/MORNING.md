@@ -33,7 +33,7 @@ Already checked on the VM: FreeCAD 1.0 under xvfb (NativeIFC import, 251 objects
 | AI guard | Any explanation with a number not in the finding is rejected. Without an endpoint the engine's own wording is used |
 | FreeCAD panel | PanelHead, P1, P3 (grouped by discipline, summary filters), P4 evidence card (formula, method, unit toggle, fix options, accept with reason, send to review, zoom to); design/panel.qss |
 | Portal | Rail + TopBar, W1, W2, W3, W4 (That Open viewer + pins), W5, W6 on the live API. Approvals are not persisted yet |
-| RCRV | NWD → APS SVF → glTF (1.9 GB) + properties → IFC4: 90,331 objects, 86,593 classified, ~4,000 unmapped → `mapping_review.csv`. `rcrv_full.ifc` (205 MB) + `rcrv_deck_1..7.ifc`. `docs/rcrv_report.md` has counts and 10 doors in inches and mm |
+| RCRV | NWD → APS SVF → glTF (1.9 GB) + properties → IFC4: 90,331 objects, 86,593 classified, ~4,000 unmapped → `mapping_review.csv`. `rcrv_full.ifc` (192 MB) + `rcrv_deck_1..7.ifc`. `docs/rcrv_report.md` has counts and 10 doors in inches and mm |
 | Speed | Analyse 0.04 s plus 0.9 s IFC load; ping 0.04 s (`make bench`) |
 
 ## Not done / weak
