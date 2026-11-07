@@ -219,6 +219,7 @@ PHRASES = [  # (text, expected subset of the card)
     ("what if a fire starts in the service space?", {"type": "scenario_preview", "scenario": {"fire_origin": "*"}}),
     ("what if Stair 3B is out?", {"type": "scenario_preview", "scenario": {"closed_stair": "3B"}}),
     ("night with FD-5-165P out", {"type": "scenario_preview", "scenario": {"case": "night", "closed_door": "FD-5-165P"}}),
+    ("FD-5-165P is closed at night", {"type": "scenario_preview", "scenario": {"case": "night", "closed_door": "FD-5-165P"}}),
 ]
 
 

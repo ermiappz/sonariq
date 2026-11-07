@@ -1,7 +1,7 @@
 """SonarIQ MCP server (stdio). Any AI client or CAD adapter calls the same deterministic checks.
 
-Tools: analyse, get_finding, explain, propose_fixes, apply_edit, recheck, export_bcf (+ open_revision),
-and when SIMULATE_ENABLED=1: simulate (preview -> confirm), simulation_status, simulation_results, sources.
+Tools: analyse, get_finding, explain, propose_fixes, apply_edit, recheck, export_bcf, sources (+ open_revision),
+and when SIMULATE_ENABLED=1: simulate (preview -> confirm), simulation_status, simulation_results.
 apply_edit only accepts add_cabin_block, move_wall, set_door_width, set_door_fire_class, and only applies
 with confirm=true after a preview. Verdicts come from the rule engine; explain() rejects invented numbers.
 

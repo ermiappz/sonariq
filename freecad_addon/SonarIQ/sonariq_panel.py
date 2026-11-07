@@ -28,7 +28,7 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 ENGINE = os.environ.get("SONARIQ_ENGINE", "http://127.0.0.1:8765")
-TOKENS = json.loads((HERE / "tokens.json").read_text())
+TOKENS = json.loads((HERE / "tokens.json").read_text(encoding="utf-8"))
 DARK = TOKENS["dark"]
 WORD = TOKENS["status_words"]
 GLYPH = TOKENS["status_glyphs"]
@@ -91,7 +91,7 @@ def panel_qss() -> str:
 #SonarIQPanel QFrame QLabel[status="acc"] {{ background: {d['st-acc-tint']}; }}
 #SonarIQPanel QFrame QLabel[chip="loc"] {{ background: {d['bg-2']}; }}
 """
-    return (HERE / "panel.qss").read_text() + extra
+    return (HERE / "panel.qss").read_text(encoding="utf-8") + extra
 
 
 # ----------------------------------------------------------------------------------------------- small widgets

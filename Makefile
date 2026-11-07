@@ -1,5 +1,7 @@
 PY := .venv/bin/python
 export PYTHONPATH := engine:.
+# UTF-8 file I/O on every OS and locale
+export PYTHONUTF8 := 1
 
 .PHONY: setup deck test bench dev api api-sim mcp portal rcrv qa eval eval-quick sim-precompute rag
 

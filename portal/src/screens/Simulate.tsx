@@ -231,8 +231,22 @@ function Results({ id, back, user, go, initial3d = false }: { id: string; back: 
   const t0 = rep?.t_start_s ?? 0, t1 = rep?.frames.at(-1)?.[0] ?? 1;
   const clock = useClock(t0, t1);
   const smokeNow = useMemo(() => (rep?.smoke_events ?? []).filter((e: any) => e.t <= clock.t).flatMap((e: any) => e.spaces), [rep, clock.t]);
-  const queueLanding = useMemo(() => rep ? Object.keys(rep.queue_series).sort((a, b) => Math.max(...rep.queue_series[b]) - Math.max(...rep.queue_series[a]))[0] : null, [rep]);
+  // Chart the stair whose landing queue is longest across all runs (p95), the same figure as the
+  // landings table and the summary; fall back to the replay run's own peak while results load.
+  const queueLanding = useMemo(() => {
+    const L = r?.landings;
+    if (L && Object.keys(L).length)
+      return Object.keys(L).sort((a, b) => (L[b].queue_max_p95 - L[a].queue_max_p95) || (L[b].queue_max_mean - L[a].queue_max_mean))[0];
+    return rep ? Object.keys(rep.queue_series).sort((a, b) => Math.max(...rep.queue_series[b]) - Math.max(...rep.queue_series[a]))[0] : null;
+  }, [r, rep]);
   const stair = queueLanding?.slice(0, 2) ?? "3B";
+  const stairPeak = useMemo(() => {
+    if (!rep) return null;
+    let best: { landing: string; people: number; t_s: number } | null = null;
+    for (const [k, ser] of Object.entries(rep.queue_series) as [string, number[]][])
+      if (k.startsWith(stair)) ser.forEach((v, i) => { if (!best || v > best.people) best = { landing: k, people: v, t_s: rep.series_t0_s + i }; });
+    return best && (best as { people: number }).people > 0 ? best as { landing: string; people: number; t_s: number } : null;
+  }, [rep, stair]);
   if (err) return <div className="sq-banner is-unk">{err}</div>;
   if (!r) return <p className="sq-muted">Loading results…</p>;
   const sc = r.scenario ?? {};
@@ -244,7 +258,6 @@ function Results({ id, back, user, go, initial3d = false }: { id: string; back: 
     setPick(p); setPinned(""); setHot(null); setHint(false);
     sim.hotspot(id, p.x, p.y, p.t).then(setHot).catch(() => {});
   };
-  const queuePeak = (r.events ?? []).find((e: any) => e.kind === "queue_peak");
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}>
@@ -298,7 +311,7 @@ function Results({ id, back, user, go, initial3d = false }: { id: string; back: 
           <div className="sq-card" style={{ padding: 12 }}>
             <div className="flex"><span className="sq-label" style={{ flex: 1 }}>Queue at Stair {stair} landing</span><span className="sq-faint" style={{ fontSize: 11 }}>persons · time</span></div>
             {rep && <QueueChart rep={rep} t={clock.t} height={110} only={stair} />}
-            {queuePeak && <div className="sq-faint mono" style={{ fontSize: 11 }}>peak {queuePeak.people} on {queuePeak.landing} at {mmss(queuePeak.t_s)}</div>}
+            {stairPeak && <div className="sq-faint mono" style={{ fontSize: 11 }}>replay run: peak {stairPeak.people} on {stairPeak.landing} at {mmss(stairPeak.t_s)}</div>}
           </div>
           <div className="sq-card" style={{ padding: 12 }}>
             <div className="flex"><span className="sq-label" style={{ flex: 1 }}>Congestion · sorted after run</span><span className="sq-faint" style={{ fontSize: 11 }}>peak p/m²</span></div>

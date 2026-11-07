@@ -5,7 +5,7 @@ import FreeCAD, FreeCADGui as Gui
 from PySide import QtCore, QtWidgets
 OUT = os.environ["SQ_OUT"]
 IFC = os.environ["SQ_IFC"]
-log = open(OUT + "/fc_gui_test.log", "w")
+log = open(OUT + "/fc_gui_test.log", "w", encoding="utf-8")
 def p(*a):
     log.write(" ".join(str(x) for x in a) + "\n"); log.flush()
 
