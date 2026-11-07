@@ -12,3 +12,8 @@ data/rcrv/*.json
 data/out/
 .pytest_cache/
 .DS_Store
+data/rcrv/*.sqlite
+data/rcrv/*.csv
+data/rcrv/*.pkl
+data/out/
+portal/public/wasm/web-ifc-node.wasm
