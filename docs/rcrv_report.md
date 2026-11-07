@@ -1,6 +1,6 @@
 # RCRV conversion report
 
-Source `12100-RCRV-199_07-08-2021.nwd` (model units: inches) → Autodesk Model Derivative (SVF) → svf-utils glTF + property database → `scripts/rcrv_to_ifc.py` → IFC4. Generated 07 Nov 2026 03:48 UTC.
+Source `12100-RCRV-199_07-08-2021.nwd` (model units: inches) → Autodesk Model Derivative (SVF) → svf-utils glTF + property database → `scripts/rcrv_to_ifc.py` → IFC4. Generated 07 Nov 2026 03:56 UTC.
 
 **90,331 objects** from 303,504 geometry nodes. **86,308 classified** into IFC; **4,023 unmapped** (listed in `data/rcrv/mapping_review.csv` for portal screen W5, left out of the IFC, never guessed). Overall length of geometry 66.71 m. 7 decks found from horizontal plate area at z = 1.80, 3.70, 5.80, 8.50, 11.30, 13.90, 16.50 m.
 
