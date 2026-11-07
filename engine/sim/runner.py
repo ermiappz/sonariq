@@ -183,13 +183,18 @@ def sample_people(rng, prep: Prep, case: str):
 
 
 # ---------------------------------------------------------------- one run
-def run_one(prep: Prep, seed: int, record: bool = False) -> dict:
+def run_one(prep: Prep, seed: int, record: bool = False, people: list[dict] | None = None,
+            inflow_times: dict | None = None) -> dict:
     import jupedsim as jps
     m = PARAMS["model"]
     dt = float(m["dt_s"])
     rng = np.random.default_rng(seed)
     case = prep.scenario.get("case", "night")
     ppl, inflow_t = sample_people(rng, prep, case)
+    if people is not None:          # evals: fixed people (position, speed, start time)
+        ppl = people
+    if inflow_times is not None:
+        inflow_t = inflow_times
     g = prep.geom
     sim = jps.Simulation(model=jps.CollisionFreeSpeedModel(), geometry=g.walkable, dt=dt)
     queues, journeys = {}, {}
@@ -275,12 +280,17 @@ def run_one(prep: Prep, seed: int, record: bool = False) -> dict:
                     li, q = max(heads, key=lambda h: h[1].count_enqueued())
                     q.pop(1)
                     served[st]["deck5"] += 1
-                    last_d5 = t
                 tokens[st] -= 1.0
                 out_time[st] = t
         sim.iterate()
         step += 1
         t += dt
+        for aid in sim.removed_agents():     # left the deck at the queue head = entered the stair
+            last_d5 = t
+            p = agent_meta.get(aid)
+            if p is not None:
+                st = prep.target[p["space"]][0]
+                out_time[st] = max(out_time[st], t)
         if step % sec_every == 0:
             for (st, li), q in queues.items():
                 k = f"{st}{'PS'[li] if len(g.stairs[st].landings) > 1 else ''}"

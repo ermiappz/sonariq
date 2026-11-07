@@ -211,7 +211,8 @@ class LLM:
             return None, f"error:{type(e).__name__}"
         self.offline_since = None
         self.last_ms = round((time.time() - t) * 1000)
-        cache_put(key, {"text": text, "model": self.gateway.name, "ms": self.last_ms})
+        cache_put(key, {"text": text, "model": self.gateway.name, "ms": self.last_ms, "system": system,
+                       "prompt": prompt, "json": bool(schema)})
         return text, "ai"
 
     def guarded(self, system: str, facts, question: str, fallback: str, retries: int = 1) -> dict:
@@ -285,5 +286,5 @@ class LLM:
             yield {"replace": True, "done": True, "text": fallback, "source": "template",
                    "rejected": [{"text": text, "numbers_not_in_facts": bad}]}
             return
-        cache_put(key, {"text": text, "model": self.gateway.name})
+        cache_put(key, {"text": text, "model": self.gateway.name, "system": system, "prompt": prompt})
         yield {"done": True, "text": text, "source": "ai"}
