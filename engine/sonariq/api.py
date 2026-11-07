@@ -122,8 +122,13 @@ async def upload(request: Request, name: str = "model.ifc"):
     body = await request.body()
     if not body.startswith(b"ISO-10303-21"):
         raise HTTPException(422, "Not an IFC (STEP) file.")
-    if len(body) > 400 * 1024 * 1024:
-        raise HTTPException(413, "IFC larger than 400 MB.")
+    limit_mb = int(_os.getenv("SONARIQ_UPLOAD_MB", "400"))
+    if len(body) > limit_mb * 1024 * 1024:
+        raise HTTPException(413, f"IFC larger than {limit_mb} MB.")
+    head = body[:4096].upper()
+    m = re.search(rb"FILE_SCHEMA\s*\(\s*\(\s*'([A-Z0-9_]+)'", head)
+    if m and not m.group(1).startswith(b"IFC4"):
+        raise HTTPException(422, f"This file is {m.group(1).decode()}; SonarIQ reads IFC4. Export the model as IFC4 and try again.")
     sha = hashlib.sha256(body).hexdigest()
     rev = _revision_for(sha)
     if rev:
@@ -159,7 +164,10 @@ def _save_run(d: dict, req: "AnalyseReq", source: str) -> dict:
     meta = {"id": f"{seq:04d}_{now:%Y%m%d-%H%M%S}", "seq": seq, "time": now.isoformat(timespec="seconds"),
             "file": re.sub(r"^[0-9a-f]{12}_", "", path.name), "revision": d.get("revision"),
             "scope": d.get("scope"), "packs": d.get("groups"), "counts": d.get("counts"),
-            "total_checks": d.get("total_checks"), "source": source, "scope_note": d.get("scope_note")}
+            "total_checks": d.get("total_checks"), "source": source, "scope_note": d.get("scope_note"),
+            # for the web viewer: which file this run read, its bounds, and whether chat edits changed it in memory
+            "path": str(path) if S.model.path else None, "bounds": S.model_info().get("bounds"),
+            "edited": S.model is not S.base_model}
     while True:
         try:
             with open(RUNS / f"{meta['id']}.json", "x", encoding="utf-8") as fh:
@@ -187,6 +195,7 @@ def runs_list():
         except Exception:  # noqa: BLE001 - half-written or foreign file
             continue
         d.pop("run", None)
+        d.pop("path", None)
         out.append(d)
     return {"runs": out}
 
@@ -226,7 +235,40 @@ def runs_diff(a: str, b: str):
 
 @app.get("/runs/{rid}")
 def runs_get(rid: str):
-    return _load_run(rid)
+    d = _load_run(rid)
+    d.pop("path", None)
+    return d
+
+
+def _run_file(d: dict) -> Path | None:
+    """The IFC a stored run read: its recorded path, else a demo file or the newest upload with that name."""
+    p = Path(d["path"]) if d.get("path") else None
+    if p is None:
+        name = d.get("file") or ""
+        p = next((q for q in REVISIONS.values() if q.name == name), None)
+        if p is None and UPLOADS.exists():
+            hits = sorted(UPLOADS.glob(f"*_{name}"), key=lambda q: q.stat().st_mtime, reverse=True)
+            p = hits[0] if hits else None
+    if p is None or not p.exists():
+        return None
+    try:   # only files the engine owns (demo models, uploads)
+        p.resolve().relative_to(DATA.resolve())
+    except ValueError:
+        if p.resolve() not in [q.resolve() for q in REVISIONS.values()]:
+            return None
+    return p
+
+
+@app.get("/runs/{rid}/ifc")
+def runs_ifc(rid: str):
+    """Exactly the IFC this run analysed, so the web viewer never draws findings on other geometry."""
+    d = _load_run(rid)
+    if d.get("edited"):
+        raise HTTPException(409, "This run includes edits made in chat; the file on disk is the version before them.")
+    p = _run_file(d)
+    if p is None:
+        raise HTTPException(404, "The file of this run is not on the engine any more.")
+    return FileResponse(p, media_type="application/x-step", filename=re.sub(r"^[0-9a-f]{12}_", "", p.name))
 
 
 # ------------------------------------------------------------------ reports (a run exported from FreeCAD, frozen) + task board

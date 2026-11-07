@@ -43,7 +43,6 @@ export const api = {
   history: () => j<{ history: Record<string, unknown>[]; decisions: Decision[] }>("/history"),
   rules: () => j<{ rules: Record<string, any>[] }>("/rules"),
   mapping: () => j<{ rows: Record<string, string>[] }>("/rcrv/mapping"),
-  ifcUrl: (rev: string) => `${API}/model/ifc/${rev}`,
   reports: () => j<{ reports: Report[] }>("/reports"),
   report: (run_id: string) => j<Report & { existing?: boolean }>("/reports", { method: "POST", body: JSON.stringify({ run_id }) }),
   tasks: () => j<{ tasks: Record<string, Task> }>("/tasks"),

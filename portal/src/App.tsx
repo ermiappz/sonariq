@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api, useIncorrect, type Check, type Report, type Run, type RunMeta } from "./api";
 import Inbox from "./screens/Inbox";
 import Thread from "./screens/Thread";
-import Viewer from "./screens/Viewer";
+import Studio from "./screens/Studio";
 import Rulebook from "./screens/Rulebook";
 import Mapping from "./screens/Mapping";
 import Simulate from "./screens/Simulate";
@@ -15,7 +15,6 @@ import { Pill } from "./components/ui";
 
 type Screen = "simulate" | "projects" | "inbox" | "board" | "thread" | "model" | "rules" | "mapping" | "benchmark" | "revisions" | "settings";
 const USER = { name: "Mikko Saari", role: "Fire & life safety lead", initials: "MS" }; // sample person from the design
-const DEMO_FILES: Record<string, string> = { A: "deck5_revA.ifc", B: "deck5_revB.ifc", Bfix2: "deck5_revB_fix2.ifc" };
 
 const hashParts = () => location.hash.slice(1).split("/");
 const RUN_RE = /^[0-9]{4,}_[0-9]{8}-[0-9]{6}$/;
@@ -108,12 +107,10 @@ function Workspace() {
 
   const openFinding = (c: Check) => { setOpen(c.id ?? c.check_key); setScreenState("thread"); history.replaceState(null, "", "#thread/" + (c.id ?? c.check_key)); };
   const inboxN = (run?.findings.length ?? 0) + (hvac?.findings.length ?? 0);
-  const nav: [Screen, string, number?][] = [["projects", "Projects"], ["inbox", "Inbox", inboxN], ["board", "Tasks"], ["model", "Model"],
+  const nav: [Screen, string, number?][] = [["projects", "Projects"], ["inbox", "Inbox", inboxN], ["board", "Tasks"], ["model", "Studio"],
     ["rules", "Rules"], ["benchmark", "Benchmark"], ["revisions", "Revisions"], ...(simOn ? [["simulate", "Simulate"] as [Screen, string]] : []),
     ["mapping", "Mapping review"]];
   const report = latest ? reports.find((x) => x.run_id === latest.id) : undefined;
-  // Correctness guard: the 3D shows only when the run's file is the demo file loaded for that revision
-  const fileOk = !!latest && DEMO_FILES[latest.revision] === latest.file;
 
   return (
     <div className={`sq ${light ? "sq-light" : "sq-dark"} sq-portal app`}>
@@ -157,8 +154,7 @@ function Workspace() {
           {screen === "board" && (run ? <Board run={run} hvac={hvac} onOpen={openFinding} /> : <NoRuns loaded={runs !== null} />)}
           {screen === "revisions" && <Revisions runs={runs} />}
           {screen === "thread" && open && <Thread id={open} units={units} user={`${USER.name} · ${USER.role}`} back={() => setScreen("inbox")} />}
-          {screen === "model" && (run ? (fileOk ? <Viewer rev={rev} run={run} hvac={hvac} onOpen={openFinding} />
-            : <NoPreview file={latest?.file} />) : <NoRuns loaded={runs !== null} />)}
+          {screen === "model" && <Studio latest={latest as any} run={run} onOpenFinding={openFinding} />}
           {screen === "simulate" && <Simulate user={`${USER.name} · ${USER.role}`} rev={rev} run={run} />}
           {screen === "rules" && <Rulebook />}
           {screen === "mapping" && <Mapping />}
@@ -188,15 +184,6 @@ function Workspace() {
         </div>
       )}
       {toast && <div className="sq-toast">✓ {toast}</div>}
-    </div>
-  );
-}
-
-function NoPreview({ file }: { file?: string }) {
-  return (
-    <div className="sq-card is-dashed" style={{ padding: 24, maxWidth: 640 }}>
-      <h2 className="sq-h2">3D preview not available for this file yet</h2>
-      <p className="sq-muted">The latest run is on <span className="mono">{file ?? "an uploaded file"}</span>. The web viewer only draws a model when it has exactly that file, so it never shows findings on the wrong geometry. Open the findings in the Inbox, or see them in FreeCAD.</p>
     </div>
   );
 }
