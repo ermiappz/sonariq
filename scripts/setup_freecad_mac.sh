@@ -2,7 +2,7 @@
 # SonarIQ on a Mac: FreeCAD + the SonarIQ panel, talking to the engine hosted on the VM.
 # Nothing else is installed (no Python, Node or repo): rules, AI and simulation run on the VM.
 #
-#   curl -fsSL -u __USER__:<password> __URL__/downloads/setup_freecad_mac.sh | bash
+#   curl -fsSL -u __USER__ __URL__/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh
 #
 # (deploy_vm.sh fills in the URL and user when it publishes this script.)
 set -euo pipefail
@@ -22,7 +22,7 @@ echo "1/5 Checking the password and the engine…"
 curl -fsS -u "$SQ_USER:$PASS" "$URL/api/health" >/dev/null || { echo "Wrong password or engine down ($URL)."; exit 1; }
 
 echo "2/5 FreeCAD…"
-if [ -d /Applications/FreeCAD.app ]; then
+if [ -n "${SONARIQ_SKIP_FREECAD:-}" ] || [ -d /Applications/FreeCAD.app ]; then
   echo "    found /Applications/FreeCAD.app"
 elif command -v brew >/dev/null 2>&1; then
   brew install --cask freecad
@@ -55,4 +55,4 @@ echo "5/5 Panel settings → ~/.sonariq.json"
 echo
 echo "Done. In FreeCAD: File → Open → $DEST/deck5_revA.ifc, then press Analyse in the SonarIQ panel"
 echo "(expect 96 checks: 1 · 1 · 1 · 89 · 4). Portal: $URL"
-open -a FreeCAD || true
+[ -n "${SONARIQ_SKIP_FREECAD:-}" ] || open -a FreeCAD || true

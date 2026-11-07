@@ -30,7 +30,7 @@ export default function App() {
         const h = await api.analyse(rev, ["hvac"]);
         const r = await api.analyse(rev, ["fls", "acc", "dnv"]);
         setHvac(h); setRun(r); setError("");
-      } catch (e) { setError(`Engine not reachable (${e}). Start it with: make api`); }
+      } catch (e) { setError(`Engine not reachable (${e}).` + (["localhost", "127.0.0.1"].includes(location.hostname) ? " Start it with: make api" : " The hosted engine may be restarting; reload in a minute.")); }
     })();
   }, [rev]);
 

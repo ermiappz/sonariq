@@ -268,11 +268,22 @@ class FreeCADBridge:
             return None
         import FreeCAD
         doc = FreeCAD.ActiveDocument
+        if doc is None:
+            return None
+        p = getattr(doc, "IfcFilePath", None)      # NativeIFC single-document mode keeps it on the document
+        if p:
+            return p
         for o in self._objects():
-            p = getattr(o, "IfcFilePath", None)
+            p = getattr(o, "IfcFilePath", None)    # NativeIFC project object (multi-document mode)
             if p:
                 return p
-        return getattr(doc, "FileName", None) if doc and str(getattr(doc, "FileName", "")).endswith(".ifc") else None
+        return doc.FileName if str(getattr(doc, "FileName", "")).lower().endswith(".ifc") else None
+
+    def has_document(self) -> bool:
+        if not self.ok:
+            return False
+        import FreeCAD
+        return FreeCAD.ActiveDocument is not None
 
     def show(self, f: dict, zoom: bool = True):
         if not self.ok:
@@ -554,6 +565,11 @@ class SonarIQPanel(QtWidgets.QWidget):
         try:
             sel = self.bridge.selection_guids() if self.scope == "selection" else None
             path = self.bridge.model_path()
+            if path is None and self.bridge.has_document():
+                # never analyse the engine's current model in place of the document on screen
+                self.meta.setText("This document has no IFC file path: open the .ifc with File → Open (NativeIFC).")
+                self.analyse_btn.setEnabled(True)
+                return
             self.prev_run = self.run
             self.run = self.engine.analyse(self.scope, self._packs(), revision=None, path=path, selection=sel)
         except Exception as e:  # noqa: BLE001

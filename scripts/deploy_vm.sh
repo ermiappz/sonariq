@@ -24,6 +24,9 @@ IP="$(curl -fs -H 'Metadata-Flavor: Google' \
   http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip \
   || curl -fs https://ifconfig.me)"
 HOST="${SQ_HOST:-${IP//./-}.sslip.io}"
+# Bind Caddy to the NIC address only: Tailscale may already hold :443 on its own interface.
+NIC="$(curl -fs -H 'Metadata-Flavor: Google' \
+  http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/ip || hostname -I | awk '{print $1}')"
 URL="https://$HOST"
 
 # ---------------------------------------------------------------- credentials (once)
@@ -100,6 +103,7 @@ HASH="$(caddy hash-password --plaintext "$SQ_PASS")"
 sudo tee /etc/caddy/Caddyfile >/dev/null <<EOF
 # Managed by sonariq/scripts/deploy_vm.sh
 $HOST {
+	bind $NIC
 	encode gzip
 	basicauth {
 		$SQ_USER $HASH
@@ -120,7 +124,8 @@ $HOST {
 	}
 }
 EOF
-sudo systemctl reload caddy || sudo systemctl restart caddy
+sudo caddy validate --config /etc/caddy/Caddyfile >/dev/null
+sudo systemctl restart caddy
 
 echo "==> health"
 for _ in $(seq 1 40); do
@@ -129,7 +134,8 @@ for _ in $(seq 1 40); do
 done
 curl -fs "http://127.0.0.1:$PORT/health" | head -c 200; echo
 for _ in $(seq 1 30); do
-  code="$(curl -s -o /dev/null -w '%{http_code}' -u "$SQ_USER:$SQ_PASS" "$URL/api/health" || true)"
+  # from the VM itself the public IP does not hairpin, so connect to the NIC with the public name (real TLS)
+  code="$(curl -s -o /dev/null -w '%{http_code}' --resolve "$HOST:443:$NIC" -u "$SQ_USER:$SQ_PASS" "$URL/api/health" || true)"
   [ "$code" = 200 ] && break
   sleep 2
 done
@@ -137,4 +143,4 @@ echo "public $URL/api/health -> HTTP ${code:-?}"
 echo
 echo "Portal:    $URL   (user $SQ_USER, password in $CRED)"
 echo "Downloads: $URL/downloads/"
-echo "Mac:       curl -fsSL -u $SQ_USER:<password> $URL/downloads/setup_freecad_mac.sh | bash"
+echo "Mac:       curl -fsSL -u $SQ_USER $URL/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh"
