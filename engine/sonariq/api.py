@@ -290,3 +290,62 @@ def sim_pin(jid: str, req: PinReq):
     except KeyError as e:
         raise HTTPException(404, str(e))
     return {"ok": True, "topic": req.finding, "pin": p}
+
+
+# ------------------------------------------------------------------ Chat (panel P5 + portal): words -> preview card
+_CHAT = None
+
+
+def _chat():
+    global _CHAT
+    if _CHAT is None:
+        from .chat import Chat
+        rag = None
+        try:
+            from .rag import get_rag
+            rag = get_rag()
+        except Exception:  # noqa: BLE001
+            rag = None
+        _CHAT = Chat(S, _sim() if SIM_ON else None, rag)
+    return _CHAT
+
+
+class ChatReq(BaseModel):
+    text: str
+    finding: str | None = None
+
+
+class ConfirmReq(BaseModel):
+    action: dict
+
+
+@app.post("/chat")
+def chat(req: ChatReq):
+    return _chat().ask(req.text, req.finding)
+
+
+@app.post("/chat/confirm")
+def chat_confirm(req: ConfirmReq):
+    try:
+        return _chat().confirm(req.action)
+    except EditRefused as e:
+        raise HTTPException(422, {"refused": True, "reason": str(e)})
+
+
+@app.get("/simulate/{jid}/card")
+def sim_card(jid: str):
+    """Chat result card: the engine's numbers, the honest label and the analyst's checked text."""
+    from sim.analyst import explain_results
+    try:
+        r = _sim().results(jid)
+    except KeyError:
+        raise HTTPException(404, "results not ready")
+    worst = max(r["landings"].items(), key=lambda kv: kv[1]["queue_max_p95"]) if r["landings"] else (None, {})
+    last = max(r["stairs"].items(), key=lambda kv: kv[1]["last_p95_s"]) if r["stairs"] else (None, {})
+    ai = explain_results(S.llm, r)
+    _chat().last_sim = {"id": jid}
+    return {"type": "sim_result", "id": jid, "title": f"{r['scenario_label']} · {r['revision']}", "runs": r["runs"],
+            "tA_p95_s": r["tA_p95_s"], "tA_p50_s": r["tA_p50_s"], "worst_landing": worst[0],
+            "worst_queue_p95": worst[1].get("queue_max_p95"), "last_stair": last[0],
+            "last_stair_p95_s": last[1].get("last_p95_s"), "label": r["label"], "analyst": ai["text"],
+            "badge": ai["badge"], "replay_url": f"#simulate/{jid}"}
