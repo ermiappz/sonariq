@@ -77,7 +77,8 @@ def parse_edit_words(t: str, names: dict) -> dict | None:
     return None
 
 
-SIM_WORDS = re.compile(r"\b(simulat\w*|evacuat\w*|what[- ]if|replay|run (?:a |the )?(?:night|day)|fire|smoke|"
+SIM_WORDS = re.compile(r"\b(simulat\w*|evacuat\w*|what[- ]if|replay|run (?:a |the )?(?:night|day)|"
+                       r"fire(?!\s*(?:door|class|rating|damper|division|integrity))|smoke|"
                        r"stair\s*[0-9][a-z]\s*(?:is\s+)?(?:out|closed|blocked|unavailable))\b", re.I)
 FIX_WORDS = re.compile(r"\b(apply|use|take|do)\s+(?:the\s+)?fix\s*(\d)\b|\bfix\s*(\d)\b", re.I)
 WHY_WORDS = re.compile(r"^\s*(why|what|how|explain|which|where|is|does|can)\b", re.I)

@@ -26,7 +26,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
 }
 export const api = {
   model: () => j<{ bounds: number[] | null; revision: string }>("/model"),
-  health: () => j<{ ok: boolean; ai: { endpoint: string; online: boolean } }>("/health"),
+  health: () => j<{ ok: boolean; simulate?: boolean; ai: { endpoint: string; online: boolean } }>("/health"),
   analyse: (revision: string, packs?: string[]) =>
     j<Run>("/analyse", { method: "POST", body: JSON.stringify({ revision, scope: "deck:5", packs }) }),
   finding: (id: string) => j<Check>(`/findings/${encodeURIComponent(id)}`),
@@ -51,7 +51,7 @@ export function fmt(v: Val | null | undefined, units: "mm" | "in" = "mm"): strin
 }
 
 // ---- Simulate (engine computes; UI only draws what the engine returns)
-export interface SimScenario { case: "night" | "day"; route?: "primary" | "secondary"; closed_stair?: string | null; fire_origin?: string | null }
+export interface SimScenario { case: "night" | "day"; route?: "primary" | "secondary"; closed_stair?: string | null; closed_door?: string | null; fire_origin?: string | null }
 export interface SimStatus { id: string; state: string; runs_done: number; runs_target: number; elapsed_s?: number; scenario_label?: string;
   revision?: string; label: string; error?: string | null; cached?: boolean; live?: { tA_p95_s: number; tA_p50_s: number } }
 export interface SimPreview { preview: { scenario: SimScenario; label: string; revision: string; runs: number; source: string }; confirm_required?: boolean }
@@ -68,7 +68,7 @@ export interface SimResults { runs: number; target_runs: number; tA_p50_s: numbe
 export interface SimReplay { id: string; label: string; scenario_label: string; geometry: SimGeometry; seed: number; tA_s: number; t_start_s: number;
   frames: [number, [number, number, number][]][]; queue_series: Record<string, number[]>; inflow_wait_series: Record<string, number[]>; series_t0_s: number;
   density: { cell_m: number; origin: number[]; nx: number; ny: number; peak: number[][]; over4_s: number[][] }; smoke_label: string | null;
-  smoke?: { t: number; spaces: string[] }[] }
+  smoke_events?: { t: number; spaces: string[] }[]; smoke?: Record<string, number> }
 export interface SimCompare { before: { id: string; label: string; revision: string; tA_p95_s: number }; after: { id: string; label: string; revision: string; tA_p95_s: number };
   delta: { tA_p95_s: number | null }; landings: Record<string, { before: number | null; after: number | null; delta: number | null }>; label: string }
 export const sim = {

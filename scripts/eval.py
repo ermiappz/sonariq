@@ -257,7 +257,7 @@ def eval_ai() -> dict:
             d = json.loads(p.read_text())
         except Exception:  # noqa: BLE001
             continue
-        if d.get("json") or "prompt" not in d:
+        if not isinstance(d, dict) or d.get("json") or "prompt" not in d:
             continue
         tot += 1
         b = check_numbers(d["text"], d["prompt"])
@@ -390,7 +390,8 @@ def md(res: dict, when: str) -> str:
     if "ai" in res:
         a = res["ai"]
         L.append(f"- **AI**: phrasings {a['phrasings']['correct']}/{a['phrasings']['n']} · number guard "
-                 f"{a['number_guard']['pass']}/{a['number_guard']['cached_explanations']} cached explanations pass · "
+                 f"{a['number_guard']['pass']}/{a['number_guard']['cached_explanations']} cached AI outputs pass "
+                 f"(the other {a['number_guard']['cached_explanations'] - a['number_guard']['pass']} were caught at answer time and replaced by engine text) · "
                  f"latency cold {a['latency']['cold_ms']} ms, cached {a['latency']['cached_ms']} ms ({a['latency']['model']})"
                  + (f" · RAG {a['rag']['correct']}/{a['rag']['n']} ({a['rag'].get('backend')})" if a["rag"].get("n") else " · RAG not built"))
         for x in a["phrasings"]["rows"]:

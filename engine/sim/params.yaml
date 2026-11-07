@@ -65,6 +65,7 @@ model:
   time_gap_s: 1.0
   record_hz: 2
   density_cell_m: 0.5
+  density_window_m: 1.5   # counting window for local density (3 x 3 cells)
   max_sim_s: 1500
 
 smoke:

@@ -18,7 +18,7 @@ from .runner import PARAMS, Prep, Scenario, monte_carlo, prepare, run_one
 ROOT = Path(__file__).resolve().parents[2]
 CACHE = Path(os.getenv("SQ_SIM_CACHE", ROOT / "data" / "cache" / "sim"))
 LABEL = "Deck 5 sub-model with inflows from Decks 4, 6, 7 · design insight, not a full-ship Circ.1533 analysis"
-SIM_VERSION = "sim-0.3"
+SIM_VERSION = "sim-0.4"
 
 
 def model_hash(model) -> str:
@@ -89,6 +89,58 @@ def prep_info(prep: Prep) -> dict:
     }
 
 
+def congestion(prep: Prep, rep: dict, top: int = 6) -> list[dict]:
+    """Places sorted by peak density in the replay run (p95 run): spaces, stair landings and MVZ/stair doors."""
+    from shapely.geometry import Point
+    d = rep["density"]
+    cs, (ox, oy) = d["cell_m"], d["origin"]
+    peak, over = d["peak"], d["over4_s"]
+    g = prep.geom
+    places = []
+    for n, poly in g.spaces.items():
+        m = g.space_meta.get(n, {})
+        if m.get("category") == "stair":
+            label = f"Stair {m.get('stair') or n.split('-')[-1]} landing · Deck 5"
+        elif m.get("category") == "corridor":
+            label = f"Deck 5 · Fr {m.get('frame')} · {m.get('side')}"
+        else:
+            continue
+        places.append((n, label, poly))
+    for dn, door in g.doors.items():
+        if dn.startswith("FD-") and not dn.startswith("FD-5-208"):
+            places.append((dn, f"{dn} · MVZ door", door.poly.buffer(0.8)))
+    out = []
+    for n, label, poly in places:
+        x0, y0, x1, y1 = poly.bounds
+        best, o4 = 0.0, 0.0
+        for j in range(max(0, int((y0 - oy) / cs)), min(d["ny"], int((y1 - oy) / cs) + 1)):
+            for i in range(max(0, int((x0 - ox) / cs)), min(d["nx"], int((x1 - ox) / cs) + 1)):
+                if poly.contains(Point(ox + (i + 0.5) * cs, oy + (j + 0.5) * cs)):
+                    best = max(best, peak[j][i])
+                    o4 = max(o4, over[j][i])
+        if best > 0:
+            out.append({"place": n, "label": label, "peak_p_m2": round(best, 2), "above4_s": round(o4, 1)})
+    return sorted(out, key=lambda r: -r["peak_p_m2"])[:top]
+
+
+def events(rep: dict) -> list[dict]:
+    ev = []
+    sm = (rep.get("smoke") or {}).get("corridor_reached_s")
+    if sm is not None:
+        ev.append({"kind": "smoke_corridor", "label": "Smoke reaches corridor", "t_s": sm})
+    best = None
+    for k, ser in (rep.get("queue_series") or {}).items():
+        if ser:
+            i = max(range(len(ser)), key=lambda x: ser[x])
+            if best is None or ser[i] > best[1]:
+                best = (k, ser[i], rep["series_t0_s"] + i)
+    if best and best[1] > 0:
+        ev.append({"kind": "queue_peak", "label": "Queue peak", "t_s": round(best[2], 1), "landing": best[0],
+                   "people": best[1]})
+    ev.append({"kind": "last_out", "label": "Last person out", "t_s": rep["tA_s"]})
+    return sorted(ev, key=lambda e: e["t_s"])
+
+
 class Job:
     def __init__(self, jid: str, model, sc: Scenario, n: int, revision: str, label: str | None = None):
         self.id, self.model, self.sc, self.n = jid, model, sc, n
@@ -119,6 +171,8 @@ class Job:
             prep = prepare(self.model, self.sc)
             self.prep_info = prep_info(prep)
             self.dir.mkdir(parents=True, exist_ok=True)
+            import pickle
+            (self.dir / "model.pkl").write_bytes(pickle.dumps(self.model))
             (self.dir / "meta.json").write_text(json.dumps({"scenario": self.sc.key(), "label": self.label,
                                                             "revision": self.revision, "n": self.n,
                                                             "geometry": prep.geom.to_json()}, default=str))
@@ -138,6 +192,8 @@ class Job:
                      "elapsed_s": round(time.time() - self.started, 1)}
             self.state = "replay"
             rep = run_one(prep, summ["p95_seed"], record=True)
+            summ["congestion"] = congestion(prep, rep)
+            summ["events"] = events(rep)
             (self.dir / "replay.json").write_text(json.dumps(rep, separators=(",", ":")))
             summ["replay_run"] = {k: rep[k] for k in ("seed", "tA_s", "queue_max", "peak_density_p_m2",
                                                        "inflow_wait_max", "deck5_last_s")}
@@ -197,6 +253,15 @@ class SimService:
                     "scenario": s.get("scenario"), "scenario_label": s.get("scenario_label"),
                     "revision": s.get("revision"), "label": LABEL}
         raise KeyError(jid)
+
+    def model_of(self, jid: str):
+        if jid in self.jobs:
+            return self.jobs[jid].model
+        import pickle
+        p = CACHE / jid / "model.pkl"
+        if not p.exists():
+            raise KeyError(jid)
+        return pickle.loads(p.read_bytes())
 
     def results(self, jid: str) -> dict:
         p = CACHE / jid / "summary.json"

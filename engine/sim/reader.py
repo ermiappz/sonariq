@@ -21,13 +21,13 @@ def gap_scan(prep: Prep, model) -> list[dict]:
                    any(g.space_meta.get(s, {}).get("category") in ("stair", "corridor") for s in d.spaces))
     if no_sc:
         gaps.append({"kind": "door_self_closing_unknown", "severity": 2, "count": len(no_sc), "items": no_sc[:6],
-                     "text": f"{len(no_sc)} doors do not state SelfClosing · treated as open (smoke passes)"})
+                     "text": f"{len(no_sc)} door{'s' if len(no_sc) > 1 else ''} without SelfClosing · treated as open (smoke passes)"})
     if no_fr:
         gaps.append({"kind": "door_fire_rating_missing", "severity": 2, "count": len(no_fr), "items": no_fr[:6],
-                     "text": f"{len(no_fr)} doors on escape routes have no fire rating · smoke rule reads SelfClosing"})
+                     "text": f"{len(no_fr)} door{'s' if len(no_fr) > 1 else ''} on escape routes {'have' if len(no_fr) > 1 else 'has'} no fire rating · the smoke rule reads SelfClosing"})
     if g.dropped:
         gaps.append({"kind": "unreachable_spaces", "severity": 3, "count": len(g.dropped), "items": g.dropped[:6],
-                     "text": f"{len(g.dropped)} spaces have no walkable route to a stair · left out"})
+                     "text": f"{len(g.dropped)} space{'s' if len(g.dropped) > 1 else ''} without a walkable route to a stair · left out"})
     for st in model.by_class("IfcStair"):
         nm = st.name.replace("Stair ", "")
         decl = st.sq.get("persons_deck5_declared")
@@ -40,7 +40,7 @@ def gap_scan(prep: Prep, model) -> list[dict]:
                          and not any(n in d.spaces for d in g.doors.values()))
     if cab_no_door:
         gaps.append({"kind": "cabins_without_door", "severity": 1, "count": len(cab_no_door), "items": cab_no_door[:6],
-                     "text": f"{len(cab_no_door)} cabins have no IfcDoor · reached through open boundaries"})
+                     "text": f"{len(cab_no_door)} cabin{'s' if len(cab_no_door) > 1 else ''} without an IfcDoor · reached through open boundaries"})
     return sorted(gaps, key=lambda x: -x["severity"])
 
 

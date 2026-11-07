@@ -277,9 +277,43 @@ def sim_status(jid: str):
 @app.get("/simulate/{jid}/results")
 def sim_results(jid: str):
     try:
-        return _sim().results(jid)
+        r = _sim().results(jid)
     except KeyError:
         raise HTTPException(404, "results not ready")
+    # tag congested places with the open finding on the same element (e.g. the F-09 pinch)
+    try:
+        f_by_el = {f["element"]["name"]: f for f in S.analyse()["findings"] if f.get("element")}
+        for c in r.get("congestion", []):
+            f = f_by_el.get(c["place"])
+            if f:
+                c["finding"] = f["id"]
+    except Exception:  # noqa: BLE001
+        pass
+    return r
+
+
+class FixReq(BaseModel):
+    finding: str = "F-07"
+    ai: bool = True
+
+
+@app.post("/simulate/{jid}/fixes")
+def sim_fixes(jid: str, req: FixReq):
+    """Fix explorer: rule re-check, then 100-run re-simulation per passing candidate; rejected ideas shown."""
+    from sim.fixes import explore
+    from .engine import analyse
+    svc = _sim()
+    try:
+        base = svc.model_of(jid)
+        res = svc.results(jid)
+    except KeyError:
+        raise HTTPException(404, "no model for that simulation")
+    run = analyse(base, ["fls", "acc", "dnv"])
+    key = next((k for k, i in run.ids.items() if i == req.finding), None)
+    if key is None:
+        raise HTTPException(404, f"{req.finding} is not open in that model")
+    return explore(svc, base, run, req.finding, key, res["scenario"], res.get("revision", ""),
+                   S.llm if req.ai else None)
 
 
 @app.get("/simulate/{jid}/replay")

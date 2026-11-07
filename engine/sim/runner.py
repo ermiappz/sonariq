@@ -385,8 +385,8 @@ def run_one(prep: Prep, seed: int, record: bool = False, people: list[dict] | No
                 h, _, _ = np.histogram2d(ys, xs, bins=[ny, nx], range=[[by0, by0 + ny * cell], [bx0, bx0 + nx * cell]])
                 # 1 m^2 window (2 x 2 cells of 0.5 m) -> p/m2
                 from numpy.lib.stride_tricks import sliding_window_view
-                hp = np.pad(h, ((0, 1), (0, 1)))
-                d = sliding_window_view(hp, (2, 2)).sum(axis=(2, 3)) / (4 * cell * cell)
+                hp = np.pad(h, ((1, 1), (1, 1)))     # 1.5 m x 1.5 m window (3 x 3 cells): one walker < 0.5 p/m2
+                d = sliding_window_view(hp, (3, 3)).sum(axis=(2, 3)) / (9 * cell * cell)
                 np.maximum(peak, d, out=peak)
                 over4 += (d > PARAMS["congestion"]["density_p_m2"]["value"]) * (1.0 / m["record_hz"])
             if record:

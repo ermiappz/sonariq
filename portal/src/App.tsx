@@ -69,7 +69,7 @@ export default function App() {
           {screen === "inbox" && <Inbox run={run} hvac={hvac} onOpen={openFinding} />}
           {screen === "thread" && open && <Thread id={open} units={units} user={`${USER.name} · ${USER.role}`} back={() => setScreen("inbox")} />}
           {screen === "model" && <Viewer rev={rev} run={run} hvac={hvac} onOpen={openFinding} />}
-          {screen === "simulate" && <Simulate user={`${USER.name} · ${USER.role}`} />}
+          {screen === "simulate" && <Simulate user={`${USER.name} · ${USER.role}`} rev={rev} run={run} />}
           {screen === "rules" && <Rulebook />}
           {screen === "mapping" && <Mapping />}
           {screen === "projects" && <Projects run={run} hvac={hvac} go={setScreen} />}
