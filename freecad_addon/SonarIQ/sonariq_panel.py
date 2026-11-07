@@ -13,6 +13,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 try:  # FreeCAD ships a PySide shim (PySide2 or PySide6 underneath)
@@ -27,7 +28,25 @@ except ImportError:  # standalone
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
-ENGINE = os.environ.get("SONARIQ_ENGINE", "http://127.0.0.1:8765")
+
+
+def _settings() -> dict:
+    """Engine URL and login. FreeCAD started from Finder does not see shell variables, so the Mac setup script
+    writes ~/.sonariq.json ({"engine": "https://...", "user": "...", "password": "..."}); env vars override."""
+    cfg: dict = {}
+    for f in (HERE / "config.json", Path.home() / ".sonariq.json"):
+        try:
+            cfg.update(json.loads(f.read_text(encoding="utf-8")))
+        except Exception:  # noqa: BLE001 - missing or unreadable file = defaults
+            pass
+    for k, env in (("engine", "SONARIQ_ENGINE"), ("user", "SONARIQ_USER"), ("password", "SONARIQ_PASSWORD")):
+        if os.environ.get(env):
+            cfg[k] = os.environ[env]
+    return cfg
+
+
+SETTINGS = _settings()
+ENGINE = SETTINGS.get("engine") or "http://127.0.0.1:8765"
 TOKENS = json.loads((HERE / "tokens.json").read_text(encoding="utf-8"))
 DARK = TOKENS["dark"]
 WORD = TOKENS["status_words"]
@@ -43,13 +62,39 @@ DISC_SHORT = {"fire_life_safety": "FS", "accessibility": "AC", "structure": "CL"
 class Engine:
     def __init__(self, base: str = ENGINE):
         self.base = base.rstrip("/")
+        self.headers = {}
+        if SETTINGS.get("user") and SETTINGS.get("password"):
+            import base64
+            tok = base64.b64encode(f"{SETTINGS['user']}:{SETTINGS['password']}".encode()).decode()
+            self.headers["Authorization"] = "Basic " + tok
+        host = urllib.parse.urlparse(self.base).hostname or ""
+        self.remote = host not in ("127.0.0.1", "localhost", "::1")
+        self._uploaded: dict = {}   # (path, mtime, size) -> upload answer
+
+    def _raw(self, method: str, path: str, data: bytes | None, ctype: str, timeout: float):
+        req = urllib.request.Request(self.base + path, data=data, method=method,
+                                     headers={"Content-Type": ctype, **self.headers})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read()
 
     def _req(self, method: str, path: str, body: dict | None = None, timeout: float = 30):
         data = json.dumps(body).encode() if body is not None else None
-        req = urllib.request.Request(self.base + path, data=data, method=method,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode())
+        return json.loads(self._raw(method, path, data, "application/json", timeout).decode())
+
+    def upload(self, path: str) -> dict:
+        """Remote engine: send the IFC bytes once per file version. Demo files come back as their revision."""
+        st = os.stat(path)
+        key = (path, st.st_mtime, st.st_size)
+        if key not in self._uploaded:
+            with open(path, "rb") as f:
+                data = f.read()
+            q = urllib.parse.quote(os.path.basename(path))
+            self._uploaded[key] = json.loads(self._raw("POST", f"/upload?name={q}", data,
+                                                       "application/octet-stream", 300).decode())
+        return self._uploaded[key]
+
+    def download(self, path: str) -> bytes:
+        return self._raw("GET", path, None, "application/json", 60)
 
     def health(self):
         return self._req("GET", "/health", timeout=3)
@@ -58,8 +103,11 @@ class Engine:
         return self._req("GET", "/model")
 
     def analyse(self, scope="deck:5", packs=None, revision=None, path=None, selection=None):
+        if path and self.remote:
+            u = self.upload(path)
+            revision, path = u.get("revision"), u.get("path")
         return self._req("POST", "/analyse", {"scope": scope, "packs": packs, "revision": revision, "path": path,
-                                              "selection": selection})
+                                              "selection": selection}, timeout=120)
 
     def finding(self, fid):
         return self._req("GET", f"/findings/{fid}")
@@ -469,7 +517,8 @@ class SonarIQPanel(QtWidgets.QWidget):
             self.sim_btn.setVisible(bool(h.get("simulate")))
         except Exception as e:  # noqa: BLE001
             self.foot_r.setText("Engine not reachable")
-            self.foot_l.setText(f"Start it: make api ({ENGINE})")
+            self.foot_l.setText(f"Start it: make api ({ENGINE})" if not self.engine.remote
+                                else f"Check ~/.sonariq.json ({ENGINE})")
             self.analyse_btn.setEnabled(False)
             self._err = str(e)
 
@@ -830,8 +879,16 @@ class SonarIQPanel(QtWidgets.QWidget):
     def _send(self):
         try:
             r = self.engine.bcf()
+            where = r["path"]
+            if self.engine.remote and r.get("download"):
+                # the engine is on another machine: save the BCF next to the open IFC (or in the home folder)
+                src = self.bridge.model_path()
+                folder = Path(src).parent if src else Path.home()
+                out = folder / Path(r["path"]).name
+                out.write_bytes(self.engine.download(r["download"]))
+                where = str(out)
             QtWidgets.QMessageBox.information(self, "Send to review",
-                                              f"BCF written: {r['path']}\n{r['topics']} topics · {r['decisions']} "
+                                              f"BCF written: {where}\n{r['topics']} topics · {r['decisions']} "
                                               f"decisions · {r['open']} open findings")
         except Exception as e:  # noqa: BLE001
             QtWidgets.QMessageBox.warning(self, "Send to review", f"BCF write failed, nothing sent: {e}")
