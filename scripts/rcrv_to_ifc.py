@@ -154,7 +154,9 @@ def classify(name, layer, file, props):
     else:
         key = f"{name} | {layer} | {file}"
     for ifc, label, rx, otype in RULES_C:
-        if rx.search(key):
+        # doors, windows, stairs and hatches must be named so: a file called "...DOORS.dwg" also holds brackets
+        k = name if ifc in ("IfcDoor", "IfcWindow", "IfcStair") and not key.startswith("__") else key
+        if rx.search(k):
             return ifc, label, otype
     return None, None, None
 
@@ -407,7 +409,10 @@ def main(max_detail_tris: int = 20000):
             sq = {"deck": str(o["deck"] + 1), "side": side, "geometry": kind}
             if o["ifc"] == "IfcDoor" and o["label"] == "door":
                 sq["clear_width_m"] = round(o["leaf_w"], 4) if o.get("leaf_w") else None
-                sq["accessible_route"] = not re.search(r"W/?T|WATERTIGHT|WEATHERTIGHT|GRATING|HATCH", o["name"], re.I)
+                # only doors whose leaf was measured go on the accessible route; the rest wait in W5 (Needs review)
+                if o.get("leaf_w") and o["leaf_w"] > 0.5 and not re.search(
+                        r"W/?T|WATERTIGHT|WEATHERTIGHT|GRATING|HATCH|SLIDING", o["name"], re.I):
+                    sq["accessible_route"] = True
                 if "A-CLASS" in o["name"].upper():
                     sq["fire_class_hint"] = "A-class (from source name; FireRating left empty until confirmed)"
             pset(e, "SonarIQ_Source", {"source_id": str(o["dbid"]), "source_name": o["name"], "layer": o["layer"],
@@ -483,6 +488,8 @@ def main(max_detail_tris: int = 20000):
                   "watertight or hatch-like doors, or a block whose parts are not separated). They stay in "
                   "mapping_review.csv as Needs review; no width is reported for them.", ""]
     lines += ["", "## Caveats", "",
+              "- Where clear width = block width, the door block's parts are not separated, so the figure includes "
+              "the frame and the true clear opening is smaller; treat it as an upper bound until measured.",
               "- Mesh, not solids: the IFC carries triangles. Flat faces (door leaves, bulkheads) are exact; curved "
               "hull surfaces are display-only and no check uses them.",
               "- Fire class, accessible route, berths and room names are not in the Navisworks model. Doors are "

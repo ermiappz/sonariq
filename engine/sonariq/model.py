@@ -142,9 +142,32 @@ def load_ifc(path: str | Path, revision: str | None = None) -> Model:
             e.members += [o.GlobalId for o in rel.RelatedObjects]
         els[e.guid] = e
 
+    # fast path: products whose body is only IfcTriangulatedFaceSet (RCRV conversion) -> read coordinates directly
+    import numpy as np
+    import ifcopenshell.util.placement as upl
+    slow = []
+    for c in GEOM_CLASSES:
+        for ent in f.by_type(c):
+            g = els.get(ent.GlobalId)
+            rep = getattr(ent, "Representation", None)
+            items = [it for r in (rep.Representations if rep else []) for it in r.Items]
+            if g is None or not items or not all(it.is_a("IfcTriangulatedFaceSet") for it in items):
+                slow.append(ent)
+                continue
+            P = np.vstack([np.asarray(it.Coordinates.CoordList, dtype=float) for it in items])
+            if ent.ObjectPlacement is not None:
+                M = upl.get_local_placement(ent.ObjectPlacement)
+                P = P @ M[:3, :3].T + M[:3, 3]
+            hull = MultiPoint([tuple(p) for p in P[:, :2]]).convex_hull
+            g.poly = hull if hull.geom_type == "Polygon" else hull.buffer(0.005)
+            g.z0, g.z1 = float(P[:, 2].min()), float(P[:, 2].max())
     # geometry: footprint = convex hull of world XY vertices; z range
     it = ifcopenshell.geom.iterator(_settings(), f, max(1, min(4, multiprocessing.cpu_count())),
-                                    include=[x for c in GEOM_CLASSES for x in f.by_type(c)])
+                                    include=slow) if slow else None
+    if it is None:
+        rev = revision or str(ship.get("revision") or "?")
+        return Model(path=str(path), revision=rev, ship=ship, elements=els,
+                     frame_spacing_m=float(ship.get("frame_spacing_m") or 0.8))
     if it.initialize():
         while True:
             sh = it.get()

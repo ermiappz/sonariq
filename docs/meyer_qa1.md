@@ -1,6 +1,6 @@
 # SonarIQ · Meyer Q&A 1 · rule readings and test-deck results
 
-Sat 7 Nov 2026, 09:00 · printed from the engine run of 07 Nov 03:11 · every number below comes from `scripts/make_qa.py` running the rule engine on the generated test deck.
+Sat 7 Nov 2026, 09:00 · printed from the engine run of 07 Nov 03:50 · every number below comes from `scripts/make_qa.py` running the rule engine on the generated test deck.
 
 **What we ask:** tick or correct each reading. Paragraph numbers marked *verify* are the ones we are least sure of. Also: which DNV rule would you most like to see?
 

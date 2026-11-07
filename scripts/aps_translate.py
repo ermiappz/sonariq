@@ -6,7 +6,7 @@ Steps (Build plan, part B):
   3. signed-S3 multipart upload of the .nwd
   4. Model Derivative job, output "svf" (not svf2: svf-utils reads SVF)
   5. poll the manifest until success / failed
-  6. npx svf-utils svf-to-gltf -> data/rcrv/gltf (+ properties.sqlite)
+  6. scripts/node/svf_to_gltf.js (svf-utils library) -> data/rcrv/gltf + properties.jsonl, then rcrv_cache.py
 
 State is written to data/rcrv/aps_state.json so a re-run resumes instead of re-uploading.
 Usage:  python scripts/aps_translate.py [--skip-gltf]
@@ -171,13 +171,17 @@ def poll(urn: str, max_minutes: int = 240) -> dict:
 
 
 def to_gltf(urn: str) -> None:
+    """svf-utils' own CLI fails under Node 26 (top-level await); scripts/node/svf_to_gltf.js calls the library."""
     out = RCRV / "gltf"
     out.mkdir(parents=True, exist_ok=True)
-    cmd = ["npx", "-y", "-p", os.getenv("SVF_UTILS", "svf-utils@7.0.1"), "svf-to-gltf", urn, "--output-folder", str(out),
-           "--deduplicate", "--skip-unused-uvs", "--ignore-lines", "--ignore-points"]
+    node_dir = ROOT / "scripts" / "node"
+    if not (node_dir / "node_modules" / "svf-utils").exists():
+        subprocess.run(["npm", "install", "--silent"], cwd=node_dir, check=True)
+    cmd = ["node", str(node_dir / "svf_to_gltf.js"), urn, str(out)]
     log("running: " + " ".join(cmd))
     subprocess.run(cmd, check=True, env=os.environ.copy())
-    log("glTF done")
+    subprocess.run([sys.executable, str(ROOT / "scripts" / "rcrv_cache.py")], check=True)
+    log("glTF + properties done")
 
 
 def main() -> None:
