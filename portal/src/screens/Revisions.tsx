@@ -66,38 +66,53 @@ export default function Revisions({ runs }: { runs: RunMeta[] | null }) {
 
 function Diff({ d }: { d: RunDiff }) {
   const [inc] = useIncorrect();
-  const delta = KEYS.map((k) => `${d.counts_delta[k] > 0 ? "+" : ""}${d.counts_delta[k]}`).join(" · ");
+  const n = (id: string) => "#" + id.split("_")[0].replace(/^0+/, "");
+  const changed = d.new_findings.length + d.cleared.length + d.changed.length;
+  const bad = (c?: Record<string, number>) => `${c?.fail ?? 0} fail · ${c?.warn ?? 0} warning · ${c?.unk ?? 0} cannot verify`;
   return (
-    <div className="sq-card" style={{ padding: 16 }}>
-      <h2 className="sq-h2">#{d.a.id.split("_")[0].replace(/^0+/, "")} {d.a.file} → #{d.b.id.split("_")[0].replace(/^0+/, "")} {d.b.file}</h2>
-      <p className="mono sq-muted">counts {KEYS.map((k) => d.a.counts?.[k] ?? 0).join(" · ")} → {KEYS.map((k) => d.b.counts?.[k] ?? 0).join(" · ")} (Δ {delta})
-        {d.added_checks || d.removed_checks ? ` · checks +${d.added_checks} / −${d.removed_checks}` : ""}</p>
-      <Rows title="New or worse findings" rows={d.new_findings} inc={inc} />
-      <Rows title="Cleared" rows={d.cleared} inc={inc} />
-      <Rows title="Other status changes" rows={d.changed} inc={inc} />
-      {!d.new_findings.length && !d.cleared.length && !d.changed.length && <p className="sq-muted">No verdict changed between these runs.</p>}
+    <div className="flex flex-col gap-4">
+      <div className="flex items-baseline gap-3" style={{ flexWrap: "wrap" }}>
+        <h2 className="sq-h1" style={{ fontSize: 22 }}>Rev {d.a.revision} → Rev {d.b.revision}</h2>
+        <span className="sq-muted">{n(d.a.id)} <span className="mono">{d.a.file}</span> {d.a.time.slice(11, 16)} → {n(d.b.id)} <span className="mono">{d.b.file}</span> {d.b.time.slice(11, 16)}</span>
+      </div>
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+        <Stat label="Verdicts changed" value={changed} sub={`of ${d.b.total_checks} checks`} />
+        <Stat label="New or worse" value={d.new_findings.length} sub="findings that appeared" />
+        <Stat label="Cleared" value={d.cleared.length} sub="findings that went away" />
+        <Stat label="Checks" value={`${d.added_checks ? "+" + d.added_checks : 0} / −${d.removed_checks}`} sub="added / removed by the change" />
+      </div>
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
+        <div className="sq-card" style={{ padding: 12 }}><b>Rev {d.a.revision}</b> <span className="sq-faint">· {d.a.time.slice(11, 16)}</span><div className="mono sq-muted" style={{ marginTop: 6 }}>{bad(d.a.counts)}</div></div>
+        <div className="sq-card" style={{ padding: 12 }}><b>Rev {d.b.revision}</b> <span className="sq-faint">· {d.b.time.slice(11, 16)}</span><div className="mono sq-muted" style={{ marginTop: 6 }}>{bad(d.b.counts)}</div></div>
+      </div>
+      <div className="sq-card" style={{ padding: 0 }}>
+        <div className="sq-label" style={{ padding: "12px 14px", borderBottom: "1px solid var(--line)" }}>Verdicts that changed · {changed}</div>
+        {!changed && <p className="sq-muted" style={{ padding: 14 }}>No verdict changed between these runs.</p>}
+        {[...d.new_findings, ...d.cleared, ...d.changed].map((r) => <Row key={r.check_key + r.status} r={r} inc={inc} />)}
+      </div>
     </div>
   );
 }
 
-function Rows({ title, rows, inc }: { title: string; rows: DiffRow[]; inc: Record<string, Incorrect> }) {
-  if (!rows.length) return null;
-  const pill = (s: string | null) => (s && ["fail", "warn", "unk", "pass", "dor", "na"].includes(s) ? <Pill s={s as any} /> : <span className="sq-faint">{s ?? "new check"}</span>);
+function Stat({ label, value, sub }: { label: string; value: number | string; sub: string }) {
   return (
-    <div style={{ marginTop: 12 }}>
-      <div className="sq-label">{title} · {rows.length}</div>
-      <table className="sq-table">
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.check_key + title} className={inc[r.check_key] ? "is-incorrect" : ""}>
-              <td className="mono">{r.id ?? r.rule}</td>
-              <td>{r.title}{inc[r.check_key] && <div className="inc-why">Marked incorrect · {inc[r.check_key].reason}</div>}</td>
-              <td className="mono sq-muted">{r.location}</td>
-              <td>{pill(r.before)} → {pill(r.status)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="sq-card" style={{ padding: 12 }}>
+      <div className="sq-label">{label}</div>
+      <div style={{ fontSize: 26, fontWeight: 600 }}>{value}</div>
+      <div className="sq-faint" style={{ fontSize: 12 }}>{sub}</div>
+    </div>
+  );
+}
+
+function Row({ r, inc }: { r: DiffRow; inc: Record<string, Incorrect> }) {
+  const pill = (s: string | null) => (s && ["fail", "warn", "unk", "pass", "dor", "na"].includes(s) ? <Pill s={s as any} /> : <span className="sq-faint">{s ?? "new check"}</span>);
+  const i = inc[r.check_key];
+  return (
+    <div className={`rev-row${i ? " is-incorrect" : ""}`}>
+      <span className="mono" style={{ width: 70 }}>{r.id ?? r.rule}</span>
+      <span style={{ flex: 1, minWidth: 0 }}>{r.title}<div className="mono sq-faint" style={{ fontSize: 12 }}>{r.location}{r.element ? ` · ${r.element}` : ""}</div>
+        {i && <div className="inc-why">Marked incorrect · {i.reason}</div>}</span>
+      <span className="flex items-center gap-2">{pill(r.before)} → {pill(r.status)}</span>
     </div>
   );
 }
