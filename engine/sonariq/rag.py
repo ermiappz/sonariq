@@ -290,17 +290,69 @@ class LocalRAG:
         return [{**r, "score": float(s), "text": r["text"][:900]} for s, r in scored[:k] if s > 0]
 
 
+MARK = re.compile(r"\[\[cite: ([^\]]+)\]\]")
+
+
+def source_files() -> dict[str, str]:
+    """One text file per source; every chunk starts with a [[cite: ...]] marker (maps retrieved text back)."""
+    files: dict[str, list[str]] = {}
+    for line in CHUNKS.read_text().splitlines():
+        c = json.loads(line)
+        files.setdefault(c["source"], []).append(f"[[cite: {c['citation']}]]\n{c['text']}\n")
+    return {k: "\n".join(v) for k, v in files.items()}
+
+
+def upload_vertex(corpus: str) -> list[dict]:
+    """Upload the per-source files to a RAG Engine corpus (multipart upload, no bucket needed)."""
+    import urllib.request
+    import uuid
+    loc = corpus.split("/")[3]
+    tok = subprocess.run(["gcloud", "auth", "print-access-token"], capture_output=True, text=True).stdout.strip()
+    out = []
+    for name, text in source_files().items():
+        meta = {"rag_file": {"display_name": f"{name}.txt", "description": SOURCES[name]["title"]},
+                "upload_rag_file_config": {"rag_file_transformation_config": {"rag_file_chunking_config": {
+                    "fixed_length_chunking": {"chunk_size": 400, "chunk_overlap": 40}}}}}
+        b = uuid.uuid4().hex
+        body = (f"--{b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{json.dumps(meta)}\r\n"
+                f"--{b}\r\nContent-Type: text/plain\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{name}.txt\"\r\n\r\n"
+                ).encode() + text.encode() + f"\r\n--{b}--\r\n".encode()
+        req = urllib.request.Request(f"https://{loc}-aiplatform.googleapis.com/upload/v1/{corpus}/ragFiles:upload",
+                                     data=body, method="POST",
+                                     headers={"Authorization": f"Bearer {tok}", "X-Goog-Upload-Protocol": "multipart",
+                                              "Content-Type": f"multipart/related; boundary={b}"})
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                out.append({"file": name, "ok": True, "resp": json.loads(r.read())})
+        except Exception as e:  # noqa: BLE001
+            out.append({"file": name, "ok": False, "error": str(e)[:300],
+                        "body": getattr(e, "read", lambda: b"")()[:300].decode(errors="ignore")})
+    return out
+
+
 class VertexRAG:
-    """Vertex AI RAG Engine corpus (europe-west4). Files are uploaded one per chunk with the citation as name."""
+    """Vertex AI RAG Engine corpus (europe-west4). One file per source; [[cite: ...]] markers map hits to paragraphs."""
     def __init__(self, corpus: str, local: LocalRAG | None = None):
         self.corpus = corpus
         self.backend = f"Vertex AI RAG Engine ({corpus.split('/')[3]})"
         self.local = local
-        self.by_name = {}
+        self.files = source_files() if CHUNKS.exists() else {}
+        self.by_cite = {}
         if CHUNKS.exists():
             for line in CHUNKS.read_text().splitlines():
                 c = json.loads(line)
-                self.by_name[c["id"]] = c
+                self.by_cite[c["citation"]] = c
+
+    def _cite_for(self, fname: str, text: str) -> str | None:
+        m = MARK.findall(text)
+        if m:
+            return m[0] if text.find("[[cite:") < len(text) / 2 else m[-1] if len(m) == 1 else m[0]
+        doc = self.files.get(fname, "")
+        i = doc.find(text[:120].strip())
+        if i < 0:
+            return None
+        prev = MARK.findall(doc[:i + 1])
+        return prev[-1] if prev else None
 
     def _token(self):
         return subprocess.run(["gcloud", "auth", "print-access-token"], capture_output=True, text=True,
@@ -322,17 +374,22 @@ class VertexRAG:
         except Exception:  # noqa: BLE001
             return self.local.search(q, k, source) if self.local else []
         out = []
+        seen = set()
         for ctx in d.get("contexts", {}).get("contexts", []):
-            name = Path(ctx.get("sourceDisplayName") or ctx.get("sourceUri") or "").stem
-            c = self.by_name.get(name)
-            if not c:
-                continue
-            if source and c["source"] != source:
-                continue
-            out.append({**{k2: c[k2] for k2 in ("id", "source", "citation", "para", "title", "url")},
-                        "text": ctx.get("text", c["text"])[:900], "score": round(1 - float(ctx.get("distance", 0)), 3)})
+            fname = Path(ctx.get("sourceDisplayName") or ctx.get("sourceUri") or "").stem
+            text = ctx.get("text", "")
+            cites = MARK.findall(text)
+            head = self._cite_for(fname, text) if not text.lstrip().startswith("[[cite:") else None
+            for cite in ([head] if head else []) + cites:   # every paragraph the passage touches, in order
+                c = self.by_cite.get(cite)
+                if not c or cite in seen or (source and c["source"] != source):
+                    continue
+                seen.add(cite)
+                out.append({**{k2: c[k2] for k2 in ("id", "source", "citation", "para", "title", "url")},
+                            "text": c["text"][:900], "score": round(1 - float(ctx.get("distance", 0)), 3)})
             if len(out) >= k:
                 break
+        out = out[:k]
         return out or (self.local.search(q, k, source) if self.local else [])
 
 
@@ -378,6 +435,9 @@ def main():
         print(Counter(c["source"] for c in ch))
         build_index(ch)
         print("wrote", CHUNKS, INDEX)
+    elif len(sys.argv) > 2 and sys.argv[1] == "upload":
+        for r in upload_vertex(sys.argv[2]):
+            print(r["file"], r["ok"], str(r.get("resp") or r.get("error"))[:200], r.get("body", ""))
     elif len(sys.argv) > 1 and sys.argv[1] == "ask":
         for h in get_rag().search(" ".join(sys.argv[2:]), 3):
             print(h["score"], h["citation"], "|", h["text"][:160].replace("\n", " "))
