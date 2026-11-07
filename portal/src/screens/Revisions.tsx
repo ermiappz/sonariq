@@ -1,6 +1,6 @@
 // Revisions: every Analyse kept as a run (newest first). Select two runs to see what changed between them.
 import { useEffect, useState } from "react";
-import { api, type DiffRow, type RunDiff, type RunMeta } from "../api";
+import { api, useIncorrect, type DiffRow, type Incorrect, type RunDiff, type RunMeta } from "../api";
 import { Pill } from "../components/ui";
 
 const KEYS = ["fail", "warn", "unk", "pass", "dor"] as const;
@@ -65,21 +65,22 @@ export default function Revisions({ runs }: { runs: RunMeta[] | null }) {
 }
 
 function Diff({ d }: { d: RunDiff }) {
+  const [inc] = useIncorrect();
   const delta = KEYS.map((k) => `${d.counts_delta[k] > 0 ? "+" : ""}${d.counts_delta[k]}`).join(" · ");
   return (
     <div className="sq-card" style={{ padding: 16 }}>
       <h2 className="sq-h2">#{d.a.id.split("_")[0].replace(/^0+/, "")} {d.a.file} → #{d.b.id.split("_")[0].replace(/^0+/, "")} {d.b.file}</h2>
       <p className="mono sq-muted">counts {KEYS.map((k) => d.a.counts?.[k] ?? 0).join(" · ")} → {KEYS.map((k) => d.b.counts?.[k] ?? 0).join(" · ")} (Δ {delta})
         {d.added_checks || d.removed_checks ? ` · checks +${d.added_checks} / −${d.removed_checks}` : ""}</p>
-      <Rows title="New or worse findings" rows={d.new_findings} />
-      <Rows title="Cleared" rows={d.cleared} />
-      <Rows title="Other status changes" rows={d.changed} />
+      <Rows title="New or worse findings" rows={d.new_findings} inc={inc} />
+      <Rows title="Cleared" rows={d.cleared} inc={inc} />
+      <Rows title="Other status changes" rows={d.changed} inc={inc} />
       {!d.new_findings.length && !d.cleared.length && !d.changed.length && <p className="sq-muted">No verdict changed between these runs.</p>}
     </div>
   );
 }
 
-function Rows({ title, rows }: { title: string; rows: DiffRow[] }) {
+function Rows({ title, rows, inc }: { title: string; rows: DiffRow[]; inc: Record<string, Incorrect> }) {
   if (!rows.length) return null;
   const pill = (s: string | null) => (s && ["fail", "warn", "unk", "pass", "dor", "na"].includes(s) ? <Pill s={s as any} /> : <span className="sq-faint">{s ?? "new check"}</span>);
   return (
@@ -88,9 +89,9 @@ function Rows({ title, rows }: { title: string; rows: DiffRow[] }) {
       <table className="sq-table">
         <tbody>
           {rows.map((r) => (
-            <tr key={r.check_key + title}>
+            <tr key={r.check_key + title} className={inc[r.check_key] ? "is-incorrect" : ""}>
               <td className="mono">{r.id ?? r.rule}</td>
-              <td>{r.title}</td>
+              <td>{r.title}{inc[r.check_key] && <div className="inc-why">Marked incorrect · {inc[r.check_key].reason}</div>}</td>
               <td className="mono sq-muted">{r.location}</td>
               <td>{pill(r.before)} → {pill(r.status)}</td>
             </tr>

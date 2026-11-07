@@ -47,6 +47,10 @@ export const api = {
   reports: () => j<{ reports: Report[] }>("/reports"),
   report: (run_id: string) => j<Report & { existing?: boolean }>("/reports", { method: "POST", body: JSON.stringify({ run_id }) }),
   tasks: () => j<{ tasks: Record<string, Task> }>("/tasks"),
+  incorrect: () => j<{ incorrect: Record<string, Incorrect> }>("/incorrect"),
+  markIncorrect: (body: { check_key: string; finding: string | null; reason: string; by: string; revision?: string; file?: string }) =>
+    j<Incorrect>("/incorrect", { method: "POST", body: JSON.stringify(body) }),
+  undoIncorrect: (key: string) => j<{ undone: boolean }>(`/incorrect/${encodeURIComponent(key)}`, { method: "DELETE" }),
   task: (key: string, body: Partial<Task>) => j<Task>(`/tasks/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(body) }),
   runs: () => j<{ runs: RunMeta[] }>("/runs"),
   runGet: (id: string) => j<RunMeta & { run: Run }>(`/runs/${encodeURIComponent(id)}`),
@@ -55,6 +59,7 @@ export const api = {
 
 export interface Report { id: string; run_id: string; time: string; file: string; revision: string; counts: Record<string, number>;
   total_checks: number; open_findings: number }
+export interface Incorrect { finding: string | null; reason: string; by: string; time: string; revision?: string | null; file?: string | null }
 export interface Task { column: "backlog" | "doing" | "done"; assignee: string | null }
 
 // ---- Stored runs (every Analyse, from the panel or the portal, is kept; never overwritten)
@@ -125,3 +130,12 @@ export const rag = {
   review: (id: string, action: string, reason: string, by: string) =>
     j<{ finding: string; action: string; reason: string; by: string; time: string; revision: string }>(`/findings/${encodeURIComponent(id)}/review`, { method: "POST", body: JSON.stringify({ action, reason, by }) }),
 };
+
+// Findings marked "Incorrect" (by the FreeCAD panel or the browser), polled so both stay in step.
+import { useEffect as _useEffect, useState as _useState } from "react";
+export function useIncorrect(): [Record<string, Incorrect>, () => void] {
+  const [m, setM] = _useState<Record<string, Incorrect>>({});
+  const load = () => { api.incorrect().then((r) => setM(r.incorrect)).catch(() => {}); };
+  _useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t); }, []);
+  return [m, load];
+}

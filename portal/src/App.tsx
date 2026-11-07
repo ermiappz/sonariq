@@ -1,7 +1,7 @@
 // SonarIQ portal v2 (design 12-portal-new): Home at / (no hash), workspace screens behind #<screen>. Data comes from the
 // engine API; the portal never computes a verdict. #inbox/<run id> (FreeCAD Export) opens that run and offers a report.
 import { useEffect, useState } from "react";
-import { api, type Check, type Report, type Run, type RunMeta } from "./api";
+import { api, useIncorrect, type Check, type Report, type Run, type RunMeta } from "./api";
 import Inbox from "./screens/Inbox";
 import Thread from "./screens/Thread";
 import Viewer from "./screens/Viewer";
@@ -49,6 +49,7 @@ function Workspace() {
   const [ask, setAsk] = useState<(RunMeta & { run: Run }) | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [toast, setToast] = useState("");
+  const [incorrect] = useIncorrect();
   useEffect(() => {   // an Export link opened in a tab that already shows the portal
     const on = () => {
       const h = hashParts();
@@ -173,11 +174,12 @@ function Workspace() {
           <div className="sq-card sq-modal" onClick={(e) => e.stopPropagation()}>
             <div className="sq-faint" style={{ fontSize: 12 }}>From FreeCAD · Export</div>
             <h2 className="sq-h2" style={{ margin: "4px 0 6px" }}>Create report from this run?</h2>
-            <div className="mono sq-muted" style={{ fontSize: 13 }}>{ask.file} · Rev {ask.revision} · {ask.total_checks} checks · {ask.run.findings.length} open findings · {ask.time.slice(11, 16)}</div>
+            <div className="mono sq-muted" style={{ fontSize: 13 }}>{ask.file} · Rev {ask.revision} · {ask.total_checks} checks · {ask.run.findings.filter((f) => !incorrect[f.check_key]).length} open findings · {ask.time.slice(11, 16)}</div>
+            {ask.run.findings.some((f) => incorrect[f.check_key]) && <div className="sq-muted" style={{ fontSize: 13, marginTop: 4 }}>Left out: {ask.run.findings.filter((f) => incorrect[f.check_key]).map((f) => `${f.id} (marked incorrect: ${incorrect[f.check_key].reason})`).join(", ")}</div>}
             <div className="flex gap-2" style={{ margin: "12px 0", flexWrap: "wrap" }}>
               {(["fail", "warn", "unk"] as const).map((s) => <span key={s} className="flex items-center gap-1"><b className="mono">{ask.counts[s] ?? 0}</b><Pill s={s} /></span>)}
             </div>
-            <p className="sq-muted">The report keeps this run's verdicts and evidence as they are now. Later runs do not change it.</p>
+            <p className="sq-muted">The report keeps this run's verdicts and evidence as they are now. Later runs do not change it. All findings are exported except those marked incorrect.</p>
             <div className="flex gap-2" style={{ justifyContent: "flex-end" }}>
               <button className="sq-btn" onClick={() => setAsk(null)}>Cancel</button>
               <button className="sq-btn is-primary" onClick={createReport}>Create report</button>
