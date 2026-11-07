@@ -70,3 +70,14 @@ def origin_near_stair(g, stair: str) -> str:
         if adj[n] & door_corridors and (best is None or d < best[0]):
             best = (d, n)
     return (best or fallback)[1]
+
+
+def resolve_origin(g, token: str) -> str:
+    """'@near:3A' -> a space blocking the approach to Stair 3A; '@room:A,B' -> the candidate nearest Stair 3B."""
+    if token.startswith("@near:"):
+        return origin_near_stair(g, token.split(":", 1)[1])
+    if token.startswith("@room:"):
+        cands = [c for c in token.split(":", 1)[1].split(",") if c in g.spaces]
+        ref = g.stairs.get("3B") or next(iter(g.stairs.values()))
+        return min(cands, key=lambda n: g.spaces[n].distance(ref.enclosure))
+    return token

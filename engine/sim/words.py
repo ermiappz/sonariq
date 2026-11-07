@@ -24,7 +24,13 @@ SYSTEM = ("You turn an engineer's request into an evacuation scenario JSON for a
           "stair is out of use. Never invent names; use null when unsure.")
 
 
-def parse(text: str, stairs: list[str], spaces: list[str], doors: list[str] | None = None) -> dict | None:
+ROOM_WORDS = {"service": "service", "pantry": "PANTRY", "store": "STORE", "switchboard": "SWBD", "swbd": "SWBD",
+              "trunk": "TRUNK", "linen": "LINEN", "locker": "LOCKER", "lounge": "LOUNGE", "galley": "GALLEY",
+              "public space": "public"}
+
+
+def parse(text: str, stairs: list[str], spaces: list[str], doors: list[str] | None = None,
+          meta: dict | None = None) -> dict | None:
     """Deterministic parser for common phrasings. Returns None when it cannot read the request."""
     t = text.lower().strip()
     if not t:
@@ -52,7 +58,16 @@ def parse(text: str, stairs: list[str], spaces: list[str], doors: list[str] | No
     m = re.search(r"\bfire\b", t)
     if m:
         name = next((s for s in spaces if s.lower() in t), None)
-        if not name:
+        if not name and meta:
+            for w, key in ROOM_WORDS.items():
+                if re.search(rf"\b{w}", t):
+                    cands = [n for n in spaces if n.startswith(key + "-") or (meta.get(n, {}).get("category") == key)]
+                    if cands:
+                        name = f"@room:{','.join(sorted(cands))}"
+                        break
+        if name and name.startswith("@room:"):
+            out["fire_origin"] = name
+        elif not name:
             near = re.search(r"(?:near|by|next to|at|blocks?(?: the)? (?:approach|way) to)\s+(?:the\s+)?stair\s*([0-9][a-z])", t)
             if near:
                 out["fire_origin"] = f"@near:{near.group(1).upper()}"   # resolved against the geometry later
@@ -65,7 +80,8 @@ def parse(text: str, stairs: list[str], spaces: list[str], doors: list[str] | No
     elif re.search(r"\brev(?:ision)?\.? ?a\b", t):
         out["revision"] = "A"
     if out["case"] is None:
-        if not (out["closed_stair"] or out["fire_origin"] or "simulat" in t or "evacuat" in t):
+        if not (out["closed_stair"] or out["closed_door"] or out["fire_origin"] or "simulat" in t or "evacuat" in t
+                or "what if" in t or "fire" in t):
             return None
         out["case"] = "night"      # Circ.1533 night cases usually govern; shown in the preview to confirm
     return out
@@ -78,7 +94,7 @@ def validate(sc: dict, stairs: list[str], spaces: list[str], doors: list[str] | 
     if sc.get("closed_stair") and sc["closed_stair"] not in stairs:
         errs.append(f"no stair {sc['closed_stair']} on this deck")
     fo = sc.get("fire_origin")
-    if fo and not fo.startswith("@near:") and fo not in spaces:
+    if fo and not fo.startswith(("@near:", "@room:")) and fo not in spaces:
         errs.append(f"no space {fo} on this deck")
     if sc.get("closed_door") and doors is not None and sc["closed_door"] not in doors:
         errs.append(f"no door {sc['closed_door']} on this deck")
@@ -87,8 +103,9 @@ def validate(sc: dict, stairs: list[str], spaces: list[str], doors: list[str] | 
     return errs
 
 
-def from_words(text: str, stairs: list[str], spaces: list[str], llm=None, doors: list[str] | None = None) -> dict:
-    sc = parse(text, stairs, spaces, doors)
+def from_words(text: str, stairs: list[str], spaces: list[str], llm=None, doors: list[str] | None = None,
+               meta: dict | None = None) -> dict:
+    sc = parse(text, stairs, spaces, doors, meta)
     source = "parser"
     if sc is None and llm is not None:
         import json

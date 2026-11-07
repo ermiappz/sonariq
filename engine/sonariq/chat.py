@@ -173,12 +173,13 @@ class Chat:
         from sim.smoke import origin_near_stair
         from sim.geometry import build
         g = build(self.S.model)
-        r = from_words(text, list(g.stairs), list(g.spaces), self.S.llm, list(g.doors))
+        r = from_words(text, list(g.stairs), list(g.spaces), self.S.llm, list(g.doors), g.space_meta)
         if not r["ok"]:
             return {"cards": [{"type": "error", "text": "; ".join(r["errors"])}]}
         sc = r["scenario"]
-        if (sc.get("fire_origin") or "").startswith("@near:"):
-            sc["fire_origin"] = origin_near_stair(g, sc["fire_origin"].split(":", 1)[1])
+        if (sc.get("fire_origin") or "").startswith("@"):
+            from sim.smoke import resolve_origin
+            sc["fire_origin"] = resolve_origin(g, sc["fire_origin"])
         rev = sc.pop("revision", None)
         from sim.runner import Scenario
         scen = Scenario(case=sc.get("case", "night"), route=sc.get("route", "primary"),

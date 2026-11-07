@@ -209,7 +209,7 @@ def simulate(req: SimReq):
     model, rev = _sim_model(req.revision or sc.get("revision"))
     stairs, spaces, g = _names(model)
     if req.text and not req.scenario:
-        parsed = from_words(req.text, stairs, spaces, S.llm, list(g.doors))
+        parsed = from_words(req.text, stairs, spaces, S.llm, list(g.doors), g.space_meta)
         if not parsed["ok"]:
             raise HTTPException(422, parsed)
         sc = parsed["scenario"]
@@ -218,9 +218,9 @@ def simulate(req: SimReq):
     errs = validate({"case": sc.get("case", "night"), **sc}, stairs, spaces, list(g.doors))
     if errs:
         raise HTTPException(422, {"errors": errs})
-    if (sc.get("fire_origin") or "").startswith("@near:"):
-        from sim.smoke import origin_near_stair
-        sc["fire_origin"] = origin_near_stair(g, sc["fire_origin"].split(":", 1)[1])
+    if (sc.get("fire_origin") or "").startswith("@"):
+        from sim.smoke import resolve_origin
+        sc["fire_origin"] = resolve_origin(g, sc["fire_origin"])
     scen = _scenario(sc)
     preview = {"scenario": scen.key(), "label": scen.label(), "revision": rev,
                "runs": req.runs or 500, "source": parsed["source"] if parsed else "explicit"}
@@ -243,9 +243,9 @@ def sim_setup(req: SetupReq):
     svc = _sim()
     model, rev = _sim_model(req.revision)
     sc = dict(req.scenario)
-    if (sc.get("fire_origin") or "").startswith("@near:"):
-        from sim.smoke import origin_near_stair
-        sc["fire_origin"] = origin_near_stair(_names(model)[2], sc["fire_origin"].split(":", 1)[1])
+    if (sc.get("fire_origin") or "").startswith("@"):
+        from sim.smoke import resolve_origin
+        sc["fire_origin"] = resolve_origin(_names(model)[2], sc["fire_origin"])
     out = dict(svc.setup(model, _scenario(sc)))
     out["revision"] = rev
     if req.explain:

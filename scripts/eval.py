@@ -216,6 +216,9 @@ PHRASES = [  # (text, expected subset of the card)
     ("put a sauna in the lounge", {"type": "error", "refused": True}),
     ("delete the MVZ bulkhead", {"type": "error", "refused": True}),
     ("apply fix 2", {"type": "edit_preview", "edit": {"kind": "add_cabin_block", "berths_per_cabin": 1}}),
+    ("what if a fire starts in the service space?", {"type": "scenario_preview", "scenario": {"fire_origin": "*"}}),
+    ("what if Stair 3B is out?", {"type": "scenario_preview", "scenario": {"closed_stair": "3B"}}),
+    ("night with FD-5-165P out", {"type": "scenario_preview", "scenario": {"case": "night", "closed_door": "FD-5-165P"}}),
 ]
 
 

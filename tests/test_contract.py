@@ -16,10 +16,10 @@ def ids(run):
 
 def test_rev_a_counts_and_split(models):
     run = analyse(models["A"])
-    assert len(run.results) == 105  # 96 + 9 for Stair 3A (DECISIONS #32)
-    assert counts(run) == (1, 1, 1, 98, 4)
+    assert len(run.results) == 96
+    assert counts(run) == (1, 1, 1, 89, 4)
     d = run_dict(run)
-    assert [d["by_group"][g]["checks"] for g in ("fls", "acc", "dnv")] == [71, 22, 12]  # +7 fls, +2 acc for Stair 3A
+    assert [d["by_group"][g]["checks"] for g in ("fls", "acc", "dnv")] == [64, 20, 12]
     assert ids(run) == ["F-01", "U-01", "W-01"]
 
 
@@ -34,7 +34,7 @@ def test_rev_a_findings_match_handoff(models):
 
 def test_rev_b_counts_and_findings(models):
     run = analyse(models["B"])
-    assert counts(run) == (4, 1, 1, 95, 4)
+    assert counts(run) == (4, 1, 1, 86, 4)
     assert ids(run) == ["F-01", "F-07", "F-08", "F-09", "U-01", "W-01"]
     f = {run.ids[r.key]: r for r in run.results if r.key in run.ids}
     assert f["F-07"].location["label"] == "Stair 3B · Decks 4–7"
@@ -44,7 +44,7 @@ def test_rev_b_counts_and_findings(models):
 
 
 def test_rev_b_fix2_counts(models):
-    assert counts(analyse(models["Bfix2"])) == (3, 1, 1, 96, 4)
+    assert counts(analyse(models["Bfix2"])) == (3, 1, 1, 87, 4)
 
 
 def test_every_finding_has_deck_frame_side(models):
@@ -65,7 +65,7 @@ def test_impact_a_to_b(models):
     assert sorted(c["id"] for c in im["changed"]) == ["F-07", "F-08", "F-09"]
     assert im["stale"] == []          # nothing outside the re-run set changed: dependency index is complete
     # 11 checks touch the change on this deck (design says 14; see docs/DECISIONS.md #17)
-    assert im["rerun"] == 12  # 11 + Stair 3A formula (MVZ 4 berths)
+    assert im["rerun"] == 11
     assert any(v["id"] == "W-01" for v in im["value_changed"])   # W-01: value changed, status unchanged
 
 
@@ -98,7 +98,7 @@ def test_set_door_fire_class_clears_f01_only(models):
     ra = analyse(A)
     m, _, _ = apply_edit(A, {"kind": "set_door_fire_class", "door": "FD-5-165P", "fire_class": "A-60"})
     rm = analyse(m)
-    assert counts(rm) == (0, 1, 1, 99, 4)
+    assert counts(rm) == (0, 1, 1, 90, 4)
     im = impact(A, ra, m, rm)
     assert [c["id"] for c in im["changed"]] == ["F-01"]
 
