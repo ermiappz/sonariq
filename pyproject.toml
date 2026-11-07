@@ -17,6 +17,8 @@ dependencies = [
   "requests>=2.31",
   "python-dotenv>=1.0",
   "numpy>=1.26",
+  "google-genai>=3.0.0",
+  "jupedsim>=1.4.2",
 ]
 
 [dependency-groups]

@@ -1,17 +1,28 @@
-"""AI explanations. The model explains; it never sets a verdict. Every number it writes must be in the finding.
+"""AI gateway. Rules and simulation compute; the AI only suggests and explains; the engineer decides.
 
-Endpoint: any OpenAI-compatible URL (env LLM_BASE_URL, LLM_MODEL). For Vertex AI the API key is a short-lived
-gcloud access token. With no endpoint configured, explanations come from a deterministic template (E3: AI off).
+Every number the AI writes must already be in the facts it was given (number guard). If the model is slow
+(> 8 s), offline, or writes a number it was not given, the engine's own wording is used instead.
+
+Backend: Gemini on Vertex AI through the Google Gen AI SDK (env GEMINI_MODEL, GEMINI_LOCATION, GOOGLE_CLOUD_PROJECT).
+`Gateway` is the swap point: any class with `generate()` and `stream()` can replace `GeminiGateway`.
+SONARIQ_AI=off turns the AI off (tests, offline demo).
 """
 from __future__ import annotations
 
+import concurrent.futures as cf
+import hashlib
 import json
 import os
 import re
 import subprocess
 import time
+from pathlib import Path
+from typing import Iterator
 
 NUM = re.compile(r"(?<![A-Za-z])[-−]?\d[\d,]*(?:\.\d+)?")
+CACHE = Path(os.getenv("SQ_AI_CACHE", Path(__file__).resolve().parents[2] / "data" / "cache" / "ai"))
+TIMEOUT_S = 8.0
+MAX_TOKENS = 300
 
 SYSTEM = (
     "You explain ship design compliance findings to engineers. Use only the finding JSON you are given. "
@@ -21,9 +32,10 @@ SYSTEM = (
 )
 
 
+# ---------------------------------------------------------------- number guard
 def numbers_in(obj) -> set[str]:
     """All numbers that appear anywhere in a JSON-able object, normalised (no thousands commas)."""
-    text = json.dumps(obj, ensure_ascii=False)
+    text = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False)
     out = set()
     for m in NUM.findall(text):
         out |= _norm(m)
@@ -43,19 +55,16 @@ def _norm(tok: str) -> set[str]:
     return out
 
 
-def check_numbers(text: str, finding: dict) -> list[str]:
-    """Return the numbers in `text` that are not in the finding (empty list = honest)."""
-    allowed = numbers_in(finding)
-    bad = []
-    for m in NUM.findall(text):
-        if not (_norm(m) & allowed):
-            bad.append(m)
-    return bad
+def check_numbers(text: str, facts) -> list[str]:
+    """Return the numbers in `text` that are not in the facts (empty list = honest)."""
+    allowed = numbers_in(facts)
+    return [m for m in NUM.findall(text) if not (_norm(m) & allowed)]
 
 
 def template_explanation(f: dict) -> str:
     loc = (f.get("location") or {}).get("label", "")
     req, meas = f.get("required") or {}, f.get("measured") or {}
+
     def v(d):
         if d.get("value") is None:
             return "missing"
@@ -72,58 +81,209 @@ def template_explanation(f: dict) -> str:
     return s
 
 
+# ---------------------------------------------------------------- gateway
+class Gateway:
+    """Swap point for the model. Implementations return plain text (or a JSON string when `schema` is given)."""
+    name = "none"
+
+    def generate(self, system: str, prompt: str, schema: dict | None = None, max_tokens: int = MAX_TOKENS) -> str:
+        raise NotImplementedError
+
+    def stream(self, system: str, prompt: str, max_tokens: int = MAX_TOKENS) -> Iterator[str]:
+        yield self.generate(system, prompt, None, max_tokens)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        raise NotImplementedError
+
+
+def _project() -> str:
+    p = os.getenv("GOOGLE_CLOUD_PROJECT")
+    if p:
+        return p
+    try:
+        return subprocess.run(["gcloud", "config", "get-value", "project"], capture_output=True, text=True,
+                              timeout=10).stdout.strip() or "fairway-379dc"
+    except Exception:  # noqa: BLE001
+        return "fairway-379dc"
+
+
+class GeminiGateway(Gateway):
+    def __init__(self, model: str | None = None, location: str | None = None):
+        self.model = model or os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+        self.location = location or os.getenv("GEMINI_LOCATION", "eu")
+        self.name = f"{self.model}@{self.location}"
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            from google import genai
+            from google.genai import types
+            self._client = genai.Client(vertexai=True, project=_project(), location=self.location,
+                                        http_options=types.HttpOptions(timeout=int(TIMEOUT_S * 1000)))
+        return self._client
+
+    def _config(self, system, schema, max_tokens):
+        from google.genai import types
+        kw = dict(system_instruction=system, max_output_tokens=max_tokens, temperature=0.1,
+                  thinking_config=types.ThinkingConfig(thinking_level="minimal"))
+        if schema:
+            kw |= dict(response_mime_type="application/json", response_json_schema=schema)
+        return types.GenerateContentConfig(**kw)
+
+    def generate(self, system, prompt, schema=None, max_tokens=MAX_TOKENS):
+        r = self.client.models.generate_content(model=self.model, contents=prompt,
+                                                config=self._config(system, schema, max_tokens))
+        return (r.text or "").strip()
+
+    def stream(self, system, prompt, max_tokens=MAX_TOKENS):
+        for ch in self.client.models.generate_content_stream(model=self.model, contents=prompt,
+                                                             config=self._config(system, None, max_tokens)):
+            if ch.text:
+                yield ch.text
+
+    def embed(self, texts):
+        out = []
+        for i in range(0, len(texts), 50):
+            r = self.client.models.embed_content(model=os.getenv("GEMINI_EMBED_MODEL", "text-embedding-005"),
+                                                 contents=texts[i:i + 50])
+            out += [e.values for e in r.embeddings]
+        return out
+
+
+# ---------------------------------------------------------------- disk cache
+def _key(*parts) -> str:
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:24]
+
+
+def cache_get(key: str):
+    p = CACHE / f"{key}.json"
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:  # noqa: BLE001
+            return None
+    return None
+
+
+def cache_put(key: str, value) -> None:
+    CACHE.mkdir(parents=True, exist_ok=True)
+    (CACHE / f"{key}.json").write_text(json.dumps(value, ensure_ascii=False, indent=1))
+
+
+_POOL = cf.ThreadPoolExecutor(max_workers=4)
+
+
 class LLM:
-    def __init__(self):
-        self.base = os.getenv("LLM_BASE_URL")
-        self.model = os.getenv("LLM_MODEL")
-        self._tok = (None, 0.0)
+    def __init__(self, gateway: Gateway | None = None):
+        self.enabled = os.getenv("SONARIQ_AI", "on").lower() not in ("off", "0", "false")
+        self.gateway = gateway or GeminiGateway()
         self.offline_since: float | None = None
+        self.last_ms: float | None = None
 
     @property
     def configured(self) -> bool:
-        return bool(self.base and self.model)
-
-    def _key(self) -> str:
-        if os.getenv("LLM_API_KEY"):
-            return os.environ["LLM_API_KEY"]
-        tok, t = self._tok
-        if tok and time.time() - t < 1800:
-            return tok
-        tok = subprocess.run(["gcloud", "auth", "print-access-token"], capture_output=True, text=True,
-                             check=True, timeout=30).stdout.strip()
-        self._tok = (tok, time.time())
-        return tok
+        return self.enabled and self.gateway is not None
 
     def status(self) -> dict:
-        return {"endpoint": "approved cloud" if self.configured else "off",
+        return {"endpoint": self.gateway.name if self.configured else "off",
                 "online": self.configured and self.offline_since is None,
-                "offline_since": self.offline_since}
+                "offline_since": self.offline_since, "last_ms": self.last_ms}
+
+    # -- raw call with timeout + cache
+    def call(self, system: str, prompt: str, schema: dict | None = None, max_tokens: int = MAX_TOKENS,
+             use_cache: bool = True) -> tuple[str | None, str]:
+        """Returns (text or None, source) where source is 'cache' | 'ai' | 'off' | 'timeout' | 'error:<type>'."""
+        if not self.configured:
+            return None, "off"
+        key = _key(self.gateway.name, system, prompt, schema, max_tokens)
+        if use_cache and (hit := cache_get(key)) is not None:
+            return hit["text"], "cache"
+        t = time.time()
+        fut = _POOL.submit(self.gateway.generate, system, prompt, schema, max_tokens)
+        try:
+            text = fut.result(timeout=TIMEOUT_S)
+        except cf.TimeoutError:
+            self.offline_since = self.offline_since or time.time()
+            return None, "timeout"
+        except Exception as e:  # noqa: BLE001
+            self.offline_since = self.offline_since or time.time()
+            return None, f"error:{type(e).__name__}"
+        self.offline_since = None
+        self.last_ms = round((time.time() - t) * 1000)
+        cache_put(key, {"text": text, "model": self.gateway.name, "ms": self.last_ms})
+        return text, "ai"
+
+    def guarded(self, system: str, facts, question: str, fallback: str, retries: int = 1) -> dict:
+        """Free-text answer about `facts`; every number must be in `facts`, else the engine's `fallback` text."""
+        prompt = json.dumps({"facts": facts, "question": question}, ensure_ascii=False, default=str)
+        rejected = []
+        for i in range(retries + 1):
+            text, src = self.call(system, prompt + (f"\n(retry {i})" if i else ""))
+            if text is None:
+                out = {"text": fallback, "source": "template", "checked": True, "rejected": rejected}
+                if src != "off":
+                    out["error"] = f"AI offline: {src}"
+                return out
+            text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+            bad = check_numbers(text, facts)
+            if not bad:
+                return {"text": text, "source": "ai", "cached": src == "cache", "checked": True, "rejected": rejected}
+            rejected.append({"text": text, "numbers_not_in_facts": bad})
+        return {"text": fallback, "source": "template", "checked": True, "rejected": rejected}
+
+    def ask_json(self, system: str, prompt: str, schema: dict) -> tuple[dict | None, str]:
+        text, src = self.call(system, prompt, schema=schema)
+        if text is None:
+            return None, src
+        try:
+            return json.loads(text), src
+        except json.JSONDecodeError:
+            return None, "error:json"
+
+    # -- findings
+    @staticmethod
+    def slim(finding: dict) -> dict:
+        return {k: finding.get(k) for k in ("id", "title", "ref", "clause_text", "status_word", "location",
+                                            "required", "measured", "margin", "formula", "method", "missing",
+                                            "summary")}
 
     def explain(self, finding: dict, question: str | None = None, retries: int = 1) -> dict:
-        slim = {k: finding.get(k) for k in ("id", "title", "ref", "clause_text", "status_word", "location",
-                                             "required", "measured", "margin", "formula", "method", "missing",
-                                             "summary")}
+        return self.guarded(SYSTEM, self.slim(finding), question or "Why does this fail, in plain words?",
+                            template_explanation(finding), retries)
+
+    def stream_guarded(self, system: str, facts, question: str, fallback: str) -> Iterator[dict]:
+        """SSE events: {'delta'} while streaming, then {'done', text, source}. If the finished text has a number
+        that is not in the facts, a final {'replace'} event swaps it for the engine's text."""
+        prompt = json.dumps({"facts": facts, "question": question}, ensure_ascii=False, default=str)
+        key = _key(self.gateway.name if self.configured else "off", system, prompt, None, MAX_TOKENS)
+        hit = cache_get(key) if self.configured else None
+        if hit:
+            text = hit["text"]
+            bad = check_numbers(text, facts)
+            yield {"done": True, "text": text if not bad else fallback, "source": "ai" if not bad else "template",
+                   "cached": True}
+            return
         if not self.configured:
-            return {"text": template_explanation(finding), "source": "template", "checked": True, "rejected": []}
-        from openai import OpenAI
-        rejected = []
-        for _ in range(retries + 1):
-            try:
-                client = OpenAI(base_url=self.base, api_key=self._key(), timeout=30)
-                msg = [{"role": "system", "content": SYSTEM},
-                       {"role": "user", "content": json.dumps({"finding": slim, "question": question or
-                                                               "Why does this fail, in plain words?"},
-                                                              ensure_ascii=False)}]
-                r = client.chat.completions.create(model=self.model, messages=msg, temperature=0.1, max_tokens=300)
-                text = (r.choices[0].message.content or "").strip()
-                text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
-                self.offline_since = None
-            except Exception as e:  # noqa: BLE001
-                self.offline_since = self.offline_since or time.time()
-                return {"text": template_explanation(finding), "source": "template", "checked": True,
-                        "rejected": [], "error": f"AI offline: {type(e).__name__}"}
-            bad = check_numbers(text, slim)
-            if not bad:
-                return {"text": text, "source": "ai", "checked": True, "rejected": rejected}
-            rejected.append({"text": text, "numbers_not_in_finding": bad})
-        return {"text": template_explanation(finding), "source": "template", "checked": True, "rejected": rejected}
+            yield {"done": True, "text": fallback, "source": "template"}
+            return
+        buf, t = [], time.time()
+        try:
+            for d in self.gateway.stream(system, prompt):
+                buf.append(d)
+                yield {"delta": d}
+                if time.time() - t > TIMEOUT_S:
+                    raise TimeoutError
+        except Exception as e:  # noqa: BLE001
+            self.offline_since = self.offline_since or time.time()
+            yield {"replace": True, "done": True, "text": fallback, "source": "template",
+                   "error": f"AI offline: {type(e).__name__}"}
+            return
+        text = "".join(buf).strip()
+        bad = check_numbers(text, facts)
+        if bad:
+            yield {"replace": True, "done": True, "text": fallback, "source": "template",
+                   "rejected": [{"text": text, "numbers_not_in_facts": bad}]}
+            return
+        cache_put(key, {"text": text, "model": self.gateway.name})
+        yield {"done": True, "text": text, "source": "ai"}

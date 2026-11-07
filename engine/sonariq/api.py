@@ -6,7 +6,9 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+import json
+
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from .edits import EditRefused
@@ -77,6 +79,19 @@ def finding(fid: str):
 @app.get("/findings/{fid}/explain")
 def explain(fid: str, q: str | None = None):
     return S.explain(fid, q)
+
+
+@app.get("/findings/{fid}/explain/stream")
+def explain_stream(fid: str, q: str | None = None):
+    """SSE: delta events while the model writes, then a done event (or replace, if the number guard fails)."""
+    from .llm import SYSTEM, template_explanation
+    f = S.finding(fid)
+
+    def gen():
+        for ev in S.llm.stream_guarded(SYSTEM, S.llm.slim(f), q or "Why does this fail, in plain words?",
+                                       template_explanation(f)):
+            yield f"data: {json.dumps(ev, ensure_ascii=False)}\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.get("/findings/{fid}/fixes")
