@@ -64,6 +64,8 @@ class Model:
     ship: dict[str, Any]
     elements: dict[str, Element]
     frame_spacing_m: float = 0.8
+    # spatial containers (project, site, building, storeys): GlobalId -> {"class", "name"}, for selection scope
+    containers: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def copy(self) -> "Model":
         return copy.deepcopy(self)
@@ -142,6 +144,9 @@ def load_ifc(path: str | Path, revision: str | None = None) -> Model:
             e.members += [o.GlobalId for o in rel.RelatedObjects]
         els[e.guid] = e
 
+    containers = {c.GlobalId: {"class": c.is_a(), "name": c.Name or ""}
+                  for t in ("IfcProject", "IfcSite", "IfcBuilding", "IfcBuildingStorey") for c in f.by_type(t)}
+
     # fast path: products whose body is only IfcTriangulatedFaceSet (RCRV conversion) -> read coordinates directly
     import numpy as np
     import ifcopenshell.util.placement as upl
@@ -167,7 +172,7 @@ def load_ifc(path: str | Path, revision: str | None = None) -> Model:
     if it is None:
         rev = revision or str(ship.get("revision") or "?")
         return Model(path=str(path), revision=rev, ship=ship, elements=els,
-                     frame_spacing_m=float(ship.get("frame_spacing_m") or 0.8))
+                     frame_spacing_m=float(ship.get("frame_spacing_m") or 0.8), containers=containers)
     if it.initialize():
         while True:
             sh = it.get()
@@ -186,7 +191,7 @@ def load_ifc(path: str | Path, revision: str | None = None) -> Model:
                 break
     rev = revision or str(ship.get("revision") or Path(str(path)).stem.split("rev")[-1][:1] or "?")
     return Model(path=str(path), revision=rev, ship=ship, elements=els,
-                 frame_spacing_m=float(ship.get("frame_spacing_m") or 0.8))
+                 frame_spacing_m=float(ship.get("frame_spacing_m") or 0.8), containers=containers)
 
 
 def rect(poly: Polygon) -> tuple[float, float]:

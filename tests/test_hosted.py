@@ -56,3 +56,17 @@ def test_smoke_summary_aggregates_runs():
     assert s["runs"] == 100 and s["people_exposed_max"] == 100 and s["rerouted_mean"] == 1.0
     assert 94 <= s["people_exposed_p95"] <= 96 and s["corridor_reached_s"] == 90.0
     assert smoke_summary([{"smoke": None}, {}]) is None
+
+
+def test_selection_by_module(models):
+    """Selecting a deck = Deck scope; an MVZ or a space = the elements inside it."""
+    from sonariq.engine import analyse
+    m = models["B"]
+    deck = {g for g, c in m.containers.items() if c["class"] == "IfcBuildingStorey"}
+    assert analyse(m, ["fls", "acc", "dnv"], "selection", deck).counts() == analyse(m, ["fls", "acc", "dnv"], "deck:5").counts()
+    mvz4 = {e.guid for e in m.by_class("IfcZone") if e.name == "MVZ 4"}
+    r = analyse(m, ["fls", "acc", "dnv"], "selection", mvz4)
+    assert 0 < len(r.results) < 96 and r.counts()["fail"] == 3   # F-07, F-08, F-09 are all in MVZ 4
+    cor = {m.by_name("COR-5-152-S").guid}
+    names = {x.element.name for x in analyse(m, ["fls", "acc", "dnv"], "selection", cor).results if x.element}
+    assert "COR-5-152-S" in names and len(names) > 1

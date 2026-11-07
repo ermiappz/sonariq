@@ -1,6 +1,7 @@
 """Analyse a model with rule packs; diff revisions; work out the re-run set (the ping)."""
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -50,6 +51,42 @@ def applicable(rule: Rule, model: Model) -> tuple[bool, str]:
     return True, ""
 
 
+def expand_selection(model: Model, selection: set[str] | None) -> set[str] | None:
+    """Selection scope by module: a selected deck (storey) means everything on it, an MVZ (IfcZone) its spaces and
+    what lies inside them, a space what touches it, the ship/site/project the whole model. Elements stay as they are."""
+    if not selection:
+        return selection
+    out = set(selection)
+    areas = []
+    for g in selection:
+        c = model.containers.get(g)
+        if c is not None:
+            if c["class"] == "IfcBuildingStorey":
+                # contained elements, plus spaces/zones (aggregated, not contained) by their deck number
+                num = next(iter(re.findall(r"\d+", c["name"])), None)
+                out |= {e.guid for e in model.elements.values()
+                        if e.storey == c["name"] or (num is not None and str(e.sq.get("deck")) == num)}
+            else:   # project, site, building
+                return {e.guid for e in model.elements.values()}
+            continue
+        e = model.elements.get(g)
+        if e is None:
+            continue
+        if e.ifc_class == "IfcZone":
+            out |= set(e.members)
+            areas += [model.elements[m] for m in e.members if m in model.elements]
+        elif e.ifc_class == "IfcSpace":
+            areas.append(e)
+    for a in areas:
+        if a.poly is None:
+            continue
+        zone = a.poly.buffer(0.15)   # doors and walls on the boundary belong to the module too
+        for e in model.elements.values():
+            if e.poly is not None and (a.storey is None or e.storey in (None, a.storey)) and e.poly.intersects(zone):
+                out.add(e.guid)
+    return out
+
+
 def in_scope(r: CheckResult, scope: str, selection: set[str] | None) -> bool:
     if scope in ("whole", "Whole model", None, ""):
         return True
@@ -65,6 +102,8 @@ def in_scope(r: CheckResult, scope: str, selection: set[str] | None) -> bool:
 def analyse(model: Model, groups: list[str] | None = None, scope: str = "deck:5",
             selection: set[str] | None = None, rules: tuple[Rule, ...] | None = None) -> Run:
     t0 = time.perf_counter()
+    if scope == "selection":
+        selection = expand_selection(model, selection)
     rules = rules or load_rules()
     packs = expand_packs(groups)
     ctx: dict[str, Any] = {}
