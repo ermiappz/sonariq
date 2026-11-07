@@ -3,6 +3,7 @@
 Layout (see docs/SPEC.md §6). x = frame x 0.8 m (Fr 0 at x = 0), +y = port, Deck 5 at z = 14.5 m.
   Fr 120-215, MVZ 4 Fr 120-165, MVZ 5 Fr 165-215, A-60 MVZ bulkhead at Fr 165.
   Outboard cabins 2,000 x 6,000 mm, 2 berths. Corridors 1,300 mm; starboard Fr 150-155 900 mm.
+  Stair 3A Fr 126-130, clear width 1,600 mm, serves D4-D7 (added for the evacuation simulation, 7 Nov).
   Stair 3B Fr 160-164, clear width 1,350 mm, serves D4-D7, persons_by_deck D4 40, D6 44, D7 24
   (D5 is counted from the cabins' berths; the pset carries D5 60 for cross-checking only).
 Rev B = owner request OR-117: 4 cabins (8 berths) inboard at Fr 140-147.5; the cross corridor at
@@ -175,7 +176,8 @@ def describe(rev: str, fix2: bool = False) -> dict:
     door("FD-5-208-S", "WA0-GALLEY-S", x(208), Y_IN[0], 0.80, "A-0", frame="208", side="S", maturity="concept")
 
     # ---- inboard public spaces (no checks)
-    space("LOUNGE-5-125", x(120), Y_IN[0], x(134), Y_IN[1], "public", side="C", solas_category="(8)")
+    space("LOUNGE-5-125", x(120), Y_IN[0], x(126), Y_IN[1], "public", side="C", solas_category="(8)")
+    space("LOUNGE-5-132", x(130), Y_IN[0], x(134), Y_IN[1], "public", side="C", solas_category="(8)")
     if rev == "B":
         space("LOUNGE-5-140", x(135.5), Y_IN[0], x(140), Y_IN[1], "public", side="C", solas_category="(8)")
         space("LOUNGE-5-141-P", x(140), 2.0, x(146), Y_IN[1], "public", side="P", solas_category="(8)")
@@ -243,6 +245,7 @@ def describe(rev: str, fix2: bool = False) -> dict:
                                       "persons_by_deck": json.dumps(persons),
                                       "persons_deck5_declared": d5_check}})
 
+    stair("3A", 126, 130, 1.60, {"4": 36, "6": 40, "7": 20}, 60, 127, [])
     stair("3B", 160, 164, 1.35, {"4": 40, "6": 44, "7": 24}, 60, 161,
           [("GL-5-162-P", "WA0-STAIR3B-P", x(162.5), Y_IN[1]), ("GL-5-162-S", "WA0-STAIR3B-S", x(162.5), Y_IN[0])])
     stair("3C", 170, 174, 1.40, {"4": 40, "6": 40, "7": 20}, 56, 171,

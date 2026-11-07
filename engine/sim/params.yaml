@@ -1,0 +1,73 @@
+# Evacuation simulation parameters. Source: IMO MSC.1/Circ.1533 (2016), public copy
+# https://www.traffgo-ht.com/downloads/pedestrians/downloads/documents/MSC.1,Circ.1533,2016.pdf
+# status: verify = read from the circular by SonarIQ, not yet confirmed by Meyer / class.
+# Design insight only: a Deck 5 sub-model with inflows from Decks 4, 6, 7, not a full-ship Circ.1533 analysis.
+
+source: "IMO MSC.1/Circ.1533, Annex 3 (advanced evacuation analysis) and Annex 2 (simplified)"
+
+population:                     # Annex 3, App.1 §3.2.1 Table 3.1 (passengers) and crew; status verify
+  ref: "MSC.1/Circ.1533 Annex 3 App.1 §3.2.1 Table 3.1; §3.2.3 Table 3.4; §3.2.4 Table 3.5"
+  status: verify
+  passengers:                   # [share %, flat min, flat max, stairs-down min, max, stairs-up min, max] m/s
+    F_lt30:      [7,  0.93, 1.55, 0.56, 0.94, 0.47, 0.79]
+    F_30_50:     [7,  0.71, 1.19, 0.49, 0.81, 0.44, 0.74]
+    F_gt50:      [16, 0.56, 0.94, 0.45, 0.75, 0.37, 0.61]
+    F_gt50_mi1:  [10, 0.43, 0.71, 0.34, 0.56, 0.28, 0.46]
+    F_gt50_mi2:  [10, 0.37, 0.61, 0.29, 0.49, 0.23, 0.39]
+    M_lt30:      [7,  1.11, 1.85, 0.76, 1.26, 0.50, 0.84]
+    M_30_50:     [7,  0.97, 1.62, 0.64, 1.07, 0.47, 0.79]
+    M_gt50:      [16, 0.84, 1.40, 0.50, 0.84, 0.38, 0.64]
+    M_gt50_mi1:  [10, 0.64, 1.06, 0.38, 0.64, 0.29, 0.49]
+    M_gt50_mi2:  [10, 0.55, 0.91, 0.33, 0.55, 0.25, 0.41]
+  crew:
+    crew_F:      [50, 0.93, 1.55, 0.56, 0.94, 0.47, 0.79]
+    crew_M:      [50, 1.11, 1.85, 0.76, 1.26, 0.50, 0.84]
+
+response:                       # truncated log-normal, Annex 3 App.1 §3.2.2 eq. 3.2.2.1 / 3.2.2.2
+  ref: "MSC.1/Circ.1533 Annex 3 App.1 §3.2.2"
+  status: verify
+  night: {shift_s: 400, mu: 3.95, sigma: 0.84, min_s: 400, max_s: 700}   # cases 1 and 3
+  day:   {shift_s: 0,   mu: 3.442, sigma: 0.94, min_s: 0, max_s: 300}    # cases 2 and 4
+
+flow:
+  door_max_specific_flow: {value: 1.33, unit: "p/m/s", ref: "MSC.1/Circ.1533 Annex 3 App.1 §3.2.6", status: verify}
+  stair_max_specific_flow_down: {value: 1.1, unit: "p/m/s", ref: "MSC.1/Circ.1533 Annex 2 §1.4 Table 1.2", status: verify}
+  stair_max_specific_flow_up: {value: 0.88, unit: "p/m/s", ref: "MSC.1/Circ.1533 Annex 2 §1.4 Table 1.2", status: verify}
+  stair_direction: up            # assembly stations above Deck 5 (assumption, verify with Meyer)
+  stair_shared_by_all_decks: true   # worst case: Decks 4, 6, 7 share the stair flow with Deck 5
+
+congestion:
+  density_p_m2: {value: 4.0, ref: "MSC.1/Circ.1533 Annex 3 §3.1", status: verify}
+  significant_share_of_tA: {value: 0.10, ref: "MSC.1/Circ.1533 Annex 3 §3.2", status: verify}
+
+occupancy:                      # Annex 3 App.1 §4.1 (night) and §4.2 (day); status verify
+  ref: "MSC.1/Circ.1533 Annex 3 App.1 §4.1, §4.2"
+  status: verify
+  night: {cabins: full_berths, crew_per_service_space: 1, public_share: 0.0}
+  day:   {cabins: 0, crew_per_service_space: 1, public_share: 0.75, public_m2_per_person: 2.0}
+  # public_m2_per_person is a SonarIQ assumption (no capacity in the model), verify
+  counterflow_crew: omitted      # §4.1.3 counterflow crew not modelled in the Deck 5 sub-model (simplification)
+
+inflow:                         # Decks 4, 6, 7 arrive at the stair as timed inflows (persons_by_deck)
+  status: assumption
+  travel_to_stair_s: [15, 60]   # uniform, added to each person's response time
+
+runs:
+  target: 500                   # Annex 3 App.1 §5.2 (minimum 500 per case)
+  ref: "MSC.1/Circ.1533 Annex 3 App.1 §5.2"
+  percentile: 95                # §5.5
+  safety_factor: 1.25           # Annex 3 §1.2 (shown, not applied to the design-insight result)
+
+model:
+  name: "JuPedSim CollisionFreeSpeedModel"
+  dt_s: 0.05
+  radius_m: 0.2
+  time_gap_s: 1.0
+  record_hz: 2
+  density_cell_m: 0.5
+  max_sim_s: 1500
+
+smoke:
+  label: "Illustrative smoke spread, not a fire model"
+  hop_delay_s: 90               # SonarIQ assumption: one space-to-space hop through an open boundary
+  door_rule: "Pset_DoorCommon.SelfClosing TRUE holds; FALSE or unknown = open (worst case)"
