@@ -118,7 +118,14 @@ def main():
     sel = [o.Label for o in Gui.Selection.getSelection()]
     ghosted = sum(1 for o in doc.Objects if getattr(o, "ViewObject", None) and hasattr(o.ViewObject, "Transparency")
                   and o.ViewObject.Transparency == 85)
-    check("Click F-07: element selected + coloured", n > 0 and bool(sel), "objects", n, "selected", sel[:3])
+    stair = panel.bridge.find(f07["element"]["guid"], f07["element"]["name"])[0]
+    want = sp.QtGui.QColor(sp.STATUS_COLOR["fail"])
+    sc = stair.ViewObject.ShapeColor
+    check("Click F-07: element coloured by status, selection cleared", n > 0 and not sel and
+          abs(sc[0] - want.redF()) < 0.02 and abs(sc[1] - want.greenF()) < 0.02, "objects", n, "colour", sc[:3],
+          "line width", getattr(stair.ViewObject, "LineWidth", None))
+    check("Click F-07: card active", panel._cards[f07["check_key"]]._acts.isVisible())
+    check("F-07 overlay drawn", panel.bridge.has_overlay())
     check("Click F-07: rest ghosted", ghosted > 0, "ghosted", ghosted)
     shot("2_F07")
     panel.isolate(f07)
@@ -131,6 +138,26 @@ def main():
     check("Show all: everything visible again", visible(doc) == all_vis, "visible", visible(doc))
     m = panel.bridge.select_inverse()
     check("Select inverse", m > 0, "selected", m)
+
+    # 3b. F-08 dead-end overlay appears, and disappears on Show all
+    f08 = next(c for c in rB["findings"] if c["id"] == "F-08")
+    sg = Gui.ActiveDocument.ActiveView.getSceneGraph()
+    n0 = sg.getNumChildren()
+    n8 = panel.select_finding(f08)
+    pump(0.5)
+    o8 = panel.bridge.find(f08["element"]["guid"], f08["element"]["name"])
+    p("F-08 objects", n8, [(o.Name, o.Label, o.TypeId, getattr(o.ViewObject, "DisplayMode", None),
+                            o.ViewObject.Visibility, getattr(o.ViewObject, "Transparency", None),
+                            str(o.Shape.BoundBox) if hasattr(o, "Shape") else None) for o in o8])
+    lgs = [w for w in Gui.getMainWindow().findChildren(QtWidgets.QLabel, "SonarIQLegend") if w.isVisible()]
+    lg = lgs[0] if len(lgs) == 1 else None
+    check("F-08 overlay appears", panel.bridge.has_overlay() and sg.getNumChildren() == n0 + 1 and lg is not None,
+          "spec", sp.FreeCADBridge.overlay_spec(f08), "legend", lg.text() if lg else None)
+    shot("5_F08_overlay")
+    panel.show_all()
+    pump(0.5)
+    lgs = [w for w in Gui.getMainWindow().findChildren(QtWidgets.QLabel, "SonarIQLegend") if w.isVisible()]
+    check("Show all removes the overlay", not panel.bridge.has_overlay() and sg.getNumChildren() == n0 and not lgs)
 
     # 4. fix2 (new document while Rev B stays open)
     doc2 = open_ifc("deck5_revB_fix2.ifc")
