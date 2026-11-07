@@ -36,7 +36,17 @@ export const api = {
   rules: () => j<{ rules: Record<string, any>[] }>("/rules"),
   mapping: () => j<{ rows: Record<string, string>[] }>("/rcrv/mapping"),
   ifcUrl: (rev: string) => `/api/model/ifc/${rev}`,
+  runs: () => j<{ runs: RunMeta[] }>("/runs"),
+  runGet: (id: string) => j<RunMeta & { run: Run }>(`/runs/${encodeURIComponent(id)}`),
+  runDiff: (a: string, b: string) => j<RunDiff>(`/runs/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
 };
+
+// ---- Stored runs (every Analyse, from the panel or the portal, is kept; never overwritten)
+export interface RunMeta { id: string; seq: number; time: string; file: string; revision: string; scope: string; packs: string[];
+  counts: Record<string, number>; total_checks: number; source: string; scope_note?: string | null }
+export interface DiffRow { id: string | null; check_key: string; rule: string; title: string; status: string; before: string | null; location: string; element: string | null }
+export interface RunDiff { a: RunMeta; b: RunMeta; counts_delta: Record<string, number>; new_findings: DiffRow[]; cleared: DiffRow[];
+  changed: DiffRow[]; added_checks: number; removed_checks: number }
 
 export const WORD: Record<Status, string> = { fail: "Fail", warn: "Warning", unk: "Cannot verify", pass: "Pass", dor: "Dormant", na: "Not applicable", acc: "Accepted with reason" };
 export const ORDER: Status[] = ["fail", "warn", "unk", "pass", "dor"];

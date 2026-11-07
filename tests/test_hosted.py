@@ -70,3 +70,19 @@ def test_selection_by_module(models):
     cor = {m.by_name("COR-5-152-S").guid}
     names = {x.element.name for x in analyse(m, ["fls", "acc", "dnv"], "selection", cor).results if x.element}
     assert "COR-5-152-S" in names and len(names) > 1
+
+
+def test_every_analyse_is_kept_as_a_run_and_diffs():
+    c = TestClient(api.app)
+    before = len(c.get("/runs").json()["runs"])
+    c.post("/analyse", json={"revision": "A"})
+    c.post("/analyse", json={"revision": "B"})
+    runs = c.get("/runs").json()["runs"]
+    assert len(runs) == before + 2 and runs[0]["seq"] > runs[1]["seq"]          # newest first, nothing overwritten
+    assert runs[0]["revision"] == "B" and runs[0]["file"] == "deck5_revB.ifc" and runs[0]["counts"]["fail"] == 4
+    assert c.get(f"/runs/{runs[0]['id']}").json()["run"]["total_checks"] == 96
+    d = c.get(f"/runs/diff?a={runs[1]['id']}&b={runs[0]['id']}").json()
+    assert {"F-07", "F-08", "F-09"} <= {r["id"] for r in d["new_findings"]} and d["counts_delta"]["fail"] == 3
+    d2 = c.get(f"/runs/diff?a={runs[0]['id']}&b={runs[1]['id']}").json()
+    assert {"F-07", "F-08", "F-09"} <= {r["id"] for r in d2["cleared"]}
+    assert c.get("/runs/..%2Fx").status_code == 404

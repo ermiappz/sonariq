@@ -121,8 +121,92 @@ def open_(req: AnalyseReq):
         raise HTTPException(404, str(e))
 
 
+# ------------------------------------------------------------------ run store (every Analyse is kept as a run)
+RUNS = Path(_os.getenv("SONARIQ_RUNS", str(DATA / "runs")))
+
+
+def _save_run(d: dict, req: "AnalyseReq", source: str) -> dict:
+    """Write the result as runs/<seq>_<time>.json. Exclusive create, so a run is never overwritten."""
+    import datetime as _dt
+    RUNS.mkdir(parents=True, exist_ok=True)
+    now = _dt.datetime.now()
+    seq = 1 + max([int(p.name.split("_")[0]) for p in RUNS.glob("[0-9]*_*.json")] or [0])
+    path = Path(S.model.path or "")
+    meta = {"id": f"{seq:04d}_{now:%Y%m%d-%H%M%S}", "seq": seq, "time": now.isoformat(timespec="seconds"),
+            "file": re.sub(r"^[0-9a-f]{12}_", "", path.name), "revision": d.get("revision"),
+            "scope": d.get("scope"), "packs": d.get("groups"), "counts": d.get("counts"),
+            "total_checks": d.get("total_checks"), "source": source, "scope_note": d.get("scope_note")}
+    while True:
+        try:
+            with open(RUNS / f"{meta['id']}.json", "x", encoding="utf-8") as fh:
+                json.dump({**meta, "run": d}, fh, ensure_ascii=False, default=str)
+            break
+        except FileExistsError:
+            seq += 1
+            meta["seq"], meta["id"] = seq, f"{seq:04d}_{now:%Y%m%d-%H%M%S}"
+    return meta
+
+
+def _load_run(rid: str) -> dict:
+    if not re.fullmatch(r"[0-9]{4,}_[0-9]{8}-[0-9]{6}", rid) or not (RUNS / f"{rid}.json").exists():
+        raise HTTPException(404, "no such run")
+    return json.loads((RUNS / f"{rid}.json").read_text(encoding="utf-8"))
+
+
+@app.get("/runs")
+def runs_list():
+    """All stored runs, newest first (without the full results)."""
+    out = []
+    for p in sorted(RUNS.glob("[0-9]*_*.json"), reverse=True):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 - half-written or foreign file
+            continue
+        d.pop("run", None)
+        out.append(d)
+    return {"runs": out}
+
+
+@app.get("/runs/diff")
+def runs_diff(a: str, b: str):
+    """What changed between two stored runs (a = before, b = after), by check: new findings, cleared, status changes."""
+    ra, rb = _load_run(a), _load_run(b)
+    ca = {c["check_key"]: c for c in ra["run"]["checks"]}
+    cb = {c["check_key"]: c for c in rb["run"]["checks"]}
+    bad = ("fail", "warn", "unk")
+    row = lambda c: {"id": c.get("id"), "check_key": c["check_key"], "rule": c["rule"], "title": c["title"],
+                     "status": c["status"], "location": c["location"]["label"],
+                     "element": (c.get("element") or {}).get("name")}
+    new, cleared, changed = [], [], []
+    for k, c in cb.items():
+        o = ca.get(k)
+        if o is None:
+            (new if c["status"] in bad else changed).append({**row(c), "before": None})
+        elif o["status"] != c["status"]:
+            if c["status"] in bad and o["status"] not in bad:
+                new.append({**row(c), "before": o["status"]})
+            elif o["status"] in bad and c["status"] not in bad:
+                cleared.append({**row(c), "id": o.get("id"), "before": o["status"]})   # passing checks carry no finding id
+            else:
+                changed.append({**row(c), "before": o["status"]})
+    for k, o in ca.items():
+        if k not in cb and o["status"] in bad:
+            cleared.append({**row(o), "before": o["status"], "status": "removed"})
+    keys = ("fail", "warn", "unk", "pass", "dor", "na")
+    return {"a": {k: ra[k] for k in ("id", "time", "file", "revision", "counts", "total_checks")},
+            "b": {k: rb[k] for k in ("id", "time", "file", "revision", "counts", "total_checks")},
+            "counts_delta": {k: (rb["counts"] or {}).get(k, 0) - (ra["counts"] or {}).get(k, 0) for k in keys},
+            "new_findings": new, "cleared": cleared, "changed": changed,
+            "added_checks": len(set(cb) - set(ca)), "removed_checks": len(set(ca) - set(cb))}
+
+
+@app.get("/runs/{rid}")
+def runs_get(rid: str):
+    return _load_run(rid)
+
+
 @app.post("/analyse")
-def analyse(req: AnalyseReq):
+def analyse(req: AnalyseReq, request: Request):
     req.path = _check_path(req.path)
     # Reopen on a new path, a new revision, or a revision whose demo file is not the open model
     # (after a file opened by path, e.g. an RCRV deck, which also carries revision "A").
@@ -131,9 +215,18 @@ def analyse(req: AnalyseReq):
                   str(Path(S.model.path).resolve()) != str(REVISIONS[req.revision].resolve()))
     if req.path or (req.revision and (req.revision != S.model.revision or other_file)):
         # a file opened by path is labelled by its name (uploads: without the hash prefix), not the last revision
-        label = req.revision or (re.sub(r"^[0-9a-f]{12}_", "", Path(req.path).stem) if req.path else S.model.revision)
+        label = req.revision
+        if not label and req.path:
+            p = Path(req.path)
+            # a byte-identical copy of a demo file keeps its revision name (A / B / Bfix2)
+            known = _revision_for(_sha(p)) if p.exists() and p.stat().st_size < 100 * 1024 * 1024 else None
+            label = known or re.sub(r"^[0-9a-f]{12}_", "", p.stem)
+        label = label or S.model.revision
         S.open(label, req.path)
-    return S.analyse(req.scope, req.packs, req.selection)
+    d = S.analyse(req.scope, req.packs, req.selection)
+    ua = request.headers.get("user-agent", "")
+    d["run_meta"] = _save_run(d, req, "FreeCAD panel" if "Python-urllib" in ua else "portal" if "Mozilla" in ua else "API")
+    return d
 
 
 @app.get("/findings/{fid}")
