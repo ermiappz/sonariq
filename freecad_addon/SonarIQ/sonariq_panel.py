@@ -725,6 +725,18 @@ class SonarIQPanel(QtWidgets.QWidget):
                 cv.addWidget(label(prev, role="muted", wrap=True))
         cv.addWidget(label("MEASUREMENT METHOD", role="label"))
         cv.addWidget(label(f.get("method") or "", role="muted", wrap=True))
+        try:   # Source text (public sources + our reading, with citation); retrieval never sets a verdict
+            src = self.engine._req("GET", f"/findings/{f['id']}/sources", timeout=8)
+            hits = (src.get("reading") or []) + (src.get("public") or [])
+            if hits:
+                cv.addWidget(label("SOURCE TEXT", role="label"))
+                if src.get("note"):
+                    cv.addWidget(label(src["note"], role="faint", wrap=True))
+                for h in hits[:2]:
+                    cv.addWidget(label(h["citation"], mono=True, wrap=True))
+                    cv.addWidget(label(h["text"][:240].replace("\n", " ") + "…", role="muted", wrap=True))
+        except Exception:  # noqa: BLE001
+            pass
         if n3d:
             cv.addWidget(label(f"Highlighted in 3D: {n3d} object(s).", role="faint"))
         v.addWidget(card)

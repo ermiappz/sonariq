@@ -18,6 +18,12 @@ def _topic(f: dict, now: str, author: str) -> tuple[str, str, str]:
         desc += f" Decision: {f['decision']}"
     extra_vps, comments, pin_vps = "", "", []
     for i, p in enumerate(f.get("pins") or []):
+        if p.get("review"):   # sign-off: a comment without its own viewpoint
+            cg = uuid.uuid5(uuid.NAMESPACE_URL, f"{tid}/review/{i}/{p.get('time')}")
+            comments += (f'  <Comment Guid="{cg}">'
+                         f'<Date>{now}</Date><Author>{escape(p.get("by", author))}</Author>'
+                         f'<Comment>{escape(p["note"])}</Comment></Comment>\n')
+            continue
         pvid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"sonariq/pin/{tid}/{i}/{p.get('time')}"))
         extra_vps += f'  <Viewpoints Guid="{pvid}"><Viewpoint>pin_{i}.bcfv</Viewpoint></Viewpoints>\n'
         comments += (f'  <Comment Guid="{uuid.uuid5(uuid.NAMESPACE_URL, pvid + "/c")}"><Date>{now}</Date>'

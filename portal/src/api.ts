@@ -85,3 +85,15 @@ export const sim = {
   pin: (id: string, body: { t: number; x: number; y: number; finding?: string; note: string; by: string }) =>
     j<{ ok: boolean; topic: string }>(`/simulate/${id}/pin`, { method: "POST", body: JSON.stringify(body) }),
 };
+
+// ---- RAG and review (engine computes; RAG never sets a verdict)
+export interface SourceHit { citation: string; text: string; title: string; url: string; source: string; score?: number }
+export interface Sources { finding: string; reading: SourceHit[]; public: SourceHit[]; note: string | null; links: { title: string; url: string }[]; backend: string }
+export const rag = {
+  sources: (id: string) => j<Sources>(`/findings/${encodeURIComponent(id)}/sources`),
+  draft: (query: string) => j<{ ok: boolean; draft?: Record<string, any>; source?: SourceHit; numbers_not_in_source?: string[]; error?: string; alternatives?: SourceHit[] }>(
+    "/rules/draft", { method: "POST", body: JSON.stringify({ query }) }),
+  approve: (draft: Record<string, any>, by: string) => j<{ ok: boolean; path: string; note: string }>("/rules/draft/approve", { method: "POST", body: JSON.stringify({ draft, by }) }),
+  review: (id: string, action: string, reason: string, by: string) =>
+    j<{ finding: string; action: string; reason: string; by: string; time: string; revision: string }>(`/findings/${encodeURIComponent(id)}/review`, { method: "POST", body: JSON.stringify({ action, reason, by }) }),
+};

@@ -467,3 +467,27 @@ def rules_draft(req: DraftReq):
 def rules_draft_approve(req: ApproveReq):
     from .sources import approve_draft
     return approve_draft(req.draft, req.by)
+
+
+class ReviewReq(BaseModel):
+    action: str            # Approved | Requested a change | Declined
+    reason: str = ""
+    by: str = "Reviewer"
+
+
+@app.post("/findings/{fid}/review")
+def finding_review(fid: str, req: ReviewReq):
+    """W3 sign-off: name, role, time and revision recorded by the engine (the verdict does not change)."""
+    if req.action != "Approved" and not req.reason.strip():
+        raise HTTPException(422, "A reason is required to decline or request a change.")
+    try:
+        f = S.finding(fid)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    import datetime as _dt
+    row = {"finding": fid, "action": req.action, "reason": req.reason, "by": req.by,
+           "time": _dt.datetime.now().strftime("%H:%M:%S"), "revision": f["revision"], "verdict": f["status_word"]}
+    S.reviews.append(row)
+    S.history.append({"time": row["time"], "event": "review", "finding": fid,
+                      "text": f"{req.by}: {req.action}" + (f" · {req.reason}" if req.reason else "")})
+    return row

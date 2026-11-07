@@ -22,17 +22,24 @@ CHECKS = ["door_fire_class", "window_fire_class", "door_self_closing", "mvz_bulk
 
 # public guidance to search per rule family (SOLAS/FSS full text is not public: we show our reading + related
 # public text, and say so)
-QUERY_HINT = {
-    "door_clear_width": "door clear width accessible route", "corridor_width": "clear width accessible route walking surface",
-    "stair_width_formula": "stair width persons served", "door_self_closing": "self-closing fire doors",
+QUERY_HINT = {   # by rule id: the words the public text uses for the same requirement
+    "R-ACC-01": "clear width of walking surfaces 36 inches minimum",
+    "R-ACC-02": "door openings shall provide a clear width of 32 inches minimum",
+    "R-FLS-03": "stairs specific flow clear width persons evacuation", "R-FLS-04": "corridor clear width specific flow",
+    "R-FLS-10": "self-closing fire doors", "R-FLS-02": "dead end corridor",
 }
 
 
 def finding_sources(finding: dict, k: int = 3) -> dict:
     rag = get_rag()
     rule = finding.get("rule")
-    q = f"{finding.get('title')}. {finding.get('clause_text')} {QUERY_HINT.get(finding.get('check', ''), '')}"
-    hits = [h for h in rag.search(q, k + 2) if h["source"] != "meyer_qa"]
+    q = f"{finding.get('title')}. {finding.get('clause_text')} {QUERY_HINT.get(rule or '', '')}"
+    src_name = (finding.get("source") or "")
+    pref = "pvag" if src_name.startswith("PVAG") else "ada2010" if src_name.startswith("ADA") else None
+    first = rag.search(QUERY_HINT.get(rule or "") or f"{finding.get('clause_text')} {finding.get('title')}", 2,
+                       source=pref) if pref else []
+    hits = first + [h for h in rag.search(q, k + 2) if h["source"] != "meyer_qa" and h["citation"] not in
+                    {f["citation"] for f in first}]
     own = [h for h in rag.search(f"{rule} {finding.get('title')}", 3, source="sonariq_rules") if h["para"] == rule]
     public = [h for h in hits if h["source"] not in ("sonariq_rules",)][:k]
     note = None

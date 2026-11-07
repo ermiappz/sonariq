@@ -268,11 +268,12 @@ class LocalRAG:
             if r["para"] and len(r["para"]) > 2 and r["para"].lower() in q.lower():
                 s[i] += 0.15
         order = np.argsort(-s)
-        out = []
+        out, seen = [], set()
         for i in order:
             r = self.rows[int(i)]
-            if source and r["source"] != source:
+            if source and r["source"] != source or r["citation"] in seen:
                 continue
+            seen.add(r["citation"])
             out.append({**r, "score": round(float(s[i]), 3), "text": r["text"][:900]})
             if len(out) >= k:
                 break

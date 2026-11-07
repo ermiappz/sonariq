@@ -20,7 +20,7 @@ export default function App() {
   const [units, setUnits] = useState<"mm" | "in">("mm");
   const [run, setRun] = useState<Run | null>(null);
   const [hvac, setHvac] = useState<Run | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(location.hash.startsWith("#thread/") ? location.hash.split("/")[1] : null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export default function App() {
     })();
   }, [rev]);
 
-  const openFinding = (c: Check) => { setOpen(c.id ?? c.check_key); setScreen("thread"); };
+  const openFinding = (c: Check) => { setOpen(c.id ?? c.check_key); setScreenState("thread"); history.replaceState(null, "", "#thread/" + (c.id ?? c.check_key)); };
   const inboxN = (run?.findings.length ?? 0) + (hvac?.findings.length ?? 0);
   const nav: [Screen, string, number?][] = [["projects", "Projects"], ["inbox", "Inbox", inboxN], ["model", "Model"],
     ...(simOn ? [["simulate", "Simulate"] as [Screen, string]] : []), ["rules", "Rules"], ["mapping", "Mapping review"], ["benchmark", "Benchmark"], ["revisions", "Revisions"]];

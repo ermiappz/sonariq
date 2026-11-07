@@ -28,7 +28,8 @@ class Session:
         self.decisions: list[dict] = []
         self.history: list[dict] = []
         self.pending: dict | None = None
-        self.pins: list[dict] = []     # replay moments pinned to a finding's review (BCF viewpoint + comment)
+        self.pins: list[dict] = []
+        self.reviews: list[dict] = []   # W3 sign-offs (approve / request change / decline) with name, time, revision     # replay moments pinned to a finding's review (BCF viewpoint + comment)
         self.groups = ["fls", "acc", "dnv"]
         self.scope = "deck:5"
         self.open(revision, path)
@@ -171,6 +172,9 @@ class Session:
         topics = [f for f in d["findings"]]
         for f in topics:
             f["pins"] = [p for p in self.pins if p["finding"] == f["id"]]
+            f["pins"] += [{"note": f"{r['action']}" + (f": {r['reason']}" if r["reason"] else "") +
+                                   f" (Rev {r['revision']}, {r['time']})", "by": r["by"], "x": 0, "y": 0, "time": r["time"],
+                           "review": True} for r in self.reviews if r["finding"] == f["id"]]
         out = Path(path) if path else DATA / "out" / f"sonariq_rev-{self.model.revision.lower()}.bcfzip"
         res = _export_bcf(topics, out, project=self.model.ship.get("name", "Demo ship"))
         res["decisions"] = sum(1 for f in topics if f.get("decision"))
