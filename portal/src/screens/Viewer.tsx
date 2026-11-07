@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as OBC from "@thatopen/components";
 import * as THREE from "three";
-import { api, type Check, type Run } from "../api";
+import { api, BASE, HDR, type Check, type Run } from "../api";
 import { Loc, Pill } from "../components/ui";
 
 type Pin = { c: Check; x: number; y: number; visible: boolean };
@@ -53,10 +53,10 @@ export default function Viewer({ rev, run, hvac, onOpen }: { rev: string; run: R
     (async () => {
       try {
         loader.settings.autoSetWasm = false;
-        loader.settings.wasm = { path: "/wasm/", absolute: true };
+        loader.settings.wasm = { path: BASE + "wasm/", absolute: true };
         loader.settings.webIfc.COORDINATE_TO_ORIGIN = false;
         await loader.setup();
-        const buf = new Uint8Array(await (await fetch(api.ifcUrl(rev))).arrayBuffer());
+        const buf = new Uint8Array(await (await fetch(api.ifcUrl(rev), { headers: HDR })).arrayBuffer());
         const model = await loader.load(buf);
         if (disposed) return;
         world.scene.three.add(model);
