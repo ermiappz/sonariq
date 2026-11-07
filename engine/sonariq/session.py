@@ -72,7 +72,15 @@ class Session:
         if scope:
             self.scope = scope
         self.run = analyse(self.model, self.groups, self.scope, set(selection or []) or None)
+        note = None
+        if self.scope.lower().startswith("deck") and not self.run.results:
+            # e.g. an RCRV deck file has no "Deck 5": analyse what is there instead of showing 0 checks
+            deck = self.scope.split(":")[-1].replace("Deck", "").strip()
+            note = f"No Deck {deck} elements in this model; analysed the whole model."
+            self.run = analyse(self.model, self.groups, "whole", None)
         d = run_dict(self.run, self.model)
+        if note:
+            d["scope_note"] = note
         self.apply_decisions(d)
         self.history.append({"time": _now(), "event": "analyse", "revision": self.model.revision,
                              "checks": d["total_checks"], "counts": d["counts"], "duration_s": d["duration_s"]})

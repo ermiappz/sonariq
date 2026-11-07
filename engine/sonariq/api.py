@@ -65,7 +65,12 @@ def open_(req: AnalyseReq):
 
 @app.post("/analyse")
 def analyse(req: AnalyseReq):
-    if req.revision and req.revision != S.model.revision or req.path:
+    # Reopen on a new path, a new revision, or a revision whose demo file is not the open model
+    # (after a file opened by path, e.g. an RCRV deck, which also carries revision "A").
+    # Same revision + same file keeps the model, including confirmed edits.
+    other_file = (req.revision in REVISIONS and
+                  str(Path(S.model.path).resolve()) != str(REVISIONS[req.revision].resolve()))
+    if req.path or (req.revision and (req.revision != S.model.revision or other_file)):
         S.open(req.revision or S.model.revision, req.path)
     return S.analyse(req.scope, req.packs, req.selection)
 

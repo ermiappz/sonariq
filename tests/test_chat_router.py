@@ -41,3 +41,24 @@ def test_simulate_off_says_so(models):
     r = Chat(_S(models["A"]), sim_service=None).ask("simulate night")
     card = r["cards"][0]
     assert card["type"] == "error" and "make api-sim" in card["text"]
+
+
+def test_deck_scope_falls_back_to_whole_model_and_back(tmp_path):
+    """Opening a file with no Deck 5 (an RCRV deck) must not show 0 checks; going back to Rev A must reload it."""
+    import shutil
+    from fastapi.testclient import TestClient
+    import sonariq.api as api
+    from sonariq.session import DATA
+    c = TestClient(api.app)
+    # a copy of Rev A whose deck property says Deck 3 stands in for an RCRV deck file
+    src = (DATA / "deck5_revA.ifc").read_text(encoding="utf-8")
+    p = tmp_path / "deck3.ifc"
+    p.write_text(src.replace("IFCLABEL('5')", "IFCLABEL('3')"), encoding="utf-8")
+    if "IFCLABEL('3')" not in p.read_text(encoding="utf-8"):
+        shutil.copy(DATA / "deck5_revA.ifc", p)   # deck stored differently: only check the reopen below
+    else:
+        j = c.post("/analyse", json={"path": str(p)}).json()
+        assert j["total_checks"] > 0 and j["scope"] == "whole" and "scope_note" in j
+    c.post("/analyse", json={"path": str(p)})
+    j = c.post("/analyse", json={"revision": "A"}).json()
+    assert j["total_checks"] == 96 and j["scope"] == "deck:5" and "scope_note" not in j
