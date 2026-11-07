@@ -1,7 +1,7 @@
 PY := .venv/bin/python
 export PYTHONPATH := engine:.
 
-.PHONY: setup deck test bench dev api api-sim mcp portal rcrv qa eval eval-quick sim-precompute
+.PHONY: setup deck test bench dev api api-sim mcp portal rcrv qa eval eval-quick sim-precompute rag
 
 setup:
 	uv sync --python 3.11
@@ -48,3 +48,6 @@ qa:
 
 fc-check:   # needs FreeCAD 1.x + xvfb; engine must be running (make api)
 	mkdir -p data/out && SQ_OUT=$(CURDIR)/data/out SQ_IFC=$(CURDIR)/data/deck5_revA.ifc xvfb-run -a -s "-screen 0 1440x900x24" freecad tests/freecad_gui_check.py; cat data/out/fc_gui_test.log
+
+rag:   # rebuild the local RAG index from data/rag/src (public sources only)
+	$(PY) -m sonariq.rag build

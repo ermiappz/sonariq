@@ -52,7 +52,20 @@ If the panel says "Engine not reachable", the API is not running (step 5). Set `
 
 ## AI explanations (optional)
 
-The engine needs no AI and no network. To turn on explanations, set `LLM_BASE_URL` and `LLM_MODEL` in `.env`; any OpenAI-compatible endpoint works (see `.env.example`). Every explanation is checked: if it contains a number that is not in the finding, it is thrown away and the engine's own wording is shown. The demo uses an open Qwen model on Vertex AI (managed API). Production would deploy the same open model in an EU region (GCP europe-north1) or on Meyer's own servers. Status: `docs/BLOCKERS.md`.
+The engine needs no AI and no network. Explanations use Gemini (`gemini-3.5-flash`) on Vertex AI, EU multi-region location `eu`, through the Google Gen AI SDK with your gcloud credentials (`GEMINI_MODEL`, `GEMINI_LOCATION`, `GOOGLE_CLOUD_PROJECT`; `SONARIQ_AI=off` turns it off). Every explanation is checked: if it contains a number that is not in the facts it was given, it is thrown away and the engine's own wording is shown. Slow answers (> 8 s) also fall back to the engine text. Answers are cached on disk (`data/cache/ai/`). The model sits behind `engine/sonariq/llm.py:Gateway`, so it can be swapped.
+
+## Simulate (evacuation, behind `SIMULATE_ENABLED`)
+
+`make api-sim` starts the engine with Simulate on (`make api` keeps it off). Rules and simulation compute; AI only suggests and explains; the engineer decides.
+
+- **Model**: JuPedSim CollisionFreeSpeedModel on the Deck 5 walkable area read from the IFC (spaces − walls + door openings); Stairs 3A and 3B are capacity-limited exits with a queue on each landing, shared with timed inflows from Decks 4, 6, 7 (`persons_by_deck`). Parameters: `engine/sim/params.yaml` (MSC.1/Circ.1533 paragraph refs, status *verify*). Details: `docs/SIMULATE.md`.
+- **Use it**: panel **Simulate** or chat (*simulate a night evacuation*, *what if Stair 3B is out?*, *fire near stair 3A*); portal **Simulate** (W9 setup, W10 results + replay, compare + fix explorer).
+- **Every result screen says**: Deck 5 sub-model with inflows from Decks 4, 6, 7 · design insight, not a full-ship Circ.1533 analysis.
+- `make sim-precompute` caches the demo simulations (500 runs each) and writes `docs/DEMO_SCRIPT.md` from the results. `make eval` runs the rules benchmark, simulation sanity checks, AI evals and the golden path, and appends to `docs/EVAL.md`.
+
+## Sources (RAG)
+
+Public sources only: MSC.1/Circ.1533, 2010 ADA Standards, the proposed PVAG, COLREG rules text, our rule readings and Q&A notes (no SOLAS/FSS text; DNV link only). `make rag` rebuilds the local index (`data/rag/`, embeddings `text-embedding-005` in europe-west4) from `data/rag/src/`. Used for **Source text** on evidence cards, cited answers to *why* questions, and **Draft rule from clause** (saved to `rules/drafts/`, never run until a human moves it into the rulebook). RAG never sets a verdict.
 
 ## RCRV (real ship)
 
