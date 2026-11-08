@@ -242,3 +242,6 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .sim-demo .mono { font-size: 12px; margin-top: 2px; }
 .sim-vs { font-size: 11px; margin-top: 2px; color: var(--fg-2); }
 @media (max-width: 900px) { .sim-demo-row { grid-template-columns: 1fr 1fr; } }
+.rail-reset { color: var(--fg-3); text-decoration: underline; text-underline-offset: 2px; font-size: 11px; }
+.rail-reset:hover { color: var(--fg-1); }
+.studio-resetview { position: absolute; right: 12px; top: 12px; z-index: 3; }

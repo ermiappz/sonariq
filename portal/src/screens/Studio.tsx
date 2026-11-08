@@ -54,9 +54,14 @@ export function overlaySpec(c: Check): { z: number; lines: Line[]; title: string
 
 // ---------------------------------------------------------------------------------------------- 3D
 type Label = { text: string; x: number; y: number; dashed: boolean; visible: boolean };
-type View = { focus: (c: Check) => boolean; isolate: (c: Check) => void; showAll: () => void; zoom: () => void };
+type View = { focus: (c: Check) => boolean; isolate: (c: Check) => void; showAll: () => void; zoom: () => void; resetView: () => void;
+  paint: (cs: Check[]) => void; setBounds: (b?: number[] | null) => void };
 
-function Viewer3D({ url, bounds, onReady, apiRef }: { url: string | null; bounds?: number[] | null; onReady: (s: string) => void; apiRef: React.MutableRefObject<View | null> }) {
+// Look: dark background, every element translucent grey ("x-ray"), isometric camera from front-left-above fitted with
+// a small margin. The model loads as soon as it is opened; after Analyse the same viewer stays (camera unchanged) and
+// only elements with findings get their status colour.
+const ISO: [number, number] = [0.45, 0.9];   // camera-controls azimuth, polar (rad)
+function Viewer3D({ url, bounds, findings, onReady, apiRef }: { url: string | null; bounds?: number[] | null; findings: Check[] | null; onReady: (s: string) => void; apiRef: React.MutableRefObject<View | null> }) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [err, setErr] = useState("");
@@ -78,20 +83,46 @@ function Viewer3D({ url, bounds, onReady, apiRef }: { url: string | null; bounds
     let off = new THREE.Vector3();
     let extras: THREE.Object3D[] = [];
     let labelPts: { text: string; v: THREE.Vector3; dashed: boolean }[] = [];
-    const saved = new Map<THREE.Material, [number, boolean, boolean]>();
+    let painted: THREE.Object3D[] = [];
     let focusBox: THREE.Box3 | null = null;
     const T = (x: number, y: number, z: number) => new THREE.Vector3(x + off.x, z + off.y, -y + off.z);
     const mats = () => { const out: THREE.Material[] = []; group?.items.forEach((f: any) => { const m = f.mesh.material; (Array.isArray(m) ? m : [m]).forEach((mm: THREE.Material) => out.push(mm)); }); return out; };
+    // x-ray: translucent grey; while a finding is focused the rest fades further
     const ghost = (on: boolean) => mats().forEach((m: any) => {
-      if (on) { if (!saved.has(m)) saved.set(m, [m.opacity, m.transparent, m.depthWrite]); m.transparent = true; m.opacity = 0.15; m.depthWrite = false; }
-      else if (saved.has(m)) { const [o, t, d] = saved.get(m)!; m.opacity = o; m.transparent = t; m.depthWrite = d; }
-      m.needsUpdate = true;
+      m.color?.set?.(0x9aa3ad); m.transparent = true; m.opacity = on ? 0.08 : 0.2; m.depthWrite = false; m.needsUpdate = true;
     });
+    const cloneIn = (guid: string | undefined, color: number, intensity: number, into: THREE.Object3D[], box?: THREE.Box3) => {
+      const eid = guid ? group.globalToExpressIDs.get(guid) : undefined;
+      if (eid === undefined) return false;
+      const fmap = group.getFragmentMap([eid]);
+      for (const fid of Object.keys(fmap)) {
+        const frag = group.items.find((f: any) => f.id === fid);
+        if (!frag) continue;
+        const cl = frag.clone(fmap[fid]);
+        cl.mesh.material = [new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: intensity })];
+        group.add(cl.mesh); into.push(cl.mesh);
+        if (box) { cl.mesh.updateMatrixWorld(true); box.union(new THREE.Box3().setFromObject(cl.mesh)); }
+      }
+      return true;
+    };
+    const paint = (cs: Check[]) => {
+      painted.forEach((o) => { o.parent?.remove(o); (o as any).geometry?.dispose?.(); }); painted = [];
+      if (!group) return;
+      for (const c of cs) cloneIn(c.element?.guid, STATUS_HEX[c.status] ?? 0xe392c8, 0.2, painted);
+      painted.forEach((o) => { o.visible = !focusBox && !extras.length; });
+    };
+    const home = async (smooth: boolean) => {
+      if (modelBox.isEmpty()) return;
+      // isometric from front-left-above; fitToSphere keeps the angle (fitToBox would snap to the nearest axis)
+      const sph = modelBox.getBoundingSphere(new THREE.Sphere()); sph.radius *= 0.75;
+      await world.camera.controls.rotateTo(ISO[0], ISO[1], false);
+      await world.camera.controls.fitToSphere(sph, smooth);
+    };
     const visibility = (on: boolean) => group?.items.forEach((f: any) => f.setVisibility(on));
     const clear = () => {
       extras.forEach((o) => { o.parent?.remove(o); (o as any).geometry?.dispose?.(); });
       extras = []; labelPts = []; focusBox = null; setLegend(null); setLabels([]);
-      visibility(true); ghost(false);
+      visibility(true); ghost(false); painted.forEach((o) => { o.visible = true; });
     };
     const update = () => {
       if (disposed || !host.current) return;
@@ -107,19 +138,9 @@ function Viewer3D({ url, bounds, onReady, apiRef }: { url: string | null; bounds
       clear();
       if (!group) return false;
       const color = STATUS_HEX[c.status] ?? 0xe392c8;
-      const eid = c.element?.guid ? group.globalToExpressIDs.get(c.element.guid) : undefined;
       const box = new THREE.Box3();
-      if (eid !== undefined) {
-        const fmap = group.getFragmentMap([eid]);
-        for (const fid of Object.keys(fmap)) {
-          const frag = group.items.find((f: any) => f.id === fid);
-          if (!frag) continue;
-          const cl = frag.clone(fmap[fid]);
-          cl.mesh.material = [new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.35 })];
-          group.add(cl.mesh); extras.push(cl.mesh);
-          cl.mesh.updateMatrixWorld(true); box.union(new THREE.Box3().setFromObject(cl.mesh));
-        }
-      }
+      painted.forEach((o) => { o.visible = false; });
+      const eid = cloneIn(c.element?.guid, color, 0.35, extras, box) ? 1 : undefined;
       // the engine's evidence box, outlined in the status colour (spaces have no solid to colour)
       const ev = c.evidence;
       if (ev?.bbox && ev.z != null) {
@@ -154,8 +175,11 @@ function Viewer3D({ url, bounds, onReady, apiRef }: { url: string | null; bounds
     apiRef.current = {
       focus,
       isolate: (c: Check) => { focus(c); visibility(false); ghost(false); },
-      showAll: () => { clear(); if (!modelBox.isEmpty()) fit(modelBox); },
+      showAll: () => { clear(); home(true); },
       zoom: () => { if (focusBox) fit(focusBox); },
+      resetView: () => { clear(); home(true); },
+      paint,
+      setBounds: (b) => { if (b && !modelBox.isEmpty()) off = new THREE.Vector3(modelBox.min.x - b[0], modelBox.min.y - b[2], modelBox.min.z + b[4]); },
     };
     (async () => {
       setState("loading"); setErr("");
@@ -172,9 +196,8 @@ function Viewer3D({ url, bounds, onReady, apiRef }: { url: string | null; bounds
         world.scene.three.add(group);
         modelBox = new THREE.Box3().setFromObject(group);
         if (bounds) off = new THREE.Vector3(modelBox.min.x - bounds[0], modelBox.min.y - bounds[2], modelBox.min.z + bounds[4]);
-        await world.camera.controls.fitToBox(modelBox, false);
-        await world.camera.controls.rotateTo(-0.35, 0.75, false);
-        await world.camera.controls.fitToBox(modelBox, false, { paddingTop: 2, paddingBottom: 2, paddingLeft: 2, paddingRight: 2 });
+        ghost(false);
+        await home(false);
         world.camera.controls.addEventListener("update", update);
         timer = window.setInterval(update, 200);
         setState("ready"); onReady("ready");
@@ -182,9 +205,13 @@ function Viewer3D({ url, bounds, onReady, apiRef }: { url: string | null; bounds
     })();
     return () => { disposed = true; apiRef.current = null; window.clearInterval(timer); components.dispose(); };
   }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fkey = (findings ?? []).map((c) => c.check_key + c.status).join("|");
+  useEffect(() => { if (state === "ready") apiRef.current?.setBounds(bounds); }, [state, bounds?.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (state === "ready") apiRef.current?.paint(findings ?? []); }, [state, fkey]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="viewer studio-3d" ref={host}>
       {state === "idle" && <div className="studio-empty">Open a model and press Analyse. The 3D shows the exact file of the run.</div>}
+      {state === "ready" && <button className="sq-btn is-sm studio-resetview" onClick={() => apiRef.current?.resetView()}>Reset view</button>}
       {state === "loading" && <div className="sq-muted" style={{ position: "absolute", left: 16, top: 12 }}>Loading the file of this run…</div>}
       {state === "error" && <div className="sq-banner" style={{ position: "absolute", left: 16, top: 12, right: 16 }}>3D preview not available for this run: {err} The findings list still works.</div>}
       {labels.filter((l) => l.visible).map((l, i) => (
@@ -217,7 +244,20 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   useEffect(() => { if (shown) setSetup(false); }, [shown?.meta.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const packs = DISCS.filter((d) => d.pack && discs.includes(d.code)).map((d) => d.pack!) as string[];
-  const ifcUrl = shown ? `${API}/runs/${encodeURIComponent(shown.meta.id)}/ifc` : null;
+  // the viewer loads the model as soon as it is opened; after Analyse it keeps that file (same camera) when the run
+  // read the same file unedited, otherwise it loads exactly the run's file
+  const targetUrl = target ? (target.kind === "demo" ? `${API}/model-file?revision=${encodeURIComponent(target.rev)}`
+    : target.path ? `${API}/model-file?path=${encodeURIComponent(target.path)}` : target.rev ? `${API}/model-file?revision=${encodeURIComponent(target.rev)}` : null) : null;
+  const runUrl = shown ? `${API}/runs/${encodeURIComponent(shown.meta.id)}/ifc` : null;
+  const [viewSrc, setViewSrc] = useState<{ url: string | null; file: string | null }>({ url: null, file: null });
+  useEffect(() => {
+    if (target) { if (targetUrl !== viewSrc.url) setViewSrc({ url: targetUrl, file: target.name }); return; }
+    if (!shown) { setViewSrc({ url: null, file: null }); return; }
+    if (viewSrc.url && viewSrc.file === shown.meta.file && !shown.meta.edited) return;
+    setViewSrc({ url: runUrl, file: shown.meta.file });
+  }, [targetUrl, runUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ifcUrl = viewSrc.url;
+  const painted = useMemo(() => (shown && !target ? shown.run.checks.filter((c) => ["fail", "warn", "unk"].includes(c.status) && !incorrect[c.check_key]) : null), [shown, target, incorrect]);
   const cards = useMemo(() => {
     if (!shown) return [];
     const rows = shown.run.checks.filter((c) => (status ? c.status === status : ["fail", "warn", "unk"].includes(c.status)));
@@ -267,7 +307,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   return (
     <div className="studio">
       <div className="studio-left">
-        <Viewer3D url={ifcUrl} bounds={shown?.meta.bounds} onReady={() => {}} apiRef={view} />
+        <Viewer3D url={ifcUrl} bounds={shown && !target ? shown.meta.bounds : null} findings={painted} onReady={() => {}} apiRef={view} />
       </div>
       <aside className="studio-panel">
         <header className="studio-head">

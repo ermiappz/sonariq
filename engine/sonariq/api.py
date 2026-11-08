@@ -277,6 +277,15 @@ def runs_ifc(rid: str):
     return FileResponse(p, media_type="application/x-step", filename=re.sub(r"^[0-9a-f]{12}_", "", p.name))
 
 
+@app.get("/model-file")
+def model_file(revision: str | None = None, path: str | None = None):
+    """A model opened in the web Studio before Analyse: a demo revision or an uploaded file (only files this engine owns)."""
+    p = REVISIONS.get(revision or "") if revision else (Path(path) if path else None)
+    if p is None or not _owned(p):
+        raise HTTPException(404, "no such model on the engine")
+    return FileResponse(p, media_type="application/x-step", filename=re.sub(r"^[0-9a-f]{12}_", "", p.name))
+
+
 # ------------------------------------------------------------------ reports (a run exported from FreeCAD, frozen) + task board
 REPORTS = Path(_os.getenv("SONARIQ_REPORTS", str(DATA / "reports.json")))
 TASKS = Path(_os.getenv("SONARIQ_TASKS", str(DATA / "tasks.json")))
@@ -509,6 +518,39 @@ def bcf_file():
 @app.get("/history")
 def history():
     return {"history": S.history, "decisions": S.decisions}
+
+
+@app.post("/admin/reset")
+def admin_reset():
+    """"Reset all data" (portal Settings): same as scripts/demo_reset.sh, without a restart. Runs, reports, tasks,
+    incorrect marks, BCF exports and the in-memory history/decisions are moved to data/archive/<timestamp>/ (never
+    deleted); report numbering restarts at R-001. Demo models, uploaded model files and the simulation cache stay, so
+    the FreeCAD panel keeps working (its next Analyse starts a fresh session)."""
+    global S, _LAST_BCF
+    import datetime as _dt
+    import shutil
+    ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    arch = DATA / "archive" / ts
+    arch.mkdir(parents=True, exist_ok=True)
+    (arch / "history.json").write_text(json.dumps({"history": S.history, "decisions": S.decisions}, default=str), encoding="utf-8")
+    moved = {"runs": 0}
+    if RUNS.exists() and any(RUNS.iterdir()):
+        moved["runs"] = len(list(RUNS.glob("*.json")))
+        shutil.move(str(RUNS), str(arch / "runs"))
+    RUNS.mkdir(parents=True, exist_ok=True)
+    for f in (REPORTS, TASKS, INCORRECT):
+        if f.exists():
+            shutil.move(str(f), str(arch / f.name))
+    out = DATA / "out"
+    bcf = list(out.glob("*.bcfzip")) if out.exists() else []
+    if bcf:
+        (arch / "out").mkdir(exist_ok=True)
+        for b in bcf:
+            shutil.move(str(b), str(arch / "out" / b.name))
+    (arch / "ARCHIVE.json").write_text(json.dumps({"archived": ts, "from": str(DATA), "by": "portal"}), encoding="utf-8")
+    S = Session("A")
+    _LAST_BCF = {}
+    return {"ok": True, "archived": ts, **moved}
 
 
 @app.get("/model/ifc/{rev}")
