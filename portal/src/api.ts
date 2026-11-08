@@ -23,7 +23,9 @@ export interface Run {
 // the API without the basic-auth prompt the FreeCAD panel still uses.
 export const BASE = import.meta.env.BASE_URL;            // "/" or "/next/"
 export const API = BASE + "api";
-export const HDR: Record<string, string> = { "X-SonarIQ-Key": (import.meta.env.VITE_SQ_KEY as string) || "sonariq-demo" };
+// hosted builds get the portal key from VITE_SQ_KEY at build time (scripts/deploy_vm.sh); local dev needs none
+const KEY = (import.meta.env.VITE_SQ_KEY as string | undefined) ?? "";
+export const HDR: Record<string, string> = KEY ? { "X-SonarIQ-Key": KEY } : {};
 export const apiFetch = (path: string, init?: RequestInit) =>
   fetch(API + path, { ...init, headers: { ...HDR, ...(init?.headers as Record<string, string> | undefined) } });
 

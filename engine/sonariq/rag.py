@@ -210,7 +210,7 @@ def build_chunks(src: Path) -> list[dict]:
 def _embed(texts: list[str], task: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
     from google import genai
     from google.genai import types
-    c = genai.Client(vertexai=True, project=os.getenv("GOOGLE_CLOUD_PROJECT", "fairway-379dc"), location=EMBED_LOCATION)
+    c = genai.Client(vertexai=True, project=os.getenv("GOOGLE_CLOUD_PROJECT", ""), location=EMBED_LOCATION)
     out = []
     for i in range(0, len(texts), 100):
         batch = [t[:6000] for t in texts[i:i + 100]]

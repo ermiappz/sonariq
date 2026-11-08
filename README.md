@@ -1,126 +1,185 @@
-# SonarIQ
+<p align="center"><img src="portal/public/brand/sonariq-logo-on-white.svg" width="96" alt="SonarIQ logo"></p>
 
-**A co-pilot inside the ship design tool. When an engineer changes something, it says which safety rules break, where, and why.**
+<h1 align="center">SonarIQ</h1>
 
-Since AI 2026 · Meyer Turku challenge. One deterministic rule engine serves three surfaces: a FreeCAD dock panel, a web portal for discipline reviewers, and an MCP server any AI client or CAD adapter can call. See `docs/SPEC.md`.
+<p align="center"><b>AI-assisted design review for ship safety — review in the browser, fix in your CAD tool.</b></p>
 
-| Path | What |
-|---|---|
-| `engine/sonariq/` | IFC4 → model, rule checks, analyse, impact (ping), the four edits, fixes, BCF, AI guard, HTTP API |
-| `engine/mcp_server.py` | MCP server: analyse, get_finding, explain, propose_fixes, apply_edit, recheck, export_bcf |
-| `rules/seed_rules.yaml` | The 15 rules: clause, reading, thresholds, status. Thresholds live here, not in code. |
-| `scripts/make_deck.py` | Writes the Deck 5 test model: `data/deck5_revA.ifc`, `deck5_revB.ifc` (OR-117), `deck5_revB_fix2.ifc` |
-| `scripts/aps_translate.py`, `scripts/node/svf_to_gltf.js`, `scripts/rcrv_cache.py`, `scripts/rcrv_to_ifc.py` | RCRV .nwd → SVF → glTF + properties → IFC4 |
-| `freecad_addon/SonarIQ/` | FreeCAD 1.x dock panel (P1, P3, P4), styled by `design/panel.qss` |
-| `portal/` | Web portal (Vite + React + TS + That Open Engine): Home, Inbox, Tasks, Studio (open · analyse · findings in 3D), Thread, Rules, Revisions, Mapping, Simulate |
-| `scripts/deploy_vm.sh`, `scripts/deploy_next.sh`, `scripts/caddy_write.sh`, `scripts/setup_freecad_mac.sh` | Hosted deployment (Caddy HTTPS, systemd), staging at `/next`, and the one-line Mac setup |
-| `tests/` | Rule tests (violation, control, exact threshold), handoff contract, impact, guards |
+<p align="center">Meyer Turku challenge · <i>Automated class and regulatory compliance checking</i> · Since AI Hackathon 2026, Turku, 6–8 Nov</p>
 
-## Try it in the browser
+![SonarIQ home page](docs/screenshots/01-home.jpg)
 
-**https://34-88-130-224.sslip.io** → **Login** (demo workspace, no account) → **Studio** → *Open model* → `deck5_revB.ifc`
-→ **Analyse** → click **F-08** (the corridor lights up in its status colour, with the measured and allowed dimensions from
-the rule engine) → **Isolate** / **Show all** → on **U-01** press **Incorrect finding** and give a reason → **Export** →
-*Create report*. You can also upload your own IFC4 file (up to 60 MB in the browser).
+SonarIQ reads an IFC4 ship model and checks it against fire and life safety rules (SOLAS II-2, FSS Code Ch.13),
+accessibility guidance and class rules. A **deterministic rule engine decides every verdict**. AI only explains it in
+plain language, and a number guard throws away any AI sentence that contains a number the engine did not produce.
+Engineers review, mark findings as incorrect with a reason, assign them and sign decisions.
 
-## Add it to FreeCAD (macOS, one line)
+> *How could designs be checked against class rules (e.g. DNV), SOLAS and regulations early, before conflicts
+> propagate downstream?* — the challenge's guiding question.
 
-```bash
-curl -fsSL https://34-88-130-224.sslip.io/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh
+---
+
+## Try it in 2 minutes
+
+**Live demo:** https://34-88-130-224.sslip.io → **Login** (no account needed).
+
+| # | Do this | You should see |
+|---|---|---|
+| 1 | **Studio** → **Open model** → `deck5_revB.ifc` | The deck in x-ray grey, isometric view ![](docs/screenshots/02-studio-open.jpg) |
+| 2 | **Analyse** (scope Deck 5, FIRE · HULL · INT) | 96 checks: 4 Fail · 1 Warning · 1 Cannot verify · 86 Pass · 4 Dormant; finding elements turn their status colour, the camera stays put ![](docs/screenshots/03-studio-analysed.jpg) |
+| 3 | Card **F-08** (dead-end corridor) | Corridor lit orange, rest ghosted, dimension labels *depth 4.2 m* and *width 1.2 m = allowed depth*, legend *Measured by rule engine · check on drawing* ![](docs/screenshots/04-finding-f08.jpg) |
+| 4 | **Isolate**, then **Show all** | Only the corridor, then the whole deck again ![](docs/screenshots/05-isolate.jpg) |
+| 5 | **Export** | *Create report from this run?* with counts; findings marked incorrect are listed as *Left out* ![](docs/screenshots/06-export-report.jpg) |
+| 6 | **Create report** → **Inbox** and **Tasks** | Report R-001; findings with clause, measured vs required, owner and decision; task board with (mock) people ![](docs/screenshots/07-inbox.jpg) ![](docs/screenshots/08-tasks.jpg) |
+| 7 | **Settings → Reset all data** (or the link at the bottom of the sidebar) | Everything archived on the server, portal empty again, next report is R-001 ![](docs/screenshots/09-reset.jpg) |
+
+Also in the portal: **Simulate** (evacuation, see below), **Revisions** (every Analyse is kept as a version),
+**Rules** (the rulebook with clause texts), and a finding thread with the AI explanation and signed approvals.
+
+## Use your own model
+
+- **IFC4** only (IFC2X3 is refused with a message), up to **60 MB** in the browser Studio (the FreeCAD add-on takes larger files).
+- Sample models: https://34-88-130-224.sslip.io/downloads/models/ (`deck5_revA.ifc`, `deck5_revB.ifc`, `deck5_revB_fix2.ifc`).
+- Studio → **Open model** → **Upload IFC…** → **Analyse**. The 3D always shows the exact file the run analysed.
+- **Cannot verify** means the model lacks the data a rule needs (for example a door without `Pset_DoorCommon.FireRating`).
+  SonarIQ never guesses and never turns missing data into a Pass; the card says which property to add.
+- **Dormant** means the rule applies to something that is not designed yet (design spiral): no warning until it exists.
+
+## Optional: inside FreeCAD
+
+The same engine runs as a docked panel in FreeCAD 1.x: Analyse, findings light up on the 3D model, Zoom to,
+Isolate / Show all, Incorrect finding, Export to the portal, and an Assistant chat that turns typed change requests
+into model edits you confirm.
+
+- **macOS (one line, about 5 minutes):**
+  `curl -fsSL https://34-88-130-224.sslip.io/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh`
+  (asks for the engine password from the team).
+- **Windows / Linux:** install FreeCAD 1.0, unzip `SonarIQ-addon.zip` from `/downloads` into FreeCAD's `Mod` folder,
+  create `~/.sonariq.json` with `{"engine": "https://34-88-130-224.sslip.io/api", "user": "sonariq", "password": "<password>"}`,
+  restart FreeCAD.
+- Local engine instead: link `freecad_addon/SonarIQ` into the `Mod` folder and run `make api`.
+
+## Challenge fit
+
+| What Meyer told us | How SonarIQ meets it | Where to see it |
+|---|---|---|
+| 1. Compliance is checked manually, again and again, as designs evolve | Every Analyse is a stored run; re-checking is one click or automatic after an edit | Studio **Analyse**, **Revisions** |
+| 2. Errors reach manufacturing where fixes are expensive; nobody can hold every rule combination | Checks run at design time, in the browser or inside the CAD tool | Studio, FreeCAD panel |
+| 3. Changes propagate (owner adds passengers → cabins → stairs) | Change impact: OR-117 adds 4 cabins on Deck 5 and **Stair 3B, which nobody touched, fails**: required 1,380 mm vs measured 1,350 mm (FSS Code Ch.13 §2.1.2, worked formula shown) | Rev B **F-07**; FreeCAD Assistant edit |
+| 4. "You changed this; these are the connected checks to review" | After an edit only the affected checks re-run (OR-117: 7 re-run, 2 changed) and the change is listed | FreeCAD panel ping, **Revisions** compare |
+| 5. Design spiral: don't warn about areas not designed yet | **Dormant** status, separate from Pass and Fail | Studio counts (4 Dormant on Rev B) |
+| 6. Many stakeholders and interpretations | **Incorrect finding** with a reason (left out of BCF and reports, undoable), signed history, Inbox decisions, Tasks with owners | Studio card, Inbox, Tasks, thread |
+| 7. Accuracy first, no false positives; show a violation **and** an accepted compliant case | Deterministic rules; the same stair passes in Rev A and after fix 2 (1,340 ≤ 1,350 mm) and fails in Rev B. Benchmark: **12 planted violations, 12 caught, 0 missed, 0 false alarms** (`make eval`, [docs/EVAL.md](docs/EVAL.md)) | `deck5_revA` / `revB` / `revB_fix2` |
+| 8. Interpret models and highlight **why** | Each finding: clause, required vs measured, evidence geometry, dimension overlay; AI explains in plain words and the number guard rejects any number not from the engine | Studio F-08 overlay, thread |
+| 9. Run on our own servers, possibly not in the US | Live demo uses Gemini on Vertex AI in the EU. The AI gateway switches by env to any OpenAI-compatible server, e.g. an open model (Qwen) behind vLLM on your servers (`SONARIQ_AI_GATEWAY=openai`, tested against a stub, not yet against a live vLLM). Verdicts never depend on the AI and everything works with `SONARIQ_AI=off` | [DEPLOYMENT.md](DEPLOYMENT.md) |
+| 10. Tools in use: NAPA, Cadmatic, CATIA, AutoCAD, PLM | Tool-agnostic: IFC4 in, BCF out (issues go back to any BIM/CAD tool). The FreeCAD add-on shows the "inside the CAD tool" pattern; adapters for your tools are roadmap | Export → BCF, FreeCAD panel |
+| 11. Technical foundation over polished styling | Rule engine, evidence and tests first: 82 unit tests, a headless FreeCAD golden path, eval log | `make test`, `make fc-golden`, `make eval` |
+| 12. Submission = demo + repo + docs covering deployment | This README, [DEPLOYMENT.md](DEPLOYMENT.md), [ARCHITECTURE.md](ARCHITECTURE.md), [docs/DEMO_SCRIPT.md](docs/DEMO_SCRIPT.md) | here |
+
+## How it works
+
+```mermaid
+flowchart LR
+  IFC[IFC4 model] --> ENG
+  subgraph ENG[Rule engine · Python / FastAPI]
+    R[YAML rule packs<br/>+ measure functions] --> V[Verdicts<br/>Pass · Fail · Warning<br/>Cannot verify · Dormant]
+    V --> EV[Evidence: clause,<br/>required vs measured,<br/>geometry, formula]
+  end
+  ENG --> STUDIO[Portal + web Studio<br/>React · That Open / three.js]
+  ENG --> FC[FreeCAD add-on<br/>docked panel]
+  ENG --> BCF[BCF export]
+  ENG --> SIM[Evacuation simulation<br/>JuPedSim, Deck 5 sub-model]
+  EV --> AI[AI gateway<br/>Gemini EU or self-hosted]
+  RAG[RAG over public<br/>rule texts] --> AI
+  AI --> NG{Number guard}
+  NG -->|numbers all from engine| TXT[Plain-language explanation]
+  NG -->|otherwise| ENGTXT[Engine's own wording]
+  STUDIO --> SIGN[Engineer: incorrect / approve<br/>signed history, tasks]
 ```
 
-| | |
-|---|---|
-| **Web portal + Studio** | https://34-88-130-224.sslip.io (public pages; the API takes the portal's demo key or the panel's login) |
-| **Downloads** | https://34-88-130-224.sslip.io/downloads/ (public: FreeCAD add-on, demo IFC models, Mac setup script) |
-| **FreeCAD** | 1.0.x, free: https://www.freecad.org/downloads.php |
+**Rules decide, AI explains, engineers sign.** The AI never sets or changes a status. Only four model edits exist
+(add cabin block, move wall, set door width, set door fire class) and every edit is previewed and confirmed.
+More: [ARCHITECTURE.md](ARCHITECTURE.md).
 
-The rule engine, AI and simulation run on the server. On your own computer you only need **FreeCAD** and the
-**SonarIQ add-on**: the panel uploads the IFC you open to the hosted engine and shows the results in FreeCAD.
+## What's checked
 
-### macOS: one command (about 5 minutes)
+15 rules in [`rules/seed_rules.yaml`](rules/seed_rules.yaml) (thresholds and clause texts in YAML, measurements in code).
+**Verified** = reading checked against the clause; **to verify** = runs and is labelled *To verify* on every card.
 
-```bash
-curl -fsSL https://34-88-130-224.sslip.io/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh
+| Pack | Rules | Sources | Status |
+|---|---|---|---|
+| Fire (FIRE) | Fire door class vs bulkhead · MVZ bulkhead A-60 · MVZ length ≤ 40 m | SOLAS II-2/9.2.2.1.1 | verified |
+| Fire (FIRE) | Stair enclosure A-0 · self-closing fire doors · glazing class | SOLAS II-2/9.2.2.3–4, 9.4.1.1.4, 9.4.1.3 | to verify |
+| Escape (FIRE) | Stair width for the people it serves (persons per deck, weighted) | FSS Code Ch.13 §2.1.2 | verified |
+| Escape (FIRE) | Dead-end corridors · corridor ≥ 900 mm · stair ≥ 900 mm | SOLAS II-2/13.3.1.2, FSS Ch.13 §2.1.1–2 | to verify |
+| Accessibility (INT) | Corridor width guideline · door clear width 32 in | PVAG 2013 (draft), ADA 2010 §404.2.3 | verified |
+| HVAC | Duct through A-class division without damper | SOLAS II-2/9.7 | to verify |
+| Class (HULL) | Deck plate thickness · OCX stiffeners | DNV-RU-SHIP Pt.3 (to confirm) | to verify (placeholders) |
+
+Coming: more DNV rules once readings are confirmed, structural checks from OCX, adapters for NAPA/Cadmatic exports.
+
+## Simulation
+
+Portal → **Simulate** opens four precomputed 500-run scenarios in one click (Rev B night baseline p95 12:32;
+Stair 3B out p95 12:37 with the longest queue moving to Stair 3A; fire what-if with 60 people walking through smoke and
+p95 unchanged; Rev B vs fix 2 side by side). JuPedSim on the Deck 5 walkable area read from the IFC, with stair
+inflows from Decks 4, 6 and 7. Every result says: *Deck 5 sub-model with inflows from Decks 4, 6, 7 · design insight,
+not a full-ship Circ.1533 analysis.* Details: [docs/SIMULATE.md](docs/SIMULATE.md).
+
+![Simulate](docs/screenshots/10-simulate.jpg)
+
+## Deployment
+
+See **[DEPLOYMENT.md](DEPLOYMENT.md)**: single VM (what the live demo runs), on-premises path, switching the AI to a
+self-hosted model or off, and notes for Red Hat OpenShift AI.
+
+## Tech stack, layout, run locally, tests
+
+Python 3.11 (FastAPI, IfcOpenShell, Shapely, NetworkX, JuPedSim, Google Gen AI SDK) · React + Vite + TypeScript,
+That Open Components / three.js, d3 · FreeCAD 1.x (PySide, Coin3D) · Caddy · MCP server.
+
+```
+engine/sonariq/   rule engine, API (api.py), session, BCF, AI gateway (llm.py), RAG, chat edits
+engine/sim/       evacuation simulation (JuPedSim), fixes explorer
+rules/            YAML rule packs
+portal/           React portal + web Studio
+freecad_addon/    FreeCAD panel (SonarIQ)
+scripts/          deploy, demo reset/restore, precompute, eval
+tests/            unit tests + headless FreeCAD golden path
+docs/             spec, decisions, eval log, demo script, screenshots
+design/           design references and brand (logos in design/brand)
 ```
 
-The script asks for the engine password once (ask the team; it writes it to `~/.sonariq.json` for the panel). It:
-1. installs FreeCAD with Homebrew if it is missing (or tells you to download it from https://www.freecad.org/downloads.php
-   and drag it to Applications: pick the Apple Silicon build on M1–M4 Macs, Intel otherwise);
-2. installs the add-on into `~/Library/Application Support/FreeCAD/Mod/SonarIQ` (and `v1-1/Mod` for FreeCAD 1.1);
-3. downloads the demo models to `~/SonarIQ/` (`deck5_revA.ifc`, `deck5_revB.ifc`, `deck5_revB_fix2.ifc`, `rcrv_deck_7.ifc`);
-4. writes the panel settings to `~/.sonariq.json` (engine URL + login);
-5. checks that the engine answers.
-
-Then in FreeCAD: **File → Open → `~/SonarIQ/deck5_revA.ifc`** (close the BIM welcome dialog if it appears). The SonarIQ
-panel docks on the right; press **Analyse** (Ctrl+Shift+A). Expected on Rev A: **96 checks · 1 Fail · 1 Warning ·
-1 Cannot verify · 89 Pass · 4 Dormant**. Click **F-01**: door FD-5-165P is selected and coloured. Rev B (`deck5_revB.ifc`)
-gives 4 · 1 · 1 · 86 · 4 with F-07 (Stair 3B, 1,380 mm required vs 1,350 mm). The full checklist is in
-`docs/LOCAL_TESTING.md`.
-
-If macOS blocks FreeCAD on first launch: System Settings → Privacy & Security → *Open Anyway*. If the panel does not
-appear: View → Panels → Python console, `import sonariq_panel; sonariq_panel.show_in_freecad()`.
-
-### Windows / Linux (manual, about 10 minutes)
-
-1. Install FreeCAD 1.0 from https://www.freecad.org/downloads.php.
-2. Download `SonarIQ-addon.zip` and the models from https://34-88-130-224.sslip.io/downloads/ and unzip the add-on into
-   FreeCAD's `Mod` folder (`App.getUserAppDataDir()` in FreeCAD's Python console shows the folder; on Windows usually
-   `%APPDATA%\FreeCAD\Mod`, on Linux `~/.local/share/FreeCAD/Mod`).
-3. Create `~/.sonariq.json` (Windows: `C:\Users\<you>\.sonariq.json`):
-   ```json
-   {"engine": "https://34-88-130-224.sslip.io/api", "user": "sonariq", "password": "<password>"}
-   ```
-4. Restart FreeCAD, open a model, press **Analyse**.
-
-### Everything on your own machine (developers)
-
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh   # Python 3.11 + deps
-# Node.js 20+ for the portal: https://nodejs.org/en/download
-git clone <repo or sonariq.bundle from /downloads> ~/sonariq && cd ~/sonariq
-make setup       # uv sync + portal npm install
-make test        # builds the test deck, runs the tests
-make api         # engine on http://127.0.0.1:8765 (make api-sim = with Simulate)
-make portal      # portal on http://localhost:5173
-make mcp         # MCP server on stdio
+curl -LsSf https://astral.sh/uv/install.sh | sh      # Python 3.11 + deps (Node.js 20+ for the portal)
+make setup          # uv sync + portal npm install
+make test           # unit tests (82)
+make api-sim        # engine on http://127.0.0.1:8765 with Simulate
+make portal         # portal on http://localhost:5173
+make fc-golden      # FreeCAD headless golden path (needs FreeCAD + xvfb)
+make eval           # rules benchmark, simulation sanity, AI evals -> docs/EVAL.md
 ```
-Link the add-on instead of copying it (`ln -s ~/sonariq/freecad_addon/SonarIQ "<Mod folder>/SonarIQ"`) and delete
-`~/.sonariq.json`, so the panel uses the local engine (it then sends the file path instead of uploading).
-`make bench` (Analyse < 3 s, ping < 2 s), `make qa` (rewrites `docs/meyer_qa1.md`), `make eval` (benchmarks, see `docs/EVAL.md`).
 
-### Hosting (the VM)
+## Limits (honest)
 
-`scripts/deploy_vm.sh` deploys branch `main` (or `BRANCH=...`) from a separate worktree (`~/sonariq-deploy`): engine as a
-systemd user service (`sonariq-api`, 127.0.0.1:8780, `SONARIQ_HOSTED=1` so only files under `data/` can be opened,
-Simulate on), the built portal and the downloads in `/srv/sonariq`, and Caddy on `https://<ip>.sslip.io` with a
-Let's Encrypt certificate and basic auth (password in `~/.sonariq_deploy`). Re-run it after merging to `main`.
-Logs: `journalctl --user -u sonariq-api -f`, `sudo journalctl -u caddy -f`.
+- Rules marked **to verify** (including all DNV class rules) have not been signed off by a class society; SonarIQ is not class approved.
+- Simulation is a **Deck 5 sub-model with inflows from Decks 4, 6, 7** — design insight, not a full-ship MSC.1/Circ.1533 analysis.
+- The real-ship RCRV model (90,331 objects) is converted to IFC but too heavy for FreeCAD; it is used in the portal only.
+- **No user authentication** in the prototype: the portal is public, the API sits behind a demo key and basic auth.
+- The self-hosted AI path is implemented and unit-tested, not yet run against a live vLLM server.
 
-## AI explanations (optional)
+## Since AI submission checklist
 
-The engine needs no AI and no network. Explanations use Gemini (`gemini-3.5-flash`) on Vertex AI, EU multi-region location `eu`, through the Google Gen AI SDK with Application Default Credentials (on a Mac: `gcloud auth application-default login`) (`GEMINI_MODEL`, `GEMINI_LOCATION`, `GOOGLE_CLOUD_PROJECT`; `SONARIQ_AI=off` turns it off). Every explanation is checked: if it contains a number that is not in the facts it was given, it is thrown away and the engine's own wording is shown. Slow answers (> 8 s) also fall back to the engine text. Answers are cached on disk (`data/cache/ai/`). The model sits behind `engine/sonariq/llm.py:Gateway`, so it can be swapped.
+- [ ] Demo video ≤ 3 min — `[video link]`
+- [x] Code repository — https://github.com/ermiappz/sonariq (private)
+- [ ] Source .zip — `[attach from GitHub: Code → Download ZIP]`
+- [x] Tagline — *AI-assisted design review for ship safety — review in the browser, fix in your CAD tool.*
+- [x] Short description — first paragraph of this README
+- [x] Technologies used — see *Tech stack*
+- [x] AI tools disclosure — built with **Claude Code** and **Claude Design**; runtime AI: **Gemini on Vertex AI (EU)** for explanations only
+- [x] Prior-work statement — built during the hackathon (6–8 Nov 2026); open-source dependencies are listed in `pyproject.toml` and `portal/package.json`
+- [ ] IP terms accepted — `[confirm on the submission form]`
+- [x] Optional: Red Hat / OpenShift AI deployment notes — [DEPLOYMENT.md](DEPLOYMENT.md#red-hat-openshift-ai)
 
-## Simulate (evacuation, behind `SIMULATE_ENABLED`)
+## Team
 
-`make api-sim` starts the engine with Simulate on (`make api` keeps it off). Rules and simulation compute; AI only suggests and explains; the engineer decides.
-
-- **Model**: JuPedSim CollisionFreeSpeedModel on the Deck 5 walkable area read from the IFC (spaces − walls + door openings); Stairs 3A and 3B are capacity-limited exits with a queue on each landing, shared with timed inflows from Decks 4, 6, 7 (`persons_by_deck`). Parameters: `engine/sim/params.yaml` (MSC.1/Circ.1533 paragraph refs, status *verify*). Details: `docs/SIMULATE.md`.
-- **Use it**: panel **Simulate** or chat (*simulate a night evacuation*, *what if Stair 3B is out?*, *fire near stair 3A*); portal **Simulate** (W9 setup, W10 results + replay, compare + fix explorer).
-- **Every result screen says**: Deck 5 sub-model with inflows from Decks 4, 6, 7 · design insight, not a full-ship Circ.1533 analysis.
-- `make sim-precompute` caches the demo simulations (500 runs each) and writes `docs/DEMO_SCRIPT.md` from the results. `make eval` runs the rules benchmark, simulation sanity checks, AI evals and the golden path, and appends to `docs/EVAL.md`.
-
-## Sources (RAG)
-
-Public sources only: MSC.1/Circ.1533, 2010 ADA Standards, the proposed PVAG, COLREG rules text, our rule readings and Q&A notes (no SOLAS/FSS text; DNV link only). `make rag` rebuilds the local index (`data/rag/`, embeddings `text-embedding-005` in europe-west4) from `data/rag/src/`. Used for **Source text** on evidence cards, cited answers to *why* questions, and **Draft rule from clause** (saved to `rules/drafts/`, never run until a human moves it into the rulebook). RAG never sets a verdict.
-
-## RCRV (real ship)
-
-`make rcrv` runs the cloud conversion. The file is public. Production would use an on-premises converter. Outputs: `data/rcrv/rcrv_full.ifc` (portal), `data/rcrv/rcrv_deck_<n>.ifc` (FreeCAD), `data/rcrv/mapping_review.csv` (portal W5), `docs/rcrv_report.md`. Large outputs are not committed.
-
-## Rules of the house
-
-- Verdicts come only from the rule engine. AI text is labelled and number-checked.
-- Missing data → **Cannot verify**, never Pass, never a guess.
-- Only four model edits exist: add cabin block, move wall, set door width, set door fire class. The guard is code.
-- Secrets live in `.env` (git-ignored).
+**SonarIQ** — ermiappz

@@ -24,3 +24,18 @@ data/rag/src/
 downloads/
 data/*.log
 portal/dist-next/
+# secrets and deploy credentials (never in git)
+.env.*
+!.env.example
+.sonariq_deploy
+*.pem
+*credentials*.json
+*service-account*.json
+# real-ship model (RCRV): too large and not ours to publish
+data/rcrv/*
+# run stores, review state, archives, exports, uploads (runtime data)
+data/reports.json
+data/tasks.json
+data/incorrect.json
+data/out/
+*.bcfzip

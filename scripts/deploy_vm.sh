@@ -37,6 +37,13 @@ if [ ! -f "$CRED" ]; then
 fi
 # shellcheck disable=SC1090
 . "$CRED"
+# the portal's API key (sent by the browser, so not a secret; it only keeps the API off the open internet). Kept in
+# the same git-ignored file; generated once.
+if [ -z "${SQ_PORTAL_KEY:-}" ]; then
+  SQ_PORTAL_KEY="$(python3 -c 'import secrets;print(secrets.token_urlsafe(9))')"
+  printf 'SQ_PORTAL_KEY=%s\n' "$SQ_PORTAL_KEY" >> "$CRED"
+fi
+export SQ_PORTAL_KEY
 
 echo "==> code: $BRANCH -> $DEPLOY"
 if [ ! -d "$DEPLOY/.git" ] && [ ! -f "$DEPLOY/.git" ]; then
@@ -57,7 +64,7 @@ echo "==> engine deps"
 (cd "$DEPLOY" && uv sync -q --python 3.11)
 
 echo "==> portal build"
-(cd "$DEPLOY/portal" && npm ci --silent --no-audit --no-fund && npx vite build --logLevel error)
+(cd "$DEPLOY/portal" && npm ci --silent --no-audit --no-fund && VITE_SQ_KEY="$SQ_PORTAL_KEY" npx vite build --logLevel error)
 sudo mkdir -p "$SRV/portal" "$SRV/downloads/models"
 sudo rsync -a --delete "$DEPLOY/portal/dist/" "$SRV/portal/"
 
@@ -99,7 +106,7 @@ systemctl --user enable -q sonariq-api
 systemctl --user restart sonariq-api
 
 echo "==> caddy ($URL, mode ${CADDY_MODE:-v2})"
-HOST="$HOST" NIC="$NIC" PORT="$PORT" SQ_USER="$SQ_USER" SQ_PASS="$SQ_PASS" CADDY_MODE="${CADDY_MODE:-v2}" "$REPO/scripts/caddy_write.sh"
+HOST="$HOST" NIC="$NIC" PORT="$PORT" SQ_USER="$SQ_USER" SQ_PASS="$SQ_PASS" SQ_PORTAL_KEY="$SQ_PORTAL_KEY" CADDY_MODE="${CADDY_MODE:-v2}" "$REPO/scripts/caddy_write.sh"
 
 echo "==> health"
 for _ in $(seq 1 40); do
