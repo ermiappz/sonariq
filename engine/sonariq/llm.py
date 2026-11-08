@@ -3,8 +3,11 @@
 Every number the AI writes must already be in the facts it was given (number guard). If the model is slow
 (> 8 s), offline, or writes a number it was not given, the engine's own wording is used instead.
 
-Backend: Gemini on Vertex AI through the Google Gen AI SDK (env GEMINI_MODEL, GEMINI_LOCATION, GOOGLE_CLOUD_PROJECT).
-`Gateway` is the swap point: any class with `generate()` and `stream()` can replace `GeminiGateway`.
+Backends (env SONARIQ_AI_GATEWAY):
+  gemini (default)  Gemini on Vertex AI through the Google Gen AI SDK (GEMINI_MODEL, GEMINI_LOCATION, GOOGLE_CLOUD_PROJECT).
+  openai            any OpenAI-compatible server, e.g. a self-hosted open model behind vLLM on your own servers
+                    (SONARIQ_AI_URL=http://host:8000/v1, SONARIQ_AI_MODEL=<served model>, optional SONARIQ_AI_KEY).
+`Gateway` is the swap point: any class with `generate()` and `stream()` can replace these.
 SONARIQ_AI=off turns the AI off (tests, offline demo).
 """
 from __future__ import annotations
@@ -124,9 +127,9 @@ def _project() -> str:
         return p
     try:
         return subprocess.run(["gcloud", "config", "get-value", "project"], capture_output=True, text=True,
-                              timeout=10).stdout.strip() or "fairway-379dc"
+                              timeout=10).stdout.strip()
     except Exception:  # noqa: BLE001
-        return "fairway-379dc"
+        return ""
 
 
 class GeminiGateway(Gateway):
@@ -173,6 +176,40 @@ class GeminiGateway(Gateway):
         return out
 
 
+class OpenAICompatGateway(Gateway):
+    """Self-hosted path: an OpenAI-compatible chat endpoint (vLLM, TGI, llama.cpp server). Standard library only."""
+
+    def __init__(self, url: str | None = None, model: str | None = None, key: str | None = None):
+        self.url = (url or os.getenv("SONARIQ_AI_URL", "http://127.0.0.1:8000/v1")).rstrip("/")
+        self.model = model or os.getenv("SONARIQ_AI_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+        self.key = key if key is not None else os.getenv("SONARIQ_AI_KEY", "")
+        self.name = f"{self.model}@{self.url.split('//')[-1].split('/')[0]}"
+
+    def _post(self, path: str, body: dict) -> dict:
+        import urllib.request
+        req = urllib.request.Request(self.url + path, data=json.dumps(body).encode(), method="POST",
+                                     headers={"Content-Type": "application/json",
+                                              **({"Authorization": f"Bearer {self.key}"} if self.key else {})})
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+            return json.loads(r.read())
+
+    def generate(self, system, prompt, schema=None, max_tokens=MAX_TOKENS):
+        body = {"model": self.model, "temperature": 0.1, "max_tokens": max_tokens,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
+        if schema:
+            body["response_format"] = {"type": "json_schema", "json_schema": {"name": "out", "schema": schema}}
+        return (self._post("/chat/completions", body)["choices"][0]["message"]["content"] or "").strip()
+
+    def embed(self, texts):
+        r = self._post("/embeddings", {"model": os.getenv("SONARIQ_AI_EMBED_MODEL", self.model), "input": texts})
+        return [d["embedding"] for d in r["data"]]
+
+
+def make_gateway() -> Gateway:
+    kind = os.getenv("SONARIQ_AI_GATEWAY", "gemini").lower()
+    return OpenAICompatGateway() if kind in ("openai", "vllm", "local") else GeminiGateway()
+
+
 # ---------------------------------------------------------------- disk cache
 def _key(*parts) -> str:
     return hashlib.sha256(json.dumps(parts, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()[:24]
@@ -199,7 +236,7 @@ _POOL = cf.ThreadPoolExecutor(max_workers=4)
 class LLM:
     def __init__(self, gateway: Gateway | None = None):
         self.enabled = os.getenv("SONARIQ_AI", "on").lower() not in ("off", "0", "false")
-        self.gateway = gateway or GeminiGateway()
+        self.gateway = gateway or make_gateway()
         self.offline_since: float | None = None
         self.last_ms: float | None = None
 
