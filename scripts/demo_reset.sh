@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Start the demo empty: archive (never delete) all stored runs, BCF exports, uploaded IFCs and the engine's
+# Start the demo empty: archive (never delete) all stored runs, BCF exports, uploaded IFCs, reports, tasks,
+# incorrect marks and the engine's
 # in-memory history to data/archive/<timestamp>/, then restart the engine so its session is fresh.
 #   scripts/demo_reset.sh                 # this checkout's data/ (on the VM run it in ~/sonariq-deploy)
 #   scripts/demo_restore.sh <timestamp>   # put an archive back
@@ -27,6 +28,8 @@ moved=0
 [ -d "$DATA/runs" ] && [ -n "$(ls -A "$DATA/runs" 2>/dev/null)" ] && { mv "$DATA/runs" "$A/runs"; moved=1; }
 [ -d "$DATA/uploads" ] && [ -n "$(ls -A "$DATA/uploads" 2>/dev/null)" ] && mv "$DATA/uploads" "$A/uploads"
 if ls "$DATA"/out/*.bcfzip >/dev/null 2>&1; then mkdir -p "$A/out"; mv "$DATA"/out/*.bcfzip "$A/out/"; fi
+# reports (R-00n), task board and "incorrect" marks: archived too, so numbering starts at R-001 again
+for f in reports.json tasks.json incorrect.json; do [ -f "$DATA/$f" ] && mv "$DATA/$f" "$A/$f"; done
 mkdir -p "$DATA/runs"
 echo "{\"archived\": \"$TS\", \"from\": \"$DATA\"}" > "$A/ARCHIVE.json"
 
