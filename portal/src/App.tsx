@@ -8,6 +8,7 @@ import Studio from "./screens/Studio";
 import Rulebook from "./screens/Rulebook";
 import Mapping from "./screens/Mapping";
 import Simulate from "./screens/Simulate";
+import { Lockup } from "./components/Brand";
 import Revisions from "./screens/Revisions";
 import Board from "./screens/Board";
 import Home from "./screens/Home";
@@ -111,12 +112,14 @@ function Workspace() {
     ["rules", "Rules"], ["benchmark", "Benchmark"], ["revisions", "Revisions"], ...(simOn ? [["simulate", "Simulate"] as [Screen, string]] : []),
     ["mapping", "Mapping review"]];
   const report = latest ? reports.find((x) => x.run_id === latest.id) : undefined;
+  const title = screen === "thread" ? "Inbox" : screen === "settings" ? "Settings" : nav.find(([k]) => k === screen)?.[1] ?? "Workspace";
+  useEffect(() => { document.title = `SonarIQ — ${title}`; }, [title]);
 
   return (
     <div className={`sq ${light ? "sq-light" : "sq-dark"} sq-portal app`}>
       <nav className="rail sq-rail">
         <a href="#" onClick={(e) => { e.preventDefault(); history.replaceState(null, "", location.pathname); window.dispatchEvent(new HashChangeEvent("hashchange")); }}
-           style={{ fontWeight: 700, fontSize: 16, padding: "4px 12px 14px", color: "var(--fg-1)", height: "auto" }}>SonarIQ</a>
+           aria-label="SonarIQ home" style={{ padding: "4px 12px 14px", height: "auto" }}><Lockup size={18} /></a>
         {nav.map(([k, label, n]) => (
           <a key={k} href="#" className={screen === k || (k === "inbox" && screen === "thread") ? "is-on" : ""}
              onClick={(e) => { e.preventDefault(); setScreen(k); }}>

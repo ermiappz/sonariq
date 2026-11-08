@@ -117,4 +117,4 @@ echo "public $URL/api/health -> HTTP ${code:-?}"
 echo
 echo "Portal:    $URL   (user $SQ_USER, password in $CRED)"
 echo "Downloads: $URL/downloads/"
-echo "Mac:       curl -fsSL -u $SQ_USER $URL/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh"
+echo "Mac:       curl -fsSL $URL/downloads/setup_freecad_mac.sh -o setup_sonariq.sh && bash setup_sonariq.sh"
