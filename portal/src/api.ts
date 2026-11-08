@@ -33,6 +33,7 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   return r.json() as Promise<T>;
 }
 export const api = {
+  resetAll: () => j<{ ok: boolean; archived: string; runs: number }>("/admin/reset", { method: "POST" }),
   model: () => j<{ bounds: number[] | null; revision: string }>("/model"),
   health: () => j<{ ok: boolean; simulate?: boolean; ai: { endpoint: string; online: boolean } }>("/health"),
   analyse: (revision: string, packs?: string[]) =>

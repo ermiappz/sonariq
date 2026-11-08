@@ -18,4 +18,5 @@ mkdir -p "$DATA/runs"
 [ -d "$A/runs" ] && cp -a "$A/runs/." "$DATA/runs/"
 [ -d "$A/uploads" ] && mkdir -p "$DATA/uploads" && cp -an "$A/uploads/." "$DATA/uploads/"
 [ -d "$A/out" ] && mkdir -p "$DATA/out" && cp -an "$A/out/." "$DATA/out/"
+for f in reports.json tasks.json incorrect.json; do [ -f "$A/$f" ] && cp -a "$A/$f" "$DATA/$f"; done
 echo "restored $(ls "$DATA/runs" | wc -l) runs from $A (the portal shows them within 2 s; history snapshot: $A/history.json)"

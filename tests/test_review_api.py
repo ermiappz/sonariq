@@ -72,3 +72,26 @@ def test_upload_rejects_ifc2x3_and_oversize(c, monkeypatch):
 def test_tasks_validate_column(c):
     assert c.put("/tasks/k1", json={"column": "doing", "assignee": "ms"}).json()["column"] == "doing"
     assert c.put("/tasks/k1", json={"column": "nowhere"}).status_code == 400
+
+
+def test_reset_all_data_archives_and_starts_empty(c, tmp_path, monkeypatch):
+    monkeypatch.setattr(api, "DATA", tmp_path)
+    j, f = _run_b(c)
+    c.post("/incorrect", json={"check_key": f["U-01"]["check_key"], "finding": "U-01", "reason": "lining"})
+    c.post("/reports", json={"run_id": j["run_meta"]["id"]})
+    c.put("/tasks/k1", json={"column": "doing", "assignee": "ms"})
+    r = c.post("/admin/reset").json()
+    assert r["ok"] and r["runs"] == 1
+    arch = tmp_path / "archive" / r["archived"]
+    assert (arch / "runs").is_dir() and (arch / "reports.json").exists() and (arch / "history.json").exists()
+    assert c.get("/runs").json()["runs"] == [] and c.get("/incorrect").json()["incorrect"] == {}
+    assert c.get("/tasks").json()["tasks"] == {} and c.get("/history").json()["history"] == []
+    # the panel keeps working: analyse again, report numbering restarts
+    j2, _ = _run_b(c)
+    assert c.post("/reports", json={"run_id": j2["run_meta"]["id"]}).json()["id"] == "R-001"
+
+
+def test_model_file_serves_only_owned_models(c):
+    assert c.get("/model-file?revision=B").content == (DATA / "deck5_revB.ifc").read_bytes()
+    assert c.get("/model-file?path=/etc/passwd").status_code == 404
+    assert c.get("/model-file?revision=Z").status_code == 404

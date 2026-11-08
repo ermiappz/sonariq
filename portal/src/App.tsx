@@ -49,6 +49,8 @@ function Workspace() {
   const [ask, setAsk] = useState<(RunMeta & { run: Run }) | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [toast, setToast] = useState("");
+  const [resetAsk, setResetAsk] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [incorrect] = useIncorrect();
   useEffect(() => {   // an Export link opened in a tab that already shows the portal
     const on = () => {
@@ -128,7 +130,8 @@ function Workspace() {
         ))}
         <span style={{ flex: 1 }} />
         <a href="#" className={screen === "settings" ? "is-on" : ""} onClick={(e) => { e.preventDefault(); setScreen("settings"); }}><Icon k="settings" />Settings</a>
-        <div className="sq-faint" style={{ fontSize: 11, padding: "8px 12px" }}>Data stays on-premises<br /><span className="mono">v0.2 · prototype</span></div>
+        <div className="sq-faint" style={{ fontSize: 11, padding: "8px 12px" }}>Prototype · v0.2<br />
+          <a href="#" className="rail-reset" onClick={(e) => { e.preventDefault(); setResetAsk(true); }}>Reset all data</a></div>
       </nav>
       <div style={{ minWidth: 0 }}>
         <header className="topbar">
@@ -138,8 +141,6 @@ function Workspace() {
                   : <span className="sq-faint">no run yet</span>}
           {latest && <span className="mono sq-faint" style={{ fontSize: 12 }}>{latest.file} · {latest.time.slice(11, 16)}</span>}
           <span style={{ flex: 1 }} />
-          <span className="sq-faint">Demo analyse</span>
-          <div className="sq-seg">{["A", "B"].map((r) => <button key={r} disabled={busy} className={latest?.revision === r ? "is-on" : ""} onClick={() => analyseNow(r)}>Rev {r}</button>)}</div>
           <span className="sq-faint">Units</span>
           <div className="sq-seg">{(["mm", "in"] as const).map((u) => <button key={u} className={units === u ? "is-on" : ""} onClick={() => setUnits(u)}>{u}</button>)}</div>
           <button className="sq-btn is-sm" title="Light / dark" onClick={() => setLight(!light)}>◐</button>
@@ -162,7 +163,16 @@ function Workspace() {
           {screen === "rules" && <Rulebook />}
           {screen === "mapping" && <Mapping />}
           {screen === "projects" && <Projects run={run} hvac={hvac} go={setScreen} />}
-          {["benchmark", "settings"].includes(screen) && (
+          {screen === "settings" && (
+            <div className="flex flex-col gap-3" style={{ maxWidth: 640 }}><h1 className="sq-h1">Settings</h1>
+              <div className="sq-card" style={{ padding: 16 }}>
+                <b>Reset all data</b>
+                <p className="sq-muted" style={{ margin: "6px 0 12px" }}>Removes all runs, findings, reports, tasks and history, so the next report is R-001. Everything is archived on the server (data/archive), never deleted. The demo models and simulation stay.</p>
+                <button className="sq-btn" onClick={() => setResetAsk(true)}>Reset all data…</button>
+              </div>
+            </div>
+          )}
+          {screen === "benchmark" && (
             <div className="flex flex-col gap-3"><h1 className="sq-h1">{screen[0].toUpperCase() + screen.slice(1)}</h1>
               <p className="sq-muted">{screen === "benchmark" ? <>Planted violations and clean controls are run by <span className="mono">make eval</span>; results land in docs/EVAL.md and stay <span className="sq-ph">[after run]</span> here until the suite writes them.</> : "Nothing to set in the demo workspace."}</p></div>
           )}
@@ -186,6 +196,22 @@ function Workspace() {
           </div>
         </div>
       )}
+      {resetAsk && (
+        <div className="sq-overlay" onClick={() => !resetting && setResetAsk(false)}>
+          <div className="sq-card sq-modal" role="dialog" aria-label="Reset all data" onClick={(e) => e.stopPropagation()}>
+            <h2 className="sq-h2" style={{ margin: "0 0 6px" }}>Reset all data?</h2>
+            <p className="sq-muted">This removes all runs, findings, reports, tasks and history. The demo models and simulation stay.</p>
+            <div className="flex gap-2" style={{ justifyContent: "flex-end" }}>
+              <button className="sq-btn" disabled={resetting} onClick={() => setResetAsk(false)}>Cancel</button>
+              <button className="sq-btn is-primary" disabled={resetting} onClick={async () => {
+                setResetting(true);
+                try { await api.resetAll(); location.hash = "#model"; location.reload(); }
+                catch (e) { setResetting(false); setResetAsk(false); setToast(`Reset failed: ${String(e)}`); }
+              }}>{resetting ? "Resetting…" : "Reset"}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {toast && <div className="sq-toast">✓ {toast}</div>}
     </div>
   );
@@ -195,7 +221,7 @@ export function NoRuns({ loaded }: { loaded: boolean }) {
   return (
     <div className="sq-card is-dashed" style={{ padding: 24, maxWidth: 640 }}>
       <h2 className="sq-h2">{loaded ? "No runs yet" : "Connecting to the rule engine…"}</h2>
-      {loaded && <p className="sq-muted">Open a model in FreeCAD and press Analyse, or use Demo analyse Rev A / Rev B above. Each run appears here within a few seconds and is kept as a version (Revisions).</p>}
+      {loaded && <p className="sq-muted">Open a model in Studio (or in FreeCAD) and press Analyse. Each run appears here within a few seconds and is kept as a version (Revisions).</p>}
     </div>
   );
 }
