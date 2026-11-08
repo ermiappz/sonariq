@@ -21,17 +21,64 @@ type Setup = {
 
 function Honest() { return <div className="sq-faint" style={{ fontSize: 11 }}>{LABEL}</div>; }
 
+// Which model a simulation ran on. Portal Simulate always sends an explicit revision, so it reads the IFC file of that
+// revision; edits confirmed in the FreeCAD chat are not part of it (those runs carry an "A + … OR-117" tag).
+export function revLabel(tag?: string): string {
+  if (!tag) return "…";
+  if (tag === "A") return "Rev A · deck5_revA.ifc";
+  if (tag === "B") return "Rev B · deck5_revB.ifc · includes OR-117";
+  if (tag === "Bfix2") return "Rev B fix 2 · deck5_revB_fix2.ifc";
+  return `${tag} · edited in chat`;
+}
+
+type Listed = { id: string; scenario_label: string; revision: string; runs: number; tA_p95_s: number };
+// The four demo scenarios, found in the saved (precomputed, 500-run) results by revision + scenario, never by hand.
+const DEMOS: { key: string; title: string; sub: string; find: (l: Listed[]) => Listed | undefined; vs?: (l: Listed[]) => Listed | undefined }[] = [
+  { key: "base", title: "Rev B · Night · baseline", sub: "130 people on Deck 5 · all routes open",
+    find: (l) => l.find((r) => r.revision === "B" && r.runs >= 500 && r.scenario_label === "Night · primary") },
+  { key: "3b", title: "Rev B · Night · Stair 3B out", sub: "secondary route · longest queue moves to Stair 3A",
+    find: (l) => l.find((r) => r.revision === "B" && r.runs >= 500 && r.scenario_label.includes("Stair 3B out")) },
+  { key: "fire", title: "Rev B · fire what-if", sub: "smoke exposure · illustrative smoke, not a fire model",
+    find: (l) => l.find((r) => r.revision === "B" && r.runs >= 500 && r.scenario_label.startsWith("Night · primary · fire what-if")) },
+  { key: "cmp", title: "Before/after: Rev B vs Rev B fix 2", sub: "same night scenario · two files side by side",
+    find: (l) => l.find((r) => r.revision === "B" && r.runs >= 500 && r.scenario_label === "Night · primary"),
+    vs: (l) => l.find((r) => r.revision === "Bfix2" && r.runs >= 500 && r.scenario_label === "Night · primary") },
+];
+
+function DemoScenarios({ list, go }: { list: Listed[]; go: (p: string[]) => void }) {
+  return (
+    <div className="sq-card sim-demos">
+      <div className="flex items-baseline gap-2" style={{ flexWrap: "wrap" }}><b>Demo scenarios</b>
+        <span className="sq-faint" style={{ fontSize: 12 }}>precomputed · 500 runs each · open at once</span></div>
+      <div className="sim-demo-row">
+        {DEMOS.map((d) => {
+          const a = d.find(list), b = d.vs?.(list);
+          const ok = a && (!d.vs || b);
+          return (
+            <button key={d.key} className="sim-demo" disabled={!ok} data-demo={d.key}
+                    onClick={() => ok && go(b ? ["compare", a!.id, b.id] : [a!.id])}>
+              <b>{d.title}</b>
+              <span className="sq-faint">{d.sub}</span>
+              <span className="mono">{!ok ? "not computed yet" : b ? `p95 ${mmss(a!.tA_p95_s)} → ${mmss(b.tA_p95_s)}` : `p95 ${mmss(a!.tA_p95_s)} · ${a!.runs} runs`}</span>
+            </button>);
+        })}
+      </div>
+      <Honest />
+    </div>
+  );
+}
+
 export default function Simulate({ user, rev, run }: { user: string; rev: string; run: Run | null }) {
   const parse = () => location.hash.replace(/^#simulate\/?/, "").split("/").filter(Boolean);
   const [path, setPath] = useState<string[]>(parse());
   const go = (p: string[]) => { setPath(p); history.replaceState(null, "", "#simulate" + (p.length ? "/" + p.join("/") : "")); };
   if (path[0] === "compare" && path[1] && path[2]) return <Compare a={path[1]} b={path[2]} back={() => go([path[1]])} open={(id) => go([id])} go={go} />;
   if (path[0]) return <Results id={path[0]} back={() => go([])} user={user} go={go} initial3d={path[1] === "3d"} />;
-  return <SetupView rev={rev} run={run} open={(id) => go([id])} />;
+  return <SetupView rev={rev} run={run} open={(id) => go([id])} go={go} />;
 }
 
 // ------------------------------------------------------------------------------------------------ W9 setup
-function SetupView({ rev: topRev, run, open }: { rev: string; run: Run | null; open: (id: string) => void }) {
+function SetupView({ rev: topRev, run, open, go }: { rev: string; run: Run | null; open: (id: string) => void; go: (p: string[]) => void }) {
   const [sc, setSc] = useState<SimScenario & { closed_door?: string | null }>({ case: "night", route: "primary" });
   const [rev, setRev] = useState(topRev === "A" ? "A" : "B");
   const [fireOn, setFireOn] = useState(false);
@@ -42,7 +89,7 @@ function SetupView({ rev: topRev, run, open }: { rev: string; run: Run | null; o
   const [job, setJob] = useState<SimStatus | null>(null);
   const [err, setErr] = useState("");
   const [text, setText] = useState("");
-  const [list, setList] = useState<{ id: string; scenario_label: string; revision: string; runs: number; tA_p95_s: number }[]>([]);
+  const [list, setList] = useState<Listed[]>([]);
   const scen = useMemo(() => ({ ...sc, fire_origin: fireOn ? (sc.fire_origin || "@near:3A") : null }), [sc, fireOn]);
   useEffect(() => {
     setErr("");
@@ -85,12 +132,13 @@ function SetupView({ rev: topRev, run, open }: { rev: string; run: Run | null; o
     <div className="flex flex-col gap-3">
       <div className="flex items-baseline gap-3"><h1 className="sq-h1" style={{ margin: 0 }}>Simulate</h1>
         <span className="sq-muted">Evacuation as a design-review tool · people are neutral dots · results come from runs, never from hand</span></div>
+      <DemoScenarios list={list} go={go} />
       <div className="grid gap-3" style={{ gridTemplateColumns: "280px minmax(0,1fr) 300px", alignItems: "start" }}>
         {/* Scenario */}
         <div className="sq-card flex flex-col" style={{ padding: 0 }}>
           <div className="flex items-center" style={{ padding: "10px 12px", borderBottom: "1px solid var(--line)" }}>
             <b style={{ flex: 1 }}>Scenario</b>
-            <select className="sq-input mono" value={rev} onChange={(e) => setRev(e.target.value)} style={{ width: 150 }}>
+            <select className="sq-input mono" value={rev} onChange={(e) => setRev(e.target.value)} style={{ width: 170 }}>
               {REVS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
           <Sect title="Describe it">
             <div className="flex gap-2"><input className="sq-input" style={{ flex: 1, minWidth: 0 }} value={text} placeholder="night, FD-5-165P out, fire near stair 3A"
@@ -137,7 +185,7 @@ function SetupView({ rev: topRev, run, open }: { rev: string; run: Run | null; o
         </div>
         {/* Plan */}
         <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2"><b>Deck 5</b><span className="sq-muted" style={{ flex: 1 }}>{setup ? `Rev ${setup.revision}` : ""} · click the plan to move the fire origin</span>
+          <div className="flex items-center gap-2"><b>Deck 5</b><span className="sq-muted" style={{ flex: 1 }}>{setup ? revLabel(setup.revision) : ""} · FreeCAD chat edits not included</span>
             <button className="sq-switch" onClick={() => setShowF(!showF)}>{showF ? "☑" : "☐"} Show findings</button></div>
           <div style={{ border: "1px solid var(--line)", height: 360, cursor: pick ? "crosshair" : "default", position: "relative" }}>
             {g ? <PlanSetup g={g} s={setup!} showF={showF} run={run} onClick={onPlan} /> : <p className="sq-muted" style={{ padding: 12 }}>{err || "Reading the model…"}</p>}
@@ -147,11 +195,11 @@ function SetupView({ rev: topRev, run, open }: { rev: string; run: Run | null; o
           <div className="sq-faint" style={{ fontSize: 12 }}>Status colours stay with findings; none are used here.</div>
           {err && <div className="sq-banner is-unk">{err}</div>}
           <div className="sq-card" style={{ padding: 10 }}>
-            <div className="sq-label">Saved results</div>
-            {!list.length && <p className="sq-muted" style={{ margin: 0 }}>None yet.</p>}
-            {list.slice(0, 8).map((r) => (
+            <div className="sq-label">Other saved results · 500 runs</div>
+            {!list.filter((r) => r.runs >= 500).length && <p className="sq-muted" style={{ margin: 0 }}>None yet.</p>}
+            {list.filter((r) => r.runs >= 500).slice(0, 6).map((r) => (
               <a key={r.id} href="#" onClick={(e) => { e.preventDefault(); open(r.id); }} className="flex gap-2" style={{ padding: "3px 0", textDecoration: "none", fontSize: 13 }}>
-                <span style={{ flex: 1 }}>{r.scenario_label} · {r.revision}</span><span className="mono sq-faint">p95 {mmss(r.tA_p95_s)} · {r.runs} runs</span></a>))}
+                <span style={{ flex: 1 }}>{r.scenario_label} · {revLabel(r.revision)}</span><span className="mono sq-faint">p95 {mmss(r.tA_p95_s)} · {r.runs} runs</span></a>))}
           </div>
         </div>
         {/* Model reader */}
@@ -222,14 +270,20 @@ function Results({ id, back, user, go, initial3d = false }: { id: string; back: 
   const [hint, setHint] = useState(false);
   const [pinned, setPinned] = useState("");
   const [err, setErr] = useState("");
+  const [base, setBase] = useState<Listed | null>(null);
   useEffect(() => {
-    setR(null); setRep(null); setAi(null);
-    sim.results(id).then(setR).catch((e) => setErr(String(e)));
+    setR(null); setRep(null); setAi(null); setBase(null);
+    sim.results(id).then((x: any) => {
+      setR(x);
+      // a fire what-if or a route out reads against the same revision's night baseline
+      if (x?.scenario?.fire_origin || x?.scenario?.closed_stair || x?.scenario?.closed_door)
+        sim.list().then((l) => setBase(l.results.find((b) => b.revision === x.revision && b.runs >= 500 && b.scenario_label === `${x.scenario.case === "day" ? "Day" : "Night"} · primary`) ?? null)).catch(() => {});
+    }).catch((e) => setErr(String(e)));
     sim.replay(id).then(setRep).catch(() => {});
     sim.explain(id).then(setAi).catch(() => {});
   }, [id]);
   const t0 = rep?.t_start_s ?? 0, t1 = rep?.frames.at(-1)?.[0] ?? 1;
-  const clock = useClock(t0, t1);
+  const clock = useClock(t0, t1, !!rep);
   const smokeNow = useMemo(() => (rep?.smoke_events ?? []).filter((e: any) => e.t <= clock.t).flatMap((e: any) => e.spaces), [rep, clock.t]);
   // Chart the stair whose landing queue is longest across all runs (p95), the same figure as the
   // landings table and the summary; fall back to the replay run's own peak while results load.
@@ -266,7 +320,7 @@ function Results({ id, back, user, go, initial3d = false }: { id: string; back: 
         <span className="sq-chip">{sc.case === "day" ? "Day" : "Night"}</span>
         <span className="sq-chip">{sc.closed_stair ? `Secondary · Stair ${sc.closed_stair} out` : sc.closed_door ? `Secondary · ${sc.closed_door} out` : "Primary"}</span>
         {sc.fire_origin && <span className="sq-chip">Fire what-if · {sc.fire_origin}</span>}
-        <span className="sq-chip mono">{r.runs} runs</span><span className="sq-chip mono">{r.revision}</span>
+        <span className="sq-chip mono">{r.runs} runs</span><span className="sq-chip mono" title="The model this simulation ran on">{revLabel(r.revision)}</span>
         <span style={{ flex: 1 }} /><span className="sq-faint">finished · {r.elapsed_s} s</span>
       </div>
       <div className="grid gap-3" style={{ gridTemplateColumns: "minmax(0,1fr) 340px", alignItems: "start" }}>
@@ -298,10 +352,15 @@ function Results({ id, back, user, go, initial3d = false }: { id: string; back: 
             <table className="sq-table"><thead><tr><th>Landing</th><th>Queue p95</th><th>Mean of max</th><th>Max</th></tr></thead>
               <tbody>{Object.entries(r.landings).map(([k, s]) => <tr key={k}><td>{k}</td><td className="mono">{s.queue_max_p95}</td><td className="mono">{s.queue_max_mean}</td><td className="mono">{s.queue_max_max}</td></tr>)}</tbody></table>
           </div>
+          {(sc.closed_stair || sc.closed_door) && queueLanding && <div className="sq-card is-dashed" style={{ padding: 10, fontSize: 12 }}>
+            <span className="sq-label">{sc.closed_stair ? `Stair ${sc.closed_stair}` : sc.closed_door} out of use</span>
+            <div className="mono" style={{ marginTop: 4 }}>Longest landing queue moves to {queueLanding}: {r.landings[queueLanding]?.queue_max_p95} people (p95 of {r.runs} runs){base ? ` · p95 ${mmss(r.tA_p95_s)} against ${mmss(base.tA_p95_s)} with all routes open` : ""}</div>
+          </div>}
           <div className="sq-faint" style={{ fontSize: 12 }}>Longest route: {r.longest_route.space} → Stair {r.longest_route.stair}, {r.longest_route.length_m} m · {r.people_deck5} people on Deck 5</div>
           {(r as any).smoke && (() => { const sm = (r as any).smoke; return (
             <div className="sq-card is-dashed" style={{ padding: 10, fontSize: 12 }}>
               <span className="sq-label">Smoke exposure · illustrative smoke spread, not a fire model</span>
+              <div style={{ marginTop: 4 }}>The fire shows in exposure, not in time{base ? `: p95 ${mmss(r.tA_p95_s)} against ${mmss(base.tA_p95_s)} without the fire` : ""}.</div>
               <div className="mono" style={{ marginTop: 4 }}>
                 {sm.people_exposed_p95} people walk through smoke (p95 of {sm.runs} runs) · {sm.exposure_s_mean} person-seconds in smoke (mean)
                 · {sm.rerouted_mean} rerouted (mean){sm.corridor_reached_s != null ? ` · smoke in a corridor at ${mmss(sm.corridor_reached_s)}` : ""}
@@ -313,6 +372,9 @@ function Results({ id, back, user, go, initial3d = false }: { id: string; back: 
             <div className="flex"><span className="sq-label" style={{ flex: 1 }}>P{r.percentile} evacuation time</span><span className="sq-tag">Simulation · {r.runs} runs</span></div>
             <div className="mono" style={{ fontSize: 28, fontWeight: 600 }}>{mmss(r.tA_p95_s)} <span className="sq-faint" style={{ fontSize: 13 }}>mm:ss</span></div>
             <div className="sq-faint" style={{ fontSize: 11 }}>p50 {mmss(r.tA_p50_s)} · Deck 5 clear {mmss(r.deck5_last_p95_s)} (p95)</div>
+            {base && base.id !== id && <div className="sim-vs mono">{Math.abs(r.tA_p95_s - base.tA_p95_s) < 5
+              ? `p95 unchanged vs baseline (${mmss(base.tA_p95_s)})`
+              : `baseline ${mmss(base.tA_p95_s)} · ${r.tA_p95_s > base.tA_p95_s ? "+" : ""}${(r.tA_p95_s - base.tA_p95_s).toFixed(1)} s`}</div>}
             <Histogram r={r} height={100} />
             <div className="sq-faint" style={{ fontSize: 11 }}>time per run</div>
           </div>
@@ -378,7 +440,7 @@ function Compare({ a, b, back, open, go }: { a: string; b: string; back: () => v
   }, [right, a]);
   const t0 = Math.min(repA?.t_start_s ?? 0, repB?.t_start_s ?? 1e9);
   const t1 = Math.max(repA?.frames.at(-1)?.[0] ?? 1, repB?.frames.at(-1)?.[0] ?? 0);
-  const clock = useClock(t0, t1);
+  const clock = useClock(t0, t1, !!(repA && (repB || b === "fixes")));
   const pk = (x: any) => x?.peak_density_p95;
   const ql = (x: any, k: string) => x?.landings?.[k]?.queue_max_p95;
   const land = repA ? Object.keys(repA.queue_series).sort((p, q) => Math.max(...repA.queue_series[q]) - Math.max(...repA.queue_series[p]))[0] : "3BS";
@@ -386,12 +448,12 @@ function Compare({ a, b, back, open, go }: { a: string; b: string; back: () => v
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2" style={{ flexWrap: "wrap" }}><button className="sq-btn is-ghost" onClick={back}>← Results</button>
         <h1 className="sq-h1" style={{ margin: 0 }}>Compare · before and after a fix</h1>
-        {ra && <><span className="sq-chip">{ra.scenario_label}</span><span className="sq-chip mono">{ra.runs} runs before · fixes {fx?.runs_each ?? 100} runs each</span></>}</div>
+        {ra && <><span className="sq-chip">{ra.scenario_label}</span><span className="sq-chip mono">{b === "fixes" ? `${ra.runs} runs before · fixes ${fx?.runs_each ?? 100} runs each` : `${ra.runs} runs · ${rb?.runs ?? "…"} runs`}</span></>}</div>
       {err && <div className="sq-banner is-unk">{err}</div>}
       <div className="grid gap-3" style={{ gridTemplateColumns: "1fr 1fr" }}>
-        <div><div className="flex"><b style={{ flex: 1 }}>{ra?.revision ?? "…"} · {ra?.people_deck5 ?? "…"} on Deck 5 · before fix</b><span className="mono sq-faint">t = {mmss(clock.t)}</span></div>
+        <div><div className="flex"><b style={{ flex: 1 }}>Before · {revLabel(ra?.revision)} · {ra?.people_deck5 ?? "…"} on Deck 5</b><span className="mono sq-faint">t = {mmss(clock.t)}</span></div>
           {repA ? <ReplayView rep={repA} t={clock.t} heat height={300} /> : <p className="sq-muted">…</p>}</div>
-        <div><div className="flex"><b style={{ flex: 1 }}>{rb ? `${rb.revision} · ${rb.people_deck5} on Deck 5` : "Fix replay appears when its runs finish"}</b><span className="mono sq-faint">t = {mmss(clock.t)}</span></div>
+        <div><div className="flex"><b style={{ flex: 1 }}>{rb ? `After · ${revLabel(rb.revision)} · ${rb.people_deck5} on Deck 5` : "Fix replay appears when its runs finish"}</b><span className="mono sq-faint">t = {mmss(clock.t)}</span></div>
           {repB ? <ReplayView rep={repB} t={clock.t} heat height={300} /> : <div style={{ height: 300, border: "1px dashed var(--line-2)" }} />}</div>
       </div>
       <Controls clock={clock} t0={t0} t1={t1} synced />
@@ -400,6 +462,9 @@ function Compare({ a, b, back, open, go }: { a: string; b: string; back: () => v
         <Delta k="Peak density" a={pk(ra) ?? "…"} b={pk(rb) ?? "[run]"} d={pk(ra) != null && pk(rb) != null ? `${(pk(rb) - pk(ra)).toFixed(2)}` : "…"} unit="p/m²" />
         <Delta k={`Queue peak · ${land} landing`} a={ql(ra, land) ?? "…"} b={ql(rb, land) ?? "[run]"} d={ql(ra, land) != null && ql(rb, land) != null ? `${(ql(rb, land) - ql(ra, land)).toFixed(1)}` : "…"} unit="people (p95)" />
       </div>
+      {ra && rb && Math.abs(rb.tA_p95_s - ra.tA_p95_s) < 10 && <div className="sq-card is-dashed" style={{ padding: 10, fontSize: 13 }}>
+        The fix changes the rule verdict, not the evacuation time: p95 {mmss(ra.tA_p95_s)} → {mmss(rb.tA_p95_s)}. At night the time is set by the
+        response-time spread (people wake and start late), so a stair change barely moves it. Read the landing queues and density instead.</div>}
       {fx && <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
         {fx.candidates.filter((c: any) => !c.rejected).map((c: any) => {
           const st = status[c.sim_id]; const res = fxRes[c.sim_id];
