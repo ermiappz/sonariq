@@ -20,6 +20,7 @@ export function mmss(s: number | null | undefined) {
 }
 
 type Frame = SimReplay["frames"][number];
+const BY_ID = new WeakMap<object, Map<number, Frame[1][number]>>();
 
 function positionsAt(frames: Frame[], t: number): [number, number, number, number][] {
   if (!frames.length) return [];
@@ -29,7 +30,8 @@ function positionsAt(frames: Frame[], t: number): [number, number, number, numbe
   while (hi - lo > 1) { const m = (lo + hi) >> 1; if (frames[m][0] <= t) lo = m; else hi = m; }
   const [ta, a] = frames[lo], [tb, b] = frames[hi];
   const f = (t - ta) / (tb - ta);
-  const nb = new Map(b.map((p) => [p[0], p]));
+  let nb = BY_ID.get(b);
+  if (!nb) { nb = new Map(b.map((p) => [p[0], p])); BY_ID.set(b, nb); }   // built once per frame sample, not per paint
   const out: [number, number, number, number][] = [];
   const dt = tb - ta;
   for (const p of a) {
@@ -40,11 +42,13 @@ function positionsAt(frames: Frame[], t: number): [number, number, number, numbe
   return out;
 }
 
-export function useClock(t0: number, t1: number) {
+export function useClock(t0: number, t1: number, autoplay: boolean | number = false) {
+  // autoplay: start playing as soon as the replay is loaded (a truthy value that becomes true once data is in)
   const [t, setT] = useState(t0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(10);
   useEffect(() => { setT(t0); }, [t0]);
+  useEffect(() => { if (autoplay) setPlaying(true); }, [autoplay]);
   useEffect(() => {
     if (!playing) return;
     let raf = 0, last = performance.now();
@@ -100,36 +104,50 @@ export function ReplayView({ rep, t, heat, smoke, route, onPick, height = 360 }:
     return { s, X: (x: number) => ox + (x - vb.x) * s, Y: (y: number) => oy + (-y - vb.y) * s,
       inv: (px: number, py: number) => [vb.x + (px - ox) / s, -(vb.y + (py - oy) / s)] };
   }, [size, vb]);
-  useEffect(() => {
-    const c = cv.current; if (!c) return;
+  // The heatmap and the canvas size change rarely: paint them once into a layer, then each frame only blits it and
+  // draws the dots (the replay ticks at 60 fps).
+  const layer = useMemo(() => {
+    const c = cv.current; if (!c) return null;
     const dpr = window.devicePixelRatio || 1;
     c.width = size.w * dpr; c.height = size.h * dpr;
-    const ctx = c.getContext("2d")!; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, size.w, size.h);
     const css = getComputedStyle(c);
-    if (heat) {
-      const d = rep.density, cs = d.cell_m, accent = css.getPropertyValue("--accent").trim() || "#e392c8";
-      ctx.fillStyle = accent;
-      for (let j = 0; j < d.ny; j++) for (let i = 0; i < d.nx; i++) {
-        const v = d.peak[j][i]; const h = heatColor(v, accent); if (!h.a) continue;
-        ctx.globalAlpha = h.a * 0.6;
-        const x = d.origin[0] + i * cs, y = d.origin[1] + j * cs;
-        ctx.fillRect(map.X(x), map.Y(y + cs), cs * map.s + 0.5, cs * map.s + 0.5);
-      }
-      ctx.globalAlpha = 1;
-    }
-    const r = Math.max(1.6, 0.2 * map.s);
     const ink = css.getPropertyValue("--fg-1").trim() || "#eee";
-    ctx.fillStyle = ink; ctx.strokeStyle = ink; ctx.lineWidth = 1.2;
-    for (const p of positionsAt(rep.frames, t)) {
-      ctx.beginPath(); ctx.arc(map.X(p[1]), map.Y(p[2]), r, 0, Math.PI * 2);
-      if (p[3] < 0.15) ctx.stroke(); else ctx.fill();
+    if (!heat) return { dpr, ink, bg: null as HTMLCanvasElement | null };
+    const bg = document.createElement("canvas"); bg.width = c.width; bg.height = c.height;
+    const ctx = bg.getContext("2d")!; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const d = rep.density, cs = d.cell_m, accent = css.getPropertyValue("--accent").trim() || "#e392c8";
+    ctx.fillStyle = accent;
+    for (let j = 0; j < d.ny; j++) for (let i = 0; i < d.nx; i++) {
+      const v = d.peak[j][i]; const h = heatColor(v, accent); if (!h.a) continue;
+      ctx.globalAlpha = h.a * 0.6;
+      const x = d.origin[0] + i * cs, y = d.origin[1] + j * cs;
+      ctx.fillRect(map.X(x), map.Y(y + cs), cs * map.s + 0.5, cs * map.s + 0.5);
     }
-  }, [rep, t, heat, size, map]);
+    return { dpr, ink, bg };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rep, heat, size, map, cv.current]);
+  useEffect(() => {
+    const c = cv.current; if (!c || !layer) return;
+    const ctx = c.getContext("2d")!;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, c.width, c.height);
+    if (layer.bg) ctx.drawImage(layer.bg, 0, 0);
+    ctx.setTransform(layer.dpr, 0, 0, layer.dpr, 0, 0);
+    const r = Math.max(1.6, 0.2 * map.s);
+    ctx.fillStyle = layer.ink; ctx.strokeStyle = layer.ink; ctx.lineWidth = 1.2;
+    const moving = new Path2D(), waiting = new Path2D();
+    for (const p of positionsAt(rep.frames, t)) {
+      const x = map.X(p[1]), y = map.Y(p[2]), path = p[3] < 0.15 ? waiting : moving;
+      path.moveTo(x + r, y); path.arc(x, y, r, 0, Math.PI * 2);
+    }
+    ctx.fill(moving); ctx.stroke(waiting);
+  }, [rep, t, layer, map]);
+  const smokeKey = (smoke ?? []).join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const plan = useMemo(() => <DeckPlan g={rep.geometry} smoke={smoke} route={route} />, [rep.geometry, smokeKey, route]);
   return (
     <div ref={wrap} style={{ position: "relative", height, border: "1px solid var(--line)", borderRadius: "var(--r)", overflow: "hidden" }}>
-      <DeckPlan g={rep.geometry} smoke={smoke} route={route} />
-      <canvas ref={cv} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor: onPick ? "crosshair" : "default" }}
+      {plan}
+      <canvas ref={cv} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", cursor: onPick ? "crosshair" : "default", willChange: "transform" }}
               onClick={(e) => { if (!onPick) return; const b = (e.target as HTMLCanvasElement).getBoundingClientRect(); const [x, y] = map.inv(e.clientX - b.left, e.clientY - b.top); onPick(x, y); }} />
       {heat && <HeatLegend />}
     </div>
