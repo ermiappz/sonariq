@@ -88,9 +88,37 @@ function Viewer3D({ url, bounds, findings, onReady, apiRef }: { url: string | nu
     const T = (x: number, y: number, z: number) => new THREE.Vector3(x + off.x, z + off.y, -y + off.z);
     const mats = () => { const out: THREE.Material[] = []; group?.items.forEach((f: any) => { const m = f.mesh.material; (Array.isArray(m) ? m : [m]).forEach((mm: THREE.Material) => out.push(mm)); }); return out; };
     // x-ray: translucent grey; while a finding is focused the rest fades further
-    const ghost = (on: boolean) => mats().forEach((m: any) => {
-      m.color?.set?.(0x9aa3ad); m.transparent = true; m.opacity = on ? 0.08 : 0.2; m.depthWrite = false; m.needsUpdate = true;
-    });
+    // x-ray: faint grey faces + crisp edges, so walls, doors and stairs read as a drawing instead of stacked glass.
+    // While a finding is focused the rest fades further; isolate hides it.
+    let edges: THREE.LineSegments[] = [];
+    const edgesOf = (mesh: any, color: number, opacity: number, depthTest = true) => {
+      const base = new THREE.EdgesGeometry(mesh.geometry, 25);
+      const src = base.attributes.position.array as Float32Array;
+      const n = mesh.isInstancedMesh ? mesh.count : 1;
+      const out = new Float32Array(src.length * n);
+      const m = new THREE.Matrix4(), v = new THREE.Vector3();
+      mesh.updateMatrixWorld(true);
+      for (let i = 0; i < n; i++) {
+        if (mesh.isInstancedMesh) mesh.getMatrixAt(i, m); else m.identity();
+        m.premultiply(mesh.matrixWorld);
+        for (let k = 0; k < src.length; k += 3) { v.set(src[k], src[k + 1], src[k + 2]).applyMatrix4(m); out[i * src.length + k] = v.x; out[i * src.length + k + 1] = v.y; out[i * src.length + k + 2] = v.z; }
+      }
+      base.dispose();
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(out, 3));
+      const ln = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest }));
+      if (!depthTest) ln.renderOrder = 12;
+      return ln;
+    };
+    const buildEdges = () => {
+      let verts = 0;
+      group?.items.forEach((f: any) => { verts += (f.mesh.geometry.attributes.position?.count ?? 0) * (f.mesh.count ?? 1); });
+      if (verts > 3_000_000) return;   // very large models: faces only
+      group?.items.forEach((f: any) => { const e = edgesOf(f.mesh, 0x8d99a8, 0.5); world.scene.three.add(e); edges.push(e); });
+    };
+    const ghost = (on: boolean) => {
+      mats().forEach((m: any) => { m.color?.set?.(0x8b95a1); m.transparent = true; m.opacity = on ? 0.05 : 0.1; m.depthWrite = false; m.needsUpdate = true; });
+      edges.forEach((e) => { (e.material as THREE.LineBasicMaterial).opacity = on ? 0.22 : 0.5; e.visible = true; });
+    };
     const cloneIn = (guid: string | undefined, color: number, intensity: number, into: THREE.Object3D[], box?: THREE.Box3) => {
       const eid = guid ? group.globalToExpressIDs.get(guid) : undefined;
       if (eid === undefined) return false;
@@ -101,6 +129,8 @@ function Viewer3D({ url, bounds, findings, onReady, apiRef }: { url: string | nu
         const cl = frag.clone(fmap[fid]);
         cl.mesh.material = [new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: intensity })];
         group.add(cl.mesh); into.push(cl.mesh);
+        // outline drawn on top (no depth test), so the element stays visible through walls in the x-ray
+        if (box) { const o = edgesOf(cl.mesh, color === STATUS_HEX.unk ? 0xffffff : 0xffd2b8, 0.95, false); world.scene.three.add(o); into.push(o); }
         if (box) { cl.mesh.updateMatrixWorld(true); box.union(new THREE.Box3().setFromObject(cl.mesh)); }
       }
       return true;
@@ -130,10 +160,13 @@ function Viewer3D({ url, bounds, findings, onReady, apiRef }: { url: string | nu
       const w = host.current.clientWidth, h = host.current.clientHeight;
       setLabels(labelPts.map(({ text, v, dashed }) => { const p = v.clone().project(cam); return { text, dashed, x: (p.x + 1) / 2 * w, y: (1 - p.y) / 2 * h, visible: p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2 }; }));
     };
+    // zoom to a finding: keep the isometric angle (fitToBox would snap to a flat axis view), centre the element and
+    // leave room around it so the neighbouring rooms and corridors give context
     const fit = (b: THREE.Box3) => {
-      const bb = b.clone(); const size = bb.getSize(new THREE.Vector3()); bb.expandByVector(new THREE.Vector3(Math.max(5, size.x), 2, Math.max(5, size.z)));
-      // keep the current viewing angle (fitToBox would snap to the nearest axis and show a flat side view)
-      world.camera.controls.fitToSphere(bb.getBoundingSphere(new THREE.Sphere()), true);
+      const sph = b.getBoundingSphere(new THREE.Sphere());
+      sph.radius = Math.max(sph.radius * 2.2, 7);
+      world.camera.controls.rotateTo(ISO[0], ISO[1], true);
+      world.camera.controls.fitToSphere(sph, true);
     };
     const focus = (c: Check) => {
       clear();
@@ -175,7 +208,7 @@ function Viewer3D({ url, bounds, findings, onReady, apiRef }: { url: string | nu
     };
     apiRef.current = {
       focus,
-      isolate: (c: Check) => { focus(c); visibility(false); ghost(false); },
+      isolate: (c: Check) => { focus(c); visibility(false); edges.forEach((e) => { e.visible = false; }); },
       showAll: () => { clear(); home(true); },
       zoom: () => { if (focusBox) fit(focusBox); },
       resetView: () => { clear(); home(true); },
@@ -197,6 +230,7 @@ function Viewer3D({ url, bounds, findings, onReady, apiRef }: { url: string | nu
         world.scene.three.add(group);
         modelBox = new THREE.Box3().setFromObject(group);
         if (bounds) off = new THREE.Vector3(modelBox.min.x - bounds[0], modelBox.min.y - bounds[2], modelBox.min.z + bounds[4]);
+        buildEdges();
         ghost(false);
         await home(false);
         world.camera.controls.addEventListener("update", update);
