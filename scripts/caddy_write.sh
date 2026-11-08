@@ -7,7 +7,7 @@ set -euo pipefail
 : "${HOST:?}" "${NIC:?}" "${PORT:?}" "${SQ_USER:?}" "${SQ_PASS:?}"
 MODE="${CADDY_MODE:-v2}"
 NEXT_PORT="${NEXT_PORT:-8781}"
-KEY="${SQ_PORTAL_KEY:-sonariq-demo}"
+KEY="${SQ_PORTAL_KEY:?set SQ_PORTAL_KEY (scripts/deploy_vm.sh keeps it in ~/.sonariq_deploy)}"
 SRV=/srv/sonariq
 HASH="$(caddy hash-password --plaintext "$SQ_PASS")"
 api_block() {   # $1 = path prefix (/api or /next/api), $2 = upstream port
