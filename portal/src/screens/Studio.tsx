@@ -131,8 +131,9 @@ function Viewer3D({ url, bounds, findings, onReady, apiRef }: { url: string | nu
       setLabels(labelPts.map(({ text, v, dashed }) => { const p = v.clone().project(cam); return { text, dashed, x: (p.x + 1) / 2 * w, y: (1 - p.y) / 2 * h, visible: p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2 }; }));
     };
     const fit = (b: THREE.Box3) => {
-      const bb = b.clone(); const size = bb.getSize(new THREE.Vector3()); bb.expandByVector(new THREE.Vector3(Math.max(9, size.x * 2), 4, Math.max(9, size.z * 2)));
-      world.camera.controls.fitToBox(bb, true);
+      const bb = b.clone(); const size = bb.getSize(new THREE.Vector3()); bb.expandByVector(new THREE.Vector3(Math.max(5, size.x), 2, Math.max(5, size.z)));
+      // keep the current viewing angle (fitToBox would snap to the nearest axis and show a flat side view)
+      world.camera.controls.fitToSphere(bb.getBoundingSphere(new THREE.Sphere()), true);
     };
     const focus = (c: Check) => {
       clear();
