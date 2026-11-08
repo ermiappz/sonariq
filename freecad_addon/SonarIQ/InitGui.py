@@ -1,10 +1,19 @@
 # SonarIQ FreeCAD add-on: adds "SonarIQ ▶ Analyse" to the toolbar/menu and docks the SonarIQ panel on the right.
+import importlib.util
+import os
+
 import FreeCADGui as Gui
+
+# brand v1 mark (13-Brand.pdf): the black tile keeps all three strokes readable at toolbar size
+try:
+    ICON = os.path.join(os.path.dirname(importlib.util.find_spec("sonariq_panel").origin), "icons", "sonariq.svg")
+except Exception:  # noqa: BLE001
+    ICON = ""
 
 
 class SonarIQShowPanel:
     def GetResources(self):
-        return {"MenuText": "SonarIQ panel", "ToolTip": "Show the SonarIQ compliance panel", "Accel": "Ctrl+Shift+S"}
+        return {"MenuText": "SonarIQ panel", "ToolTip": "Show the SonarIQ compliance panel", "Accel": "Ctrl+Shift+S", "Pixmap": ICON}
 
     def Activated(self):
         import sonariq_panel
@@ -16,7 +25,7 @@ class SonarIQShowPanel:
 
 class SonarIQAnalyse:
     def GetResources(self):
-        return {"MenuText": "▶ Analyse", "ToolTip": "Run SonarIQ on the open IFC model (Ctrl+Shift+A in the panel)"}
+        return {"MenuText": "▶ Analyse", "ToolTip": "Run SonarIQ on the open IFC model (Ctrl+Shift+A in the panel)", "Pixmap": ICON}
 
     def Activated(self):
         import sonariq_panel

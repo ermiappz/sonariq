@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.1.0",
+    "@fontsource/ibm-plex-sans": "^5.1.0",
     "@thatopen/components": "^2.3.0",
     "@thatopen/fragments": "^2.3.0",
     "d3": "^7.9.0",

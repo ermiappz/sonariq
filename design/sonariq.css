@@ -42,6 +42,8 @@
   /* plan fills */
   --plan-bg: #17191c; --plan-space: #202227; --plan-new: rgba(227,146,200,.10);
   /* FreeCAD host chrome (FreeCAD Dark, simplified) */
+  /* brand v1 (13-Brand.pdf): logo ink + chart blue; the status palette is unchanged */
+  --brand-ink: #e9eaed; --brand-blue: #5c9dff; --brand-bg: #0d0e11;
   --fc-bg: #2b2b2b; --fc-bar: #323232; --fc-line: #1e1e1e; --fc-fg: #d4d4d4; --fc-fg-2: #a8a8a8; --fc-sel: #3d6aa8; --fc-view: #3a3d42; --fc-view-2: #25272b;
   color-scheme: dark;
 }
@@ -58,6 +60,7 @@
   --st-acc:  #005f96; --st-acc-fill:  #0072b2; --st-acc-tint:  rgba(0,114,178,.09);
   --st-unk:  #3d424b; --st-unk-tint: rgba(61,66,75,.05);
   --st-dor:  #5b616b; --st-na: #5b616b;
+  --brand-ink: #15171b; --brand-blue: #1f5fd1; --brand-bg: #ffffff;
   --fd-ink: #2b2f36; --plan-bg: #f7f8fa; --plan-space: #ffffff; --plan-new: rgba(158,63,122,.08);
   color-scheme: light;
 }
@@ -292,3 +295,8 @@ textarea.sq-input { height: auto; padding: 6px 8px; resize: none; line-height: 1
         --st-fail: #b34700; --st-warn: #875a00; --st-pass: #00785a; --st-acc: #005f96; --st-unk: #2b2f36; }
   .sq-btn, .sq-tabs, .sq-rail { display: none !important; }
 }
+
+/* ---------- Brand lockup (13-Brand.pdf): mark + wordmark, IBM Plex Sans 600, "IQ" in chart blue ---------- */
+.sq-lockup { display: inline-flex; align-items: center; gap: .45em; font-family: var(--font-ui); font-weight: 600; color: var(--brand-ink); letter-spacing: -.01em; line-height: 1; white-space: nowrap; }
+.sq-lockup b { color: var(--brand-blue); font-weight: 600; }
+.sq-mark { flex: none; display: block; }
