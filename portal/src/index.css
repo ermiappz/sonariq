@@ -248,3 +248,34 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .rail-reset { color: var(--fg-3); text-decoration: underline; text-underline-offset: 2px; font-size: 11px; }
 .rail-reset:hover { color: var(--fg-1); }
 .studio-resetview { position: absolute; right: 12px; top: 12px; z-index: 3; }
+
+/* ---- home motion (subtle): opacity/transform only; reduced motion = everything static and visible */
+@media (prefers-reduced-motion: no-preference) {
+  .hp-js .hp-reveal { opacity: 0; transform: translateY(14px); transition: opacity .7s ease var(--d, 0ms), transform .8s cubic-bezier(.16,1,.3,1) var(--d, 0ms); }
+  .hp-js .hp-reveal.is-in { opacity: 1; transform: none; }
+  /* hero: copy fades up in sequence, then the live card settles in */
+  .hp-hero-copy > * { animation: hp-up .8s cubic-bezier(.16,1,.3,1) both; }
+  .hp-hero-copy > :nth-child(1) { animation-delay: .05s; } .hp-hero-copy > :nth-child(2) { animation-delay: .12s; }
+  .hp-hero-copy > :nth-child(3) { animation-delay: .2s; } .hp-hero-copy > :nth-child(4) { animation-delay: .32s; }
+  .hp-hero-copy > :nth-child(5) { animation-delay: .44s; } .hp-hero-copy > :nth-child(n+6) { animation-delay: .54s; }
+  .hp-live { animation: hp-card 1s cubic-bezier(.16,1,.3,1) .25s both; }
+  /* deck plan: the plan fades in, then findings appear one by one, the selection ring breathes */
+  .hp-iso { animation: hp-fade 1.1s ease .45s both; }
+  .hp-iso-tag, .hp-iso .fail-box, .hp-iso .fail-dash, .hp-iso .unk-box { animation: hp-fade .5s ease both; }
+  .hp-iso .fail-box:nth-of-type(n), .hp-iso-tag { animation-delay: 1.3s; }
+  .hp-iso-tag:nth-of-type(1) { animation-delay: 1.2s; } .hp-iso-tag:nth-of-type(2) { animation-delay: 1.45s; }
+  .hp-iso-tag:nth-of-type(3) { animation-delay: 1.7s; } .hp-iso-tag:nth-of-type(4) { animation-delay: 1.95s; } .hp-iso-tag:nth-of-type(5) { animation-delay: 2.2s; }
+  .hp-iso .sel { transform-box: fill-box; transform-origin: center; animation: hp-fade .5s ease 1.2s both, hp-breathe 2.8s ease-in-out 1.8s infinite; }
+  .hp-callout { animation: hp-in-right .7s cubic-bezier(.16,1,.3,1) both; }
+  .hp-callout:nth-child(1) { animation-delay: 1.5s; } .hp-callout:nth-child(2) { animation-delay: 2.4s; }
+  .hp-live-stats > div { animation: hp-up .7s cubic-bezier(.16,1,.3,1) both; }
+  .hp-live-stats > div:nth-child(1) { animation-delay: .9s; } .hp-live-stats > div:nth-child(2) { animation-delay: 1s; } .hp-live-stats > div:nth-child(3) { animation-delay: 1.1s; }
+  /* hover lift on cards and buttons */
+  .hp-card, .hp-btn { transition: border-color .2s ease, transform .25s cubic-bezier(.16,1,.3,1), background-color .2s ease; }
+  a.hp-card:hover, button.hp-card:hover, .hp-step:hover { transform: translateY(-2px); }
+  .hp-btn:hover { transform: translateY(-1px); }
+}
+@keyframes hp-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes hp-card { from { opacity: 0; transform: translateY(18px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes hp-in-right { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes hp-breathe { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.18); opacity: .55; } }
