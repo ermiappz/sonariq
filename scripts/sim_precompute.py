@@ -72,6 +72,7 @@ def plan(runs: int):
         ("revBfix2_night", s.load("Bfix2"), night, "Bfix2", "files"),
         ("revB_fire_3A", revB, Scenario("night", "primary", fire_origin=fireB), "B", "files"),
         ("golden_or117_3B_out", m1, Scenario("night", "secondary", closed_stair="3B"), "A + 4×2 berth OR-117", "extra"),
+        ("revB_3B_out", revB, Scenario("night", "secondary", closed_stair="3B"), "B", "extra"),
     ], m1
 
 
@@ -147,6 +148,61 @@ def write_demo(svc, index):
         return (r or {}).get("landings", {}).get(k, {}).get("queue_max_p95", "—")
 
     from sim.service import LABEL
+    rB3 = R("revB_3B_out")
+
+    def worst(r):
+        k, v = max(r["landings"].items(), key=lambda kv: kv[1]["queue_max_p95"])
+        return f"{k} · {v['queue_max_p95']} people (p95)"
+
+    def missing(name):
+        return f"   - *{name}: not computed yet — run `python scripts/sim_precompute.py --only extra`.*"
+
+    sim_section = [
+        "**D. Simulation (portal).** Portal → **Simulate** (left rail). The *Demo scenarios* row at the top opens each "
+        "precomputed 500-run result in one click; the replay starts playing within about a second (▶/❚❚, drag the time "
+        "bar, ×1/×10, **2D/3D** toggle next to it). Every result names the file it ran on in the header chip.",
+        "",
+        "*Which revision?* Portal Simulate always sends an explicit revision and reads that IFC file: **Rev B = "
+        "`deck5_revB.ifc`, which already contains the OR-117 cabin block** (4 cabins × 2 berths at Fr 140). Edits "
+        "confirmed in the FreeCAD chat are **not** included; the header says so.",
+        "",
+        f"Every result screen carries: *{LABEL}*.",
+        "",
+    ]
+    if rB:
+        sim_section += [f"1. **Rev B · Night · baseline** → p95 **{_mmss(rB['tA_p95_s'])}** ({rB['runs']} runs), "
+                        f"p50 {_mmss(rB['tA_p50_s'])}, {rB['people_deck5']} people on Deck 5; longest landing queue "
+                        f"{worst(rB)}; peak density {rB['peak_density_p95']} p/m². The queue chart shows Stair "
+                        f"{max(rB['landings'].items(), key=lambda kv: kv[1]['queue_max_p95'])[0][:2]}. "
+                        "Click **Pause**, drag the time bar, click **3D**, then **2D**."]
+    else:
+        sim_section += [missing("Rev B night baseline")]
+    if rB3:
+        sim_section += [f"2. **← Scenario** → **Rev B · Night · Stair 3B out** → p95 **{_mmss(rB3['tA_p95_s'])}**"
+                        + (f" (baseline {_mmss(rB['tA_p95_s'])})" if rB else "")
+                        + f"; the longest queue moves to Stair 3A: {worst(rB3)}. Card *Stair 3B out of use* under the tables says the same."]
+    else:
+        sim_section += [missing("Rev B, Stair 3B out")]
+    if rBfire:
+        sm = rBfire.get("smoke") or {}
+        sim_section += [f"3. **← Scenario** → **Rev B · fire what-if** (origin {rBfire['scenario'].get('fire_origin')}) → p95 "
+                        f"**{_mmss(rBfire['tA_p95_s'])}**, shown as *p95 unchanged vs baseline*"
+                        + (f"; **{sm.get('people_exposed_p95')} people walk through smoke** (p95 of {sm.get('runs')} runs), "
+                           f"{sm.get('exposure_s_mean')} person-seconds in smoke (mean), smoke in a corridor at "
+                           f"{_mmss(sm.get('corridor_reached_s'))}" if sm else "")
+                        + ". Say it straight: the fire shows in exposure, not in time; smoke spread is illustrative, not a fire model."]
+    else:
+        sim_section += [missing("Rev B fire what-if")]
+    if rB and rBf:
+        sim_section += [f"4. **← Scenario** → **Before/after: Rev B vs Rev B fix 2** → two synced replays (left "
+                        f"{rB['people_deck5']} people, right {rBf['people_deck5']}): p95 {_mmss(rB['tA_p95_s'])} → "
+                        f"{_mmss(rBf['tA_p95_s'])} ({round(rBf['tA_p95_s'] - rB['tA_p95_s'], 1):+} s), peak density "
+                        f"{rB['peak_density_p95']} → {rBf['peak_density_p95']} p/m², 3BP queue {landing(rB, '3BP')} → "
+                        f"{landing(rBf, '3BP')} (p95). The note under the numbers says it: the fix changes the rule verdict "
+                        f"(F-07 passes), not the night evacuation time, which the response-time spread ({_resp()}) sets."]
+    else:
+        sim_section += [missing("Rev B vs Rev B fix 2")]
+    sim_section += ["", "Nothing on this path starts a new 500-run job. **Run 500** on the setup screen does — don't press it on camera.", ""]
     lines = [
         "# SonarIQ demo script (golden path v3)",
         "",
@@ -156,6 +212,7 @@ def write_demo(svc, index):
         f"Every result screen carries: *{LABEL}*.",
         "",
         *CLICK_PATHS.splitlines(),
+        *sim_section,
         "## Before you start",
         "",
         "1. Hosted: https://34-88-130-224.sslip.io (engine with Simulate on; `scripts/deploy_vm.sh`). "
@@ -212,6 +269,7 @@ def write_demo(svc, index):
         line(rA, "Rev A (IFC)"), line(rB, "Rev B (IFC)"), line(rBf, "Rev B + fix 2 (IFC)"),
         line(rBfire, "Rev B, fire what-if near Stair 3A"),
         line(R("golden_or117_3B_out"), "Rev A + OR-117, Stair 3B out (secondary)"),
+        line(rB3, "Rev B, Stair 3B out (secondary)"),
         "",
     ]
     fx = index.get("fixes_or117")
