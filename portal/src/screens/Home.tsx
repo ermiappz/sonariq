@@ -2,7 +2,7 @@
 // workspace (Inbox, no auth); the hero's "Open live demo" does the same. Numbers are the engine's: 96 checks per Rev B
 // run, F-07 1,380 required / 1,350 measured, fix 2 gives 1,340; the OR-117 edit re-runs 7 checks and changes 2.
 // Links we don't have yet stay null and render as "link follows" instead of a fake URL.
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Lockup, Mark } from "../components/Brand";
 
 const LINKS: { github: string | null; video: string | null; deck: string | null; sinceai: string | null; docs: string | null } = {
@@ -12,9 +12,31 @@ const HOST = "34-88-130-224.sslip.io";
 
 const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
 
+// Subtle motion: sections and cards fade up as they scroll into view (opacity/transform only, no layout shift).
+// Without JS or with prefers-reduced-motion everything is simply visible.
+function useReveal() {
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = root.current;
+    if (!el || matchMedia("(prefers-reduced-motion: reduce)").matches || !("IntersectionObserver" in window)) return;
+    el.querySelectorAll(".hp-reveal-kids > *").forEach((n, i, all) => {
+      const k = Array.prototype.indexOf.call(n.parentElement!.children, n);
+      n.classList.add("hp-reveal"); (n as HTMLElement).style.setProperty("--d", `${(k % 4) * 90}ms`); void all; void i;
+    });
+    el.classList.add("hp-js");
+    const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("is-in"); io.unobserve(e.target); } }),
+      { rootMargin: "0px 0px -8% 0px", threshold: 0.12 });
+    el.querySelectorAll(".hp-reveal").forEach((n) => io.observe(n));
+    return () => io.disconnect();
+  }, []);
+  return root;
+}
+const d = (i: number) => ({ ["--d" as any]: `${i * 90}ms` });
+
 export default function Home({ onLogin }: { onLogin: () => void }) {
+  const root = useReveal();
   return (
-    <div className="sq sq-dark hp">
+    <div className="sq sq-dark hp" ref={root}>
       <header className="hp-nav">
         <div className="hp-wrap hp-nav-in">
           <a href="#" onClick={(e) => { e.preventDefault(); scrollTo("top"); }} aria-label="SonarIQ"><Lockup size={20} /></a>
@@ -56,7 +78,7 @@ export default function Home({ onLogin }: { onLogin: () => void }) {
         {/* ---------------------------------------------------------------- standards strip */}
         <section className="hp-strip">
           <div className="hp-wrap">
-            <div className="hp-strip-row mono"><b>Checks against</b><span>SOLAS II-2</span><span>FSS Code Ch.13</span><span>PVAG 2013 (draft)</span><span>ADA 2010</span><span>DNV class · to verify</span></div>
+            <div className="hp-strip-row mono hp-reveal"><b>Checks against</b><span>SOLAS II-2</span><span>FSS Code Ch.13</span><span>PVAG 2013 (draft)</span><span>ADA 2010</span><span>DNV class · to verify</span></div>
             <div className="hp-strip-row mono sq-faint">Works with FreeCAD · IFC4 · BCF</div>
           </div>
         </section>
@@ -64,14 +86,14 @@ export default function Home({ onLogin }: { onLogin: () => void }) {
         {/* ---------------------------------------------------------------- how it works */}
         <section id="how" className="hp-sec">
           <div className="hp-wrap">
-            <div className="hp-eyebrow mono">How it works</div>
-            <h2>One change. Every rule it touches.<br />Seconds later.</h2>
-            <p className="hp-p">Four cabins added at frame 140 make a stair that serves four decks too narrow. SonarIQ catches it before anyone opens a report.</p>
+            <div className="hp-eyebrow mono hp-reveal">How it works</div>
+            <h2 className="hp-reveal" style={d(1)}>One change. Every rule it touches.<br />Seconds later.</h2>
+            <p className="hp-p hp-reveal" style={d(2)}>Four cabins added at frame 140 make a stair that serves four decks too narrow. SonarIQ catches it before anyone opens a report.</p>
             <div className="hp-cards3" id="evidence">
-              <Step n="01 · In FreeCAD" title="Analyse where you design" text="A docked panel checks the open IFC model. Findings light up on the 3D model first, then in a list.">
+              <Step i={1} n="01 · In FreeCAD" title="Analyse where you design" text="A docked panel checks the open IFC model. Findings light up on the 3D model first, then in a list.">
                 <MiniPanel />
               </Step>
-              <Step n="02 · Evidence" title="Proof, not a score" text="Every verdict shows the clause, required against measured, and the formula filled with the model’s own inputs.">
+              <Step i={2} n="02 · Evidence" title="Proof, not a score" text="Every verdict shows the clause, required against measured, and the formula filled with the model’s own inputs.">
                 <div className="hp-formula mono">
                   <div>W = (N₁ + N₂ + 0.5 N₃ + 0.25 N₄) × 10</div>
                   <div>&nbsp;&nbsp;= (68 + 44 + 20 + 6) × 10</div>
@@ -79,7 +101,7 @@ export default function Home({ onLogin }: { onLogin: () => void }) {
                   <div className="hp-fail">✕ 1,350 mm measured · −30 mm</div>
                 </div>
               </Step>
-              <Step n="03 · Review portal" title="Decide, sign, hand back" text="Discipline leads approve, request changes or decline. Every action is signed. Issues go back to any CAD tool as BCF.">
+              <Step i={3} n="03 · Review portal" title="Decide, sign, hand back" text="Discipline leads approve, request changes or decline. Every action is signed. Issues go back to any CAD tool as BCF.">
                 <div className="hp-thread">
                   <div><i className="o" />Rule engine found F-07<span className="mono">14:32</span></div>
                   <div><i className="f" />Designer applied fix 2<span className="mono">14:36</span></div>
@@ -95,11 +117,11 @@ export default function Home({ onLogin }: { onLogin: () => void }) {
         <section className="hp-sec hp-grid-bg">
           <div className="hp-wrap hp-two">
             <div>
-              <div className="hp-eyebrow mono">Trust by design</div>
-              <h2>The engine decides.<br />The engineer decides.<br /><span className="sq-faint">AI explains.</span></h2>
-              <p className="hp-p">A deterministic rule engine sets every Pass and Fail. AI only explains in plain words, turns typed requests into edits you confirm, and proposes fixes the engine re-checks before you see them. When the model is missing data, SonarIQ says “Cannot verify”. It never guesses.</p>
+              <div className="hp-eyebrow mono hp-reveal">Trust by design</div>
+              <h2 className="hp-reveal" style={d(1)}>The engine decides.<br />The engineer decides.<br /><span className="sq-faint">AI explains.</span></h2>
+              <p className="hp-p hp-reveal" style={d(2)}>A deterministic rule engine sets every Pass and Fail. AI only explains in plain words, turns typed requests into edits you confirm, and proposes fixes the engine re-checks before you see them. When the model is missing data, SonarIQ says “Cannot verify”. It never guesses.</p>
             </div>
-            <div className="hp-trust">
+            <div className="hp-trust hp-reveal-kids">
               <div className="hp-card"><span className="hp-tag mono">◘ Rule engine</span><b>Sets every verdict</b><span className="sq-muted">Same input, same answer. Tested rule by rule.</span></div>
               <div className="hp-card"><span className="hp-tag mono">✓ AI explanation · numbers checked</span><b>Never sets a status</b><span className="sq-muted">Uses only numbers the engine produced.</span></div>
               <div className="hp-card hp-span2">
@@ -119,9 +141,9 @@ export default function Home({ onLogin }: { onLogin: () => void }) {
         {/* ---------------------------------------------------------------- video */}
         <section id="video" className="hp-sec">
           <div className="hp-wrap" style={{ textAlign: "center" }}>
-            <div className="hp-eyebrow mono">Demo video</div>
-            <h2 style={{ marginTop: 0 }}>See the golden path in two minutes</h2>
-            <div className="hp-video">
+            <div className="hp-eyebrow mono hp-reveal">Demo video</div>
+            <h2 className="hp-reveal" style={{ marginTop: 0, ...d(1) }}>See the golden path in two minutes</h2>
+            <div className="hp-video hp-reveal" style={d(2)}>
               <div className="hp-intro" aria-hidden><Mark size={72} /><span className="hp-intro-word">Sonar<b>IQ</b></span></div>
               {LINKS.video
                 ? <a className="hp-btn is-light" href={LINKS.video}>▶ Play · 2:00</a>
@@ -135,12 +157,12 @@ export default function Home({ onLogin }: { onLogin: () => void }) {
         <section id="hackathon" className="hp-sec hp-grid-bg">
           <div className="hp-wrap hp-two">
             <div>
-              <div className="hp-eyebrow mono">Built at Since AI 2026</div>
-              <h2>A 36-hour prototype for the Meyer Turku challenge</h2>
-              <p className="hp-p">The challenge: automated class and regulatory compliance checking for cruise ship design. SonarIQ is our answer, a working prototype rather than a product. Rules marked “To verify” have not been checked by a class society.</p>
+              <div className="hp-eyebrow mono hp-reveal">Built at Since AI 2026</div>
+              <h2 className="hp-reveal" style={d(1)}>A 36-hour prototype for the Meyer Turku challenge</h2>
+              <p className="hp-p hp-reveal" style={d(2)}>The challenge: automated class and regulatory compliance checking for cruise ship design. SonarIQ is our answer, a working prototype rather than a product. Rules marked “To verify” have not been checked by a class society.</p>
               <div className="hp-chips"><span>Hackathon project</span><span>Not class approved</span></div>
             </div>
-            <div className="hp-stats3">
+            <div className="hp-stats3 hp-reveal-kids">
               <div className="hp-card"><b className="hp-num mono">36 h</b><span className="sq-muted">from brief to demo</span></div>
               <div className="hp-card"><b className="hp-num mono">96</b><span className="sq-muted">checks in 3 rule packs</span></div>
               <div className="hp-card"><b className="hp-num mono">2</b><span className="sq-muted">ship models: demo ship and RCRV</span></div>
@@ -152,9 +174,9 @@ export default function Home({ onLogin }: { onLogin: () => void }) {
         {/* ---------------------------------------------------------------- resources */}
         <section id="resources" className="hp-sec">
           <div className="hp-wrap">
-            <div className="hp-eyebrow mono">Resources</div>
-            <h2>Everything we submitted</h2>
-            <div className="hp-res">
+            <div className="hp-eyebrow mono hp-reveal">Resources</div>
+            <h2 className="hp-reveal" style={d(1)}>Everything we submitted</h2>
+            <div className="hp-res hp-reveal-kids">
               <Res k="Live demo" t="Open the demo workspace" d="Portal with the demo ship and RCRV. No account needed." link={HOST} onClick={onLogin} />
               <Res k="FreeCAD" t="FreeCAD add-on" d="The docked panel and the one-line macOS setup." link={`${HOST}/downloads`} href="downloads/" />
               <Res k="Code" t="GitHub repository" d="Rule engine, FreeCAD add-on, portal and tests." href={LINKS.github} />
@@ -169,7 +191,7 @@ export default function Home({ onLogin }: { onLogin: () => void }) {
         {/* ---------------------------------------------------------------- closing CTA */}
         <section className="hp-sec hp-cta">
           <div className="hp-ring" aria-hidden />
-          <h2>Review in the browser.<br />Fix in your CAD tool.</h2>
+          <h2 className="hp-reveal">Review in the browser.<br />Fix in your CAD tool.</h2>
           <div className="hp-ctas" style={{ justifyContent: "center" }}>
             <button className="hp-btn is-light" onClick={onLogin}>Open live demo →</button>
             <a className="hp-btn" href="downloads/">Get the FreeCAD add-on</a>
@@ -192,8 +214,8 @@ export default function Home({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function Step({ n, title, text, children }: { n: string; title: string; text: string; children: ReactNode }) {
-  return <div className="hp-card hp-step"><span className="hp-eyebrow mono">{n}</span><h3>{title}</h3><p className="sq-muted">{text}</p><div className="hp-step-art">{children}</div></div>;
+function Step({ n, title, text, children, i = 0 }: { n: string; title: string; text: string; children: ReactNode; i?: number }) {
+  return <div className="hp-card hp-step hp-reveal" style={d(i)}><span className="hp-eyebrow mono">{n}</span><h3>{title}</h3><p className="sq-muted">{text}</p><div className="hp-step-art">{children}</div></div>;
 }
 
 function Res({ k, t, d, link, href, onClick }: { k: string; t: string; d: string; link?: string; href?: string | null; onClick?: () => void }) {
