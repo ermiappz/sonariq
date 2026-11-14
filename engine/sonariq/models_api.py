@@ -64,8 +64,8 @@ def _run(mid: str, source: str) -> None:
                                       "integrity", "seconds", "max_quantization_dev_mm", "box")}
         _write_status(mid, state="ready", progress=1.0, message="Ready", summary=summary)
     except Exception as e:  # noqa: BLE001  (shown to the user; the original file stays untouched)
-        from .pipeline.build import MISSING
-        _write_status(mid, state="error", message=MISSING if str(e) == MISSING else f"Could not prepare the 3D version of this model: {str(e)[:300]}")
+        from .pipeline.build import MISSING, PACKAGES
+        _write_status(mid, state="error", message=str(e) if str(e) in (MISSING, PACKAGES) else f"Could not prepare the 3D version of this model: {str(e)[:300]}")
     finally:
         _ACTIVE.discard(mid)
 
