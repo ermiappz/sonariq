@@ -13,6 +13,7 @@ import Revisions from "./screens/Revisions";
 import Board from "./screens/Board";
 import Home from "./screens/Home";
 import { Pill } from "./components/ui";
+import PrintReport from "./screens/PrintReport";
 
 type Screen = "simulate" | "projects" | "inbox" | "board" | "thread" | "model" | "rules" | "mapping" | "benchmark" | "revisions" | "settings";
 const USER = { name: "Mikko Saari", role: "Fire & life safety lead", initials: "MS" }; // sample person from the design
@@ -27,6 +28,7 @@ export default function App() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
+  if (location.hash.startsWith("#print/")) return <PrintReport id={decodeURIComponent(location.hash.slice(7))} />;
   if (home) return <Home onLogin={() => { location.hash = "#inbox"; setHome(false); }} />;
   return <Workspace />;
 }

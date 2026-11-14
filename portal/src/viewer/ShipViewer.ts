@@ -157,7 +157,7 @@ export class ShipViewer {
     });
     this.material.clippingPlanes = this.clipPlanes;
     this.tiles = index.files.map((f: TileFile) => ({ ...f, box: new THREE.Box3(new THREE.Vector3(...f.min), new THREE.Vector3(...f.max)), mesh: null, loading: null }));
-    this.view("iso", false);
+    this.view("iso");
     const overview = this.tiles.filter((t) => t.lod === 0);
     let i = 0;
     await Promise.all(Array.from({ length: 6 }, async () => { while (i < overview.length) await this.loadTile(overview[i++]); }));
@@ -261,6 +261,7 @@ export class ShipViewer {
   private hasGhosts = false;
   /** Write the element texture after changing `state`. */
   commit() {
+    if (!this.index) return;                       // not loaded yet: nothing to draw
     let g = false;
     for (let i = 3; i < this.index.elements * 4; i += 4) { const a = this.state[i]; if (a > 0 && a < 255) { g = true; break; } }
     this.hasGhosts = g;
@@ -287,6 +288,7 @@ export class ShipViewer {
   /** stable ids (IFC GlobalId) -> element indices; aggregates (stairs, zones) resolve to their parts */
   indices(ids: (string | null | undefined)[]): number[] {
     const out: number[] = [];
+    if (!this.index) return out;
     for (const id of ids) {
       if (!id) continue;
       const i = this.byId.get(id);
@@ -298,7 +300,7 @@ export class ShipViewer {
   setColor(i: number, rgb: [number, number, number]) { this.state.set(rgb, i * 4); }
   setAlpha(i: number, a: number) { this.state[i * 4 + 3] = a; }
   resetElement(i: number) { this.state.set(this.base.subarray(i * 4, i * 4 + 4), i * 4); }
-  resetAll() { this.state.set(this.base); this.commit(); }
+  resetAll() { if (!this.index) return; this.state.set(this.base); this.commit(); }
   isShown(i: number) { return this.state[i * 4 + 3] > 0; }
 
   private hlSaved: [number, Uint8Array] | null = null;
@@ -327,6 +329,7 @@ export class ShipViewer {
 
   /** solid = these, everything else ghosted (x-ray) or hidden */
   isolate(ids: number[], rest: "ghost" | "hide" = "hide") {
+    if (!this.index) return;
     const keep = new Set(ids);
     for (let i = 0; i < this.index.elements; i++) {
       if (keep.has(i)) { if (this.state[i * 4 + 3] === 0) this.state[i * 4 + 3] = 255; continue; }
@@ -337,6 +340,7 @@ export class ShipViewer {
   }
   hide(ids: number[]) { for (const i of ids) this.state[i * 4 + 3] = 0; this.commit(); }
   showAll() {
+    if (!this.index) return;
     for (let i = 0; i < this.index.elements; i++) this.state[i * 4 + 3] = this.base[i * 4 + 3];
     this.commit();
   }
@@ -369,11 +373,11 @@ export class ShipViewer {
     this.controls.update(); this.dirty = true;
   }
 
-  view(name: ViewName, keepTarget = true) {
+  view(name: ViewName) {
+    if (!this.index) return;
     const dirs: Record<ViewName, [number, number, number]> = {
       iso: [ISO_DIR.x, ISO_DIR.y, ISO_DIR.z], top: [0, -0.0001, 1], port: [0, 1, 0], starboard: [0, -1, 0], bow: [1, 0, 0], stern: [-1, 0, 0] };
-    const box = keepTarget && this.camera ? this.modelBox : this.modelBox;
-    this.fit(box, new THREE.Vector3(...dirs[name]));
+    this.fit(this.modelBox, new THREE.Vector3(...dirs[name]));
   }
 
   setProjection(kind: "perspective" | "orthographic") {

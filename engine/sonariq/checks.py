@@ -528,7 +528,10 @@ def _loc_x(model: Model, e: Element) -> dict:
     sq = e.sq
     x = sq.get("x_from_aft_m")
     lab = f"Deck {sq.get('deck', '?')} · x {x:.1f} m from aft · {sq.get('side', '?')}" if x is not None else None
-    return location(model, e, lab)
+    loc = location(model, e, lab)
+    if _src(e).get("swbs"):
+        loc["swbs"] = _src(e)["swbs"]
+    return loc
 
 
 def _model_prov(model: Model, e: Element, prop: str, raw) -> dict:

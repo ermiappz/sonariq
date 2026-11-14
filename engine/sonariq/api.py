@@ -269,6 +269,45 @@ def _owned(p: Path) -> bool:
         return p.resolve() in [q.resolve() for q in REVISIONS.values()]
 
 
+def _csv_val(v):
+    return "" if not v else v.get("value")
+
+
+@app.get("/runs/{rid}/csv")
+def runs_csv(rid: str):
+    """Every check of a stored run, one row each (spec B7). Values and verdicts exactly as the engine returned them."""
+    import io
+    d = _load_run(rid)
+    run = d["run"]
+    head = ["revision", "finding", "rule", "status", "element_guid", "element_name", "ifc_class", "deck", "location", "swbs",
+            "measured", "measured_unit", "measured_source", "required", "required_unit", "required_source", "summary",
+            "rule_ref", "verified_against_official_text"]
+    by_rule = run.get("by_rule") or {}
+
+    def rows():
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(head)
+        for c in run["checks"]:
+            el, m, r = c.get("element") or {}, c.get("measured") or {}, c.get("required") or {}
+            w.writerow([run.get("revision"), c.get("id") or "", c["rule"], c["status"], el.get("guid", ""), el.get("name", ""),
+                        el.get("ifc_class", ""), c["location"].get("deck") or "", c["location"].get("label", ""), c["location"].get("swbs") or "",
+                        _csv_val(m), m.get("unit", ""), (m.get("provenance") or {}).get("kind", ""), _csv_val(r), r.get("unit", ""),
+                        (r.get("provenance") or {}).get("kind", ""), c.get("summary", ""), c.get("ref", ""),
+                        c.get("verified_against_official_text", False)])
+        yield buf.getvalue()
+        buf.seek(0); buf.truncate()
+        for i, (rule, guid, name, deck, summary, *rest) in enumerate(run.get("passes") or []):
+            w.writerow([run.get("revision"), "", rule, "pass", guid or "", name or "", "", deck or "", f"Deck {deck}" if deck else "",
+                        (rest[0] if rest else "") or "", "", "", "", "", "", "", summary, (by_rule.get(rule) or {}).get("ref", ""), ""])
+            if i % 5000 == 4999:
+                yield buf.getvalue()
+                buf.seek(0); buf.truncate()
+        yield buf.getvalue()
+    name = f"sonariq_{d.get('revision', 'run')}_{rid}.csv"
+    return StreamingResponse(rows(), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
 @app.get("/runs/{rid}/ifc")
 def runs_ifc(rid: str):
     """Exactly the IFC this run analysed, so the web viewer never draws findings on other geometry."""

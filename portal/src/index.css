@@ -317,3 +317,53 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .acc-banner.is-off { border-color: var(--st-warn-fill); background: var(--st-warn-tint); }
 .not-run { margin: 0 12px 8px; font-size: 12px; }
 .not-run-row { padding: 4px 0 4px 8px; border-left: 2px dashed var(--st-unk); margin-top: 4px; }
+
+/* findings at scale (components/FindingsList.tsx) */
+.fl { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fl-filters { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 0 12px 6px; }
+.fl-filters select { font-size: 12px; padding: 2px 6px; height: auto; max-width: 160px; }
+.fl-count { margin-left: auto; font-size: 11px; }
+.fl-detail { padding: 0 12px 6px; max-height: 45%; overflow: auto; }
+.fl-list { flex: 1; min-height: 120px; overflow: auto; position: relative; margin: 0 12px 12px; border-top: 1px solid var(--line); }
+.fl-list:focus-visible { outline: none; box-shadow: var(--focus); }
+.fl-head, .fl-row { position: absolute; left: 0; right: 0; height: 44px; box-sizing: border-box; }
+.fl-head { display: flex; gap: 6px; align-items: center; text-align: left; padding: 2px 6px; background: var(--bg-1); border: 0; border-bottom: 1px solid var(--line); color: var(--fg-1); font-family: inherit; font-size: 12px; line-height: 1.35; cursor: pointer; }
+.fl-head .mono { font-size: 11px; }
+.fl-head:focus-visible { outline: none; box-shadow: var(--focus); }
+.fl-head-t { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 1.35; }
+.fl-caret { width: 12px; color: var(--fg-3); }
+.fl-head.s-fail { box-shadow: inset 3px 0 0 var(--st-fail-fill); } .fl-head.s-warn { box-shadow: inset 3px 0 0 var(--st-warn-fill); }
+.fl-head.s-unk { box-shadow: inset 3px 0 0 var(--st-unk); } .fl-head.s-pass { box-shadow: inset 3px 0 0 var(--st-pass-fill); }
+.fl-row { display: flex; gap: 8px; align-items: center; padding: 0 6px 0 18px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 12px; }
+.fl-row:hover { background: var(--bg-2); }
+.fl-row.is-on { background: var(--bg-3); box-shadow: inset 2px 0 0 var(--accent); }
+.fl-row.is-incorrect { color: var(--fg-3); }
+.fl-id { width: 46px; flex: none; font-size: 11px; color: var(--fg-3); }
+.fl-main { min-width: 0; display: flex; flex-direction: column; }
+.fl-name, .fl-sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.fl-sub { font-size: 10.5px; }
+
+/* traceability matrix + printable report */
+.studio-mode { margin: 0 12px 6px; align-self: flex-start; }
+.studio-mode button { font-size: 12px; padding: 2px 10px; }
+.tm { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 12px 12px; }
+.tm-legend { font-size: 11px; display: flex; gap: 10px; flex-wrap: wrap; padding-bottom: 4px; }
+.tm-legend i { display: inline-block; width: 9px; height: 9px; margin-right: 4px; vertical-align: -1px; }
+.tm-wrap { flex: 1; min-height: 160px; overflow: auto; position: relative; border-top: 1px solid var(--line); }
+.tm-cv { position: sticky; top: 0; left: 0; display: block; cursor: crosshair; }
+.tm-tip { font-size: 11px; color: var(--fg-2); padding-top: 4px; min-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr { max-width: 1100px; margin: 0 auto; padding: 24px; background: var(--bg-1); color: var(--fg-1); min-height: 100vh; }
+.pr h1 { font-size: 22px; margin: 0 0 4px; } .pr h2 { font-size: 16px; margin: 20px 0 8px; }
+.pr-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.pr-actions { display: flex; gap: 8px; }
+.pr .acc-banner { margin: 12px 0; }
+.pr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.pr-table th, .pr-table td { text-align: left; border-bottom: 1px solid var(--line); padding: 4px 6px; vertical-align: top; }
+.pr-table th { color: var(--fg-3); font-weight: 500; }
+@media print {
+  .no-print { display: none !important; }
+  .pr { max-width: none; padding: 0; background: #fff; color: #000; }
+  .pr .sq-faint, .pr-table th { color: #444; }
+  .pr-table tr { break-inside: avoid; }
+}
+.pr-table td.mono:first-child { white-space: nowrap; }

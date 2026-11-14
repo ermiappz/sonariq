@@ -10,7 +10,7 @@ export interface Check {
   clause_text: string; reading: string; rule_status: string; to_verify: boolean; pack: string; group: string;
   discipline: string; discipline_label: string; status: Status; status_word: string; glyph: string;
   element: { guid: string; name: string; ifc_class: string } | null;
-  location: { deck: string | null; frame: string | null; side: string | null; label: string };
+  location: { deck: string | null; frame: string | null; side: string | null; label: string; swbs?: string };
   required: Val | null; measured: Val | null; margin: Val | null; summary: string;
   formula: { text: string; worked: string; inputs: { name: string; deck: string; value: number; weight: number; source: string }[] } | null;
   method: string; missing: string[]; revision: string; decision?: Decision;
@@ -22,7 +22,7 @@ export interface Run {
   revision: string; scope?: string; total_checks: number; duration_s: number; counts: Record<string, number>;
   by_group: Record<string, { label: string; checks: number; counts: Record<string, number>; pack_status: string; short: string }>;
   findings: Check[]; checks: Check[]; not_applicable: { rule: string; title: string; ref: string; reason: string }[];
-  compact?: boolean; passes?: [string, string | null, string | null, string | null, string][];
+  compact?: boolean; passes?: [string, string | null, string | null, string | null, string, string | null][];
   by_rule?: Record<string, { title: string; source_group: string; ref: string; group: string; counts: Record<string, number> }>;
   not_run?: { rule: string; title: string; ref: string; reason: string; kind: string; group: string }[];
   readiness?: Readiness | null; rules_verified_against_official_text?: { verified: number; total: number };

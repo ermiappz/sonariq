@@ -253,7 +253,8 @@ def run_dict(run: Run, model: Model | None = None, include_pass: bool = True) ->
     checks = [check_dict(r, run, model) for r in keep]
     findings = [c for c in checks if c["status"] in ("fail", "warn", "unk")]
     passes = [[r.rule.id, r.element.guid if r.element else None, r.element.name if r.element else None,
-               (r.location or {}).get("deck"), r.summary] for r in run.results if compact and r.status == "pass"]
+               (r.location or {}).get("deck"), r.summary, (r.location or {}).get("swbs")]
+              for r in run.results if compact and r.status == "pass"]
     by_group: dict[str, dict] = {}
     for g in run.groups:
         meta = PACK_GROUPS.get(g, {"label": g, "packs": [g]})
@@ -278,7 +279,7 @@ def run_dict(run: Run, model: Model | None = None, include_pass: bool = True) ->
         "findings": findings,
         "checks": checks if include_pass else findings,
         "compact": compact,
-        "passes": passes,              # compact: [rule, element guid, element name, deck, summary] per pass
+        "passes": passes,              # compact: [rule, element guid, element name, deck, summary, swbs] per pass
         "by_rule": _by_rule(run),
         "not_applicable": run.na,
         "not_run": run.not_run,

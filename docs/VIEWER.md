@@ -74,3 +74,13 @@ Proof: `tests/test_pipeline.py` (every finding of Rev B, every product GlobalId 
   Rev B: 6/6 found, 0 false alarms, 3/3 expected passes, scan agrees on R-FLS-01. RCRV: 96/96, 0, 3/3, scan agrees on all
   5 running rules (counts including passes and Cannot verify).
 - **Whole-ship runs** (> 2,000 checks) store passes as compact rows: 70 MB → 4.2 MB for the RCRV.
+
+## Findings at scale (step 4)
+
+- `portal/src/components/FindingsList.tsx`: grouped by rule (worst status first), a count line per rule
+  ("2,391 parts: 41 warning, 232 cannot verify, 2,118 pass"), filters for rule source (SOLAS/FSS, IACS, Class, Data
+  quality, Accessibility), SWBS group, deck and status, one virtualised list (44 px rows, ≈ 15–30 rows in the DOM even
+  with 36,481 passes). Arrow keys move the selection. The selected finding's full card (actions, chips) sits above.
+- `TraceMatrix.tsx`: parts × rules on a canvas (visible window only), worst parts first; click a cell to select.
+- `GET /runs/<id>/csv`: one row per check incl. compact passes, with source kinds; `#print/<run id>`: printable report
+  (light theme) with banner, readiness, counts per rule, findings with sources. BCF export unchanged.

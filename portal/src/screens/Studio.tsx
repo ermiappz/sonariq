@@ -2,9 +2,11 @@
 // FreeCAD panel, and inspect findings next to the 3D. The viewer always loads the exact file of the run shown
 // (the engine converts that file once to web tiles: POST /models/prepare); every verdict and number comes from the engine.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, apiFetch, ORDER, WORD, useIncorrect, type Check, type Run, type RunMeta } from "../api";
+import { api, apiFetch, WORD, useIncorrect, type Check, type Run, type RunMeta } from "../api";
 import ShipView, { type ModelSrc, type View } from "../components/ShipView";
 import { AccuracyBanner, NotRun, ReadinessCard, SourceChips } from "../components/Evidence";
+import FindingsList from "../components/FindingsList";
+import TraceMatrix from "../components/TraceMatrix";
 import { Pill } from "../components/ui";
 import { DISC } from "./Board";
 import { valueLine } from "./Inbox";
@@ -43,6 +45,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   const [sel, setSel] = useState<string | null>(null);
   const [why, setWhy] = useState<{ key: string; text: string } | null>(null);
   const [setup, setSetup] = useState(true);
+  const [listMode, setListMode] = useState<"list" | "matrix">("list");
   const [incorrect, reloadInc] = useIncorrect();
   const view = useRef<View | null>(null);
   const fileIn = useRef<HTMLInputElement>(null);
@@ -63,11 +66,6 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
     setViewSrc({ src: runSrc, file: shown.meta.file });
   }, [tkey, rkey]); // eslint-disable-line react-hooks/exhaustive-deps
   const painted = useMemo(() => (shown && !target ? shown.run.checks.filter((c) => ["fail", "warn", "unk"].includes(c.status) && !incorrect[c.check_key]) : null), [shown, target, incorrect]);
-  const cards = useMemo(() => {
-    if (!shown) return [];
-    const rows = shown.run.checks.filter((c) => (status ? c.status === status : ["fail", "warn", "unk"].includes(c.status)));
-    return rows.sort((a, b) => Number(!!incorrect[a.check_key]) - Number(!!incorrect[b.check_key]) || ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || (a.id ?? "").localeCompare(b.id ?? ""));
-  }, [shown, status, incorrect]);
 
   const upload = async (f: File) => {
     setMsg("");
@@ -110,6 +108,40 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   const undo = async (key: string) => { await api.undoIncorrect(key); reloadInc(); };
   const label = target ? target.name : shown ? shown.meta.file : null;
 
+  const renderCard = (c: Check) => {
+                const [tag, color] = DISC[c.group] ?? ["··", "var(--fg-3)"];
+                const inc = incorrect[c.check_key];
+                const on = sel === c.check_key;
+                return (
+                  <div key={c.check_key} className={`studio-card${on ? " is-on" : ""}${inc ? " is-incorrect" : ""}${c.status === "unk" ? " is-dashed" : ""}`}
+                       style={{ borderLeftColor: inc ? "var(--line-2)" : color }} onClick={() => pick(c)}>
+                    <div className="flex items-center gap-2"><b className="mono" style={{ color, fontSize: 11 }}>{tag}</b><Pill s={c.status} /><span className="mono sq-faint" style={{ fontSize: 12 }}>{c.id}</span>
+                      {c.to_verify && <span style={{ color: "var(--st-warn)", fontSize: 11 }}>To verify</span>}</div>
+                    <div style={{ fontWeight: 600 }}>{c.title}</div>
+                    <div className="mono sq-faint" style={{ fontSize: 11 }}>{[c.element?.name && !c.location.label.includes(c.element.name) ? c.element.name : "", c.location.label, `${c.source.startsWith("SOLAS") ? "SOLAS" : c.source} ${c.clause}`].filter(Boolean).join(" · ")}</div>
+                    <div className="mono" style={{ fontSize: 11 }}>{valueLine(c)}</div>
+                    <SourceChips c={c} />
+                    {inc && <div className="inc-why flex items-center gap-2"><span style={{ flex: 1 }}>Marked incorrect · {inc.reason} · not exported</span>
+                      <button className="studio-link" onClick={(e) => { e.stopPropagation(); undo(c.check_key); }}>Undo</button></div>}
+                    {on && (
+                      <div className="flex gap-1" style={{ flexWrap: "wrap", marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
+                        <button className="sq-btn is-sm is-primary" onClick={() => view.current?.zoom()}>Zoom to</button>
+                        <button className="sq-btn is-sm" onClick={() => view.current?.isolate(c)}>Isolate</button>
+                        <button className="sq-btn is-sm" onClick={() => { view.current?.showAll(); setSel(null); }}>Show all</button>
+                        {!inc && <button className="sq-btn is-sm studio-warn" onClick={() => setWhy({ key: c.check_key, text: "" })}>Incorrect finding</button>}
+                        <button className="sq-btn is-sm" onClick={() => onOpenFinding(c)}>Thread →</button>
+                      </div>
+                    )}
+                    {on && why?.key === c.check_key && (
+                      <form className="flex gap-1" style={{ marginTop: 4 }} onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); mark(c, why.text); }}>
+                        <input className="sq-input studio-why" autoFocus maxLength={140} placeholder="Why is this finding wrong?" value={why.text} onChange={(e) => setWhy({ key: c.check_key, text: e.target.value })} />
+                        <button className="sq-btn is-sm studio-warn" disabled={!why.text.trim()}>Mark incorrect</button>
+                      </form>
+                    )}
+                  </div>
+                );
+  };
+
   return (
     <div className="studio">
       <div className="studio-left">
@@ -130,6 +162,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
           <div className="studio-sum">
             <span style={{ flex: 1 }}>{shown.run.scope === "whole" ? "Whole model" : "Deck 5"} · {discs.filter((d) => DISCS.find((x) => x.code === d)?.packs.length).join(" ")}<br />
               <span className="mono sq-faint" style={{ fontSize: 12 }}>Rev {shown.meta.revision} · {shown.run.total_checks} checks · {shown.meta.time.slice(11, 16)}{shown.meta.scope_note ? " · whole model" : ""}</span></span>
+            <a className="sq-btn is-sm" href={`#print/${encodeURIComponent(shown.meta.id)}`} target="_blank" rel="noreferrer">Report</a>
             <button className="sq-btn is-sm" onClick={() => setSetup(true)}>Edit</button>
           </div>
         )}
@@ -180,42 +213,12 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
                 </button>
               ))}
             </div>
-            <div className="studio-cards">
-              {cards.map((c) => {
-                const [tag, color] = DISC[c.group] ?? ["··", "var(--fg-3)"];
-                const inc = incorrect[c.check_key];
-                const on = sel === c.check_key;
-                return (
-                  <div key={c.check_key} className={`studio-card${on ? " is-on" : ""}${inc ? " is-incorrect" : ""}${c.status === "unk" ? " is-dashed" : ""}`}
-                       style={{ borderLeftColor: inc ? "var(--line-2)" : color }} onClick={() => pick(c)}>
-                    <div className="flex items-center gap-2"><b className="mono" style={{ color, fontSize: 11 }}>{tag}</b><Pill s={c.status} /><span className="mono sq-faint" style={{ fontSize: 12 }}>{c.id}</span>
-                      {c.to_verify && <span style={{ color: "var(--st-warn)", fontSize: 11 }}>To verify</span>}</div>
-                    <div style={{ fontWeight: 600 }}>{c.title}</div>
-                    <div className="mono sq-faint" style={{ fontSize: 11 }}>{[c.element?.name && !c.location.label.includes(c.element.name) ? c.element.name : "", c.location.label, `${c.source.startsWith("SOLAS") ? "SOLAS" : c.source} ${c.clause}`].filter(Boolean).join(" · ")}</div>
-                    <div className="mono" style={{ fontSize: 11 }}>{valueLine(c)}</div>
-                    <SourceChips c={c} />
-                    {inc && <div className="inc-why flex items-center gap-2"><span style={{ flex: 1 }}>Marked incorrect · {inc.reason} · not exported</span>
-                      <button className="studio-link" onClick={(e) => { e.stopPropagation(); undo(c.check_key); }}>Undo</button></div>}
-                    {on && (
-                      <div className="flex gap-1" style={{ flexWrap: "wrap", marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
-                        <button className="sq-btn is-sm is-primary" onClick={() => view.current?.zoom()}>Zoom to</button>
-                        <button className="sq-btn is-sm" onClick={() => view.current?.isolate(c)}>Isolate</button>
-                        <button className="sq-btn is-sm" onClick={() => { view.current?.showAll(); setSel(null); }}>Show all</button>
-                        {!inc && <button className="sq-btn is-sm studio-warn" onClick={() => setWhy({ key: c.check_key, text: "" })}>Incorrect finding</button>}
-                        <button className="sq-btn is-sm" onClick={() => onOpenFinding(c)}>Thread →</button>
-                      </div>
-                    )}
-                    {on && why?.key === c.check_key && (
-                      <form className="flex gap-1" style={{ marginTop: 4 }} onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); mark(c, why.text); }}>
-                        <input className="sq-input studio-why" autoFocus maxLength={140} placeholder="Why is this finding wrong?" value={why.text} onChange={(e) => setWhy({ key: c.check_key, text: e.target.value })} />
-                        <button className="sq-btn is-sm studio-warn" disabled={!why.text.trim()}>Mark incorrect</button>
-                      </form>
-                    )}
-                  </div>
-                );
-              })}
-              {cards.length === 0 && <p className="sq-muted" style={{ padding: 12 }}>No findings with this status.</p>}
+            <div className="sq-seg studio-mode" role="tablist" aria-label="Findings view">
+              {(["list", "matrix"] as const).map((k) => <button key={k} role="tab" aria-selected={listMode === k} className={listMode === k ? "is-on" : ""} onClick={() => setListMode(k)}>{k === "list" ? "Findings" : "Traceability"}</button>)}
             </div>
+            {listMode === "list"
+              ? <FindingsList run={shown.run} status={status} selected={sel} onPick={pick} renderCard={renderCard} incorrect={incorrect} />
+              : <TraceMatrix run={shown.run} selected={sel} onPick={pick} />}
           </>
         )}
       </aside>
