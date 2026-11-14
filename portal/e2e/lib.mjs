@@ -10,7 +10,9 @@ const exe = process.env.CHROME || `${os.homedir()}/.cache/ms-playwright/chromium
 
 export async function browser({ width = 1440, height = 900, theme = 'dark', guide = false } = {}) {
   const b = await chromium.launch({ executablePath: exe, headless: true,
-    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
+    // E2E_RESOLVE="MAP host ip": the VM cannot reach its own public IP, so the live smoke maps the name to the NIC
+    args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info',
+      ...(process.env.E2E_RESOLVE ? [`--host-resolver-rules=${process.env.E2E_RESOLVE}`] : [])] });
   const ctx = await b.newContext({ viewport: { width, height }, colorScheme: theme });
   // specs other than the guide's start as a returning visitor (the first-run guide already done in this browser)
   if (!guide) await ctx.addInitScript(() => { try { localStorage.setItem('sq.guide.done', '1'); } catch {} });

@@ -34,7 +34,7 @@ if (has) {
   await page.getByRole('tab', { name: 'List' }).click();
   await openModel(page, 'RCRV whole ship');
   await page.getByRole('button', { name: 'Analyse' }).click();
-  await page.waitForFunction(() => document.querySelector('.studio-sum')?.textContent?.includes('RCRV'), null, { timeout: 300000 });
+  await page.waitForFunction(() => document.querySelector('.studio-sum') && document.querySelector('.studio-file')?.textContent?.includes('RCRV'), null, { timeout: 300000 });
   await page.locator('.fl-head').first().waitFor({ timeout: 60000 });
   // collapse one at a time: the list is virtualised, so a snapshot of handles goes stale after the first click
   for (let i = 0; i < 20 && await page.locator('.fl-head[aria-expanded="true"]').count(); i++) await page.locator('.fl-head[aria-expanded="true"]').first().click();

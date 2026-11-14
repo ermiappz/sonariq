@@ -751,7 +751,7 @@ def tasks_put(key: str, req: TaskReq, revision_id: int | None = None):
 # ------------------------------------------------------------------ revision-scoped stores (tasks, incorrect marks)
 import threading as _threading  # noqa: E402
 _STORE_LOCK = _threading.Lock()
-_SNAPS: dict[int, dict] = {}
+_SNAPS: dict[tuple, dict] = {}
 
 
 def _scoped(p: Path) -> dict:
@@ -778,14 +778,14 @@ def _scope(revision_id: int | None) -> int | None:
 
 def _snapshot(rid: int) -> dict | None:
     """Marks and tasks of a saved revision, from its frozen snapshot (cached: it never changes). None for a draft."""
-    if rid in _SNAPS:
-        return _SNAPS[rid]
     r = _revs.get(rid)
     if r is None or r["state"] != "saved":
         return None
-    snap = json.loads((_revs.folder(r) / "snapshot.json").read_text(encoding="utf-8"))
-    _SNAPS[rid] = {"incorrect": snap.get("marks", {}).get("incorrect", {}), "tasks": snap.get("tasks", {})}
-    return _SNAPS[rid]
+    key = (rid, r["saved_at"], str(_revs.DB))   # ids restart after a reset or in a fresh store: never trust the id alone
+    if key not in _SNAPS:
+        snap = json.loads((_revs.folder(r) / "snapshot.json").read_text(encoding="utf-8"))
+        _SNAPS[key] = {"incorrect": snap.get("marks", {}).get("incorrect", {}), "tasks": snap.get("tasks", {})}
+    return _SNAPS[key]
 
 
 def _writable(revision_id: int | None) -> int:
