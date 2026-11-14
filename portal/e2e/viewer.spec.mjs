@@ -1,6 +1,6 @@
 // Step 2: Studio opens a model through the pipeline, shows it, paints findings, focuses one, and a pick returns the
 // engine's element. Then the whole RCRV (skipped when the engine does not have it).
-import { browser, check, shot, done, BASE } from './lib.mjs';
+import { browser, check, shot, done, BASE, openModel } from './lib.mjs';
 
 const { b, page, errors } = await browser();
 const ready = () => page.waitForFunction(() => window.__sqViewer?.stats.overviewMs != null && window.__sqViewer.stats.firstFrame != null, null, { timeout: 300000 });
@@ -28,7 +28,7 @@ const pickIds = (ids) => page.evaluate(async (ids) => {
 }, ids);
 
 await page.goto(BASE + '#model');
-await page.getByRole('button', { name: /deck5_revB\.ifc/ }).click();
+await openModel(page, 'Deck 5', 'Rev B');
 let t0 = Date.now();
 await ready();
 const s1 = await page.evaluate(() => ({ ...window.__sqViewer.stats, elements: window.__sqViewer.index.elements, calls: window.__sqViewer.renderer.info.render.calls }));
@@ -71,8 +71,7 @@ if (card) await shot(page, 'm2-04-properties.png');
 // whole RCRV
 const has = await page.evaluate(async () => (await fetch('/api/models/rcrv')).ok);
 if (has) {
-  if (!(await page.getByRole('button', { name: /RCRV whole ship/ }).isVisible())) await page.getByRole('button', { name: 'Open model', exact: true }).click();
-  await page.getByRole('button', { name: /RCRV whole ship/ }).click();
+  await openModel(page, 'RCRV whole ship');
   t0 = Date.now();
   await page.waitForFunction(() => window.__sqViewer?.index?.elements > 90000, null, { timeout: 300000 });
   await ready();

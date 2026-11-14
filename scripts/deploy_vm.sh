@@ -63,6 +63,14 @@ done
 echo "==> engine deps"
 (cd "$DEPLOY" && uv sync -q --python 3.11)
 
+# The engine's 3D converter needs Node. A systemd user unit does not see ~/.local/bin, so pin the absolute binary.
+NODE_BIN="$(readlink -f "$(command -v node || true)" || true)"
+[ -x "$NODE_BIN" ] || { echo "Node.js not found: install Node 18+ (the 3D converter needs it)"; exit 1; }
+echo "==> node $("$NODE_BIN" --version) at $NODE_BIN"
+
+echo "==> pre-convert bundled models (cached by content hash)"
+(cd "$DEPLOY" && SONARIQ_NODE_BIN="$NODE_BIN" PYTHONPATH=engine:. PYTHONUTF8=1 .venv/bin/python scripts/preconvert.py)
+
 echo "==> portal build"
 (cd "$DEPLOY/portal" && npm ci --silent --no-audit --no-fund && VITE_SQ_KEY="$SQ_PORTAL_KEY" npx vite build --logLevel error)
 sudo mkdir -p "$SRV/portal" "$SRV/downloads/models"
@@ -94,6 +102,8 @@ Environment=PYTHONPATH=engine:.
 Environment=PYTHONUTF8=1
 Environment=SONARIQ_HOSTED=1
 Environment=SIMULATE_ENABLED=$SIM
+Environment=SONARIQ_NODE_BIN=$NODE_BIN
+Environment=PATH=$(dirname "$NODE_BIN"):/usr/local/bin:/usr/bin:/bin
 ExecStart=$DEPLOY/.venv/bin/python -m uvicorn sonariq.api:app --app-dir engine --host 127.0.0.1 --port $PORT
 Restart=always
 RestartSec=3
@@ -113,7 +123,8 @@ for _ in $(seq 1 40); do
   curl -fs "http://127.0.0.1:$PORT/health" >/dev/null && break
   sleep 1
 done
-curl -fs "http://127.0.0.1:$PORT/health" | head -c 200; echo
+curl -fs "http://127.0.0.1:$PORT/health" | head -c 300; echo
+curl -fs "http://127.0.0.1:$PORT/health" | grep -q '"converter":{"state":"ok"' || { echo "converter not ok in /health"; exit 1; }
 for _ in $(seq 1 30); do
   # from the VM itself the public IP does not hairpin, so connect to the NIC with the public name (real TLS)
   code="$(curl -s -o /dev/null -w '%{http_code}' --resolve "$HOST:443:$NIC" -u "$SQ_USER:$SQ_PASS" "$URL/api/health" || true)"

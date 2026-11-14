@@ -208,9 +208,12 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .studio-3d { height: 100%; border: 0; border-radius: 0; border-right: 1px solid var(--line); }
 .studio-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fg-3); padding: 24px; text-align: center; }
 .studio-panel { display: flex; flex-direction: column; min-height: 0; background: var(--bg-1); }
-.studio-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-.studio-title { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-.studio-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; max-width: 150px; }
+.studio-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.studio-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.25; flex: 1 0 100%; }
+.studio-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; min-width: 0; }
+.tb-sel { flex: 0 1 240px; min-width: 120px; width: auto; height: 30px; padding: 2px 8px; }
+.topbar .tb-user { flex-shrink: 0; white-space: nowrap; }
+.danger-zone { border-color: color-mix(in srgb, var(--st-fail) 45%, var(--line)); }
 .studio-sum { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .studio-setup { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; overflow: auto; max-height: 55vh; }
 .studio-model { display: flex; justify-content: space-between; gap: 8px; text-align: left; background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; color: var(--fg-1); padding: 7px 10px; cursor: pointer; font: inherit; font-size: 13px; }
@@ -247,6 +250,7 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 @media (max-width: 900px) { .sim-demo-row { grid-template-columns: 1fr 1fr; } }
 .rail-reset { color: var(--fg-3); text-decoration: underline; text-underline-offset: 2px; font-size: 11px; }
 .rail-reset:hover { color: var(--fg-1); }
+.ship-error { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); width: min(460px, calc(100% - 32px)); padding: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 3; border-left: 3px solid var(--st-warn); }
 .studio-resetview { position: absolute; right: 12px; top: 12px; z-index: 3; }
 
 /* ---- home motion (subtle): opacity/transform only; reduced motion = everything static and visible */
@@ -441,3 +445,18 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .demo-text b { display: block; margin: 2px 0; }
 .demo-actions { align-self: end; }
 .studio-left:has(.sec-bar) .demo-bar { bottom: 150px; }
+.demo-err { display: flex; flex-direction: column; gap: 6px; color: var(--st-warn); }
+.guide { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+.guide-lead { position: absolute; inset: 0; }
+.guide-lead line { stroke: var(--accent); stroke-width: 1.5; }
+.guide-lead rect { fill: none; stroke: var(--accent); stroke-width: 2; }
+.guide-card { position: fixed; pointer-events: auto; border-left-color: var(--accent); font-size: 13px; display: flex; flex-direction: column; gap: 6px; z-index: 41; }
+.guide-title { font-size: 14px; }
+.guide-dots { display: flex; gap: 4px; }
+.guide-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); }
+.guide-dots i.is-on { background: var(--accent); } .guide-dots i.is-done { background: var(--fg-3); }
+.guide-demo { align-self: flex-start; }
+.help-wrap { position: relative; }
+.help-menu { position: absolute; right: 0; top: 34px; z-index: 30; min-width: 180px; padding: 4px; display: flex; flex-direction: column; box-shadow: 0 12px 30px rgba(0,0,0,.4); }
+.help-menu button { text-align: left; padding: 8px 10px; background: none; border: 0; color: var(--fg-1); border-radius: 4px; cursor: pointer; font: inherit; }
+.help-menu button:hover, .help-menu button:focus-visible { background: var(--bg-2); }

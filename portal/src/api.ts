@@ -43,10 +43,13 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
   return r.json() as Promise<T>;
 }
+// The open revision (project → model → revision): tasks and "incorrect" marks belong to it. App sets it on every switch.
+export const SCOPE: { rev: number | null } = { rev: null };
+const rq = (sep = "?") => (SCOPE.rev != null ? `${sep}revision_id=${SCOPE.rev}` : "");
 export const api = {
   resetAll: () => j<{ ok: boolean; archived: string; runs: number }>("/admin/reset", { method: "POST" }),
   model: () => j<{ bounds: number[] | null; revision: string }>("/model"),
-  health: () => j<{ ok: boolean; simulate?: boolean; ai: { endpoint: string; online: boolean } }>("/health"),
+  health: () => j<{ ok: boolean; simulate?: boolean; ai: { endpoint: string; online: boolean }; converter?: { state: "ok" | "missing"; version?: string | null; message?: string | null } }>("/health"),
   analyse: (revision: string, packs?: string[]) =>
     j<Run>("/analyse", { method: "POST", body: JSON.stringify({ revision, scope: "deck:5", packs }) }),
   finding: (id: string) => j<Check>(`/findings/${encodeURIComponent(id)}`),
@@ -57,20 +60,32 @@ export const api = {
   mapping: () => j<{ rows: Record<string, string>[] }>("/rcrv/mapping"),
   reports: () => j<{ reports: Report[] }>("/reports"),
   report: (run_id: string) => j<Report & { existing?: boolean }>("/reports", { method: "POST", body: JSON.stringify({ run_id }) }),
-  tasks: () => j<{ tasks: Record<string, Task> }>("/tasks"),
-  incorrect: () => j<{ incorrect: Record<string, Incorrect> }>("/incorrect"),
+  tasks: () => (SCOPE.rev == null ? Promise.resolve({ tasks: {} as Record<string, Task> }) : j<{ tasks: Record<string, Task> }>("/tasks" + rq())),
+  incorrect: () => (SCOPE.rev == null ? Promise.resolve({ incorrect: {} as Record<string, Incorrect> }) : j<{ incorrect: Record<string, Incorrect> }>("/incorrect" + rq())),
   markIncorrect: (body: { check_key: string; finding: string | null; reason: string; by: string; revision?: string; file?: string }) =>
-    j<Incorrect>("/incorrect", { method: "POST", body: JSON.stringify(body) }),
-  undoIncorrect: (key: string) => j<{ undone: boolean }>(`/incorrect/${encodeURIComponent(key)}`, { method: "DELETE" }),
-  task: (key: string, body: Partial<Task>) => j<Task>(`/tasks/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify(body) }),
+    j<Incorrect>("/incorrect", { method: "POST", body: JSON.stringify({ ...body, revision_id: SCOPE.rev }) }),
+  undoIncorrect: (key: string) => j<{ undone: boolean }>(`/incorrect/${encodeURIComponent(key)}${rq()}`, { method: "DELETE" }),
+  task: (key: string, body: Partial<Task>) => j<Task>(`/tasks/${encodeURIComponent(key)}${rq()}`, { method: "PUT", body: JSON.stringify(body) }),
+  // projects → models → revisions (DECISIONS M15)
+  projects: () => j<{ projects: Project[] }>("/projects"),
+  project: (id: number) => j<Project>(`/projects/${id}`),
+  projectCreate: (name: string) => j<Project>("/projects", { method: "POST", body: JSON.stringify({ name }) }),
+  projectUpdate: (id: number, body: { name?: string; guide_done?: boolean }) => j<Project>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  projectDemo: () => j<Project>("/projects/demo", { method: "POST" }),
+  projectDelete: (id: number) => j<{ deleted: number }>(`/projects/${id}`, { method: "DELETE" }),
+  modelAdd: (pid: number, body: { name?: string; revision?: string | null; path?: string | null }) =>
+    j<Revision>(`/projects/${pid}/models`, { method: "POST", body: JSON.stringify(body) }),
+  revisionAdd: (pid: number, mid: number, body: { revision?: string | null; path?: string | null }) =>
+    j<Revision>(`/projects/${pid}/models/${mid}/revisions`, { method: "POST", body: JSON.stringify(body) }),
+  runScope: (id: string) => j<{ rid: number; mid: number; mname: string; pid: number; pname: string }>(`/runs/${encodeURIComponent(id)}/scope`),
   runs: () => j<{ runs: RunMeta[] }>("/runs"),
   runGet: (id: string) => j<RunMeta & { run: Run }>(`/runs/${encodeURIComponent(id)}`),
   runDiff: (a: string, b: string) => j<RunDiff>(`/runs/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
   // model revisions (B11): Export saves; a saved revision never changes except its label
-  revisions: () => j<{ models: RevModel[] }>("/revisions"),
+  revisions: (projectId?: number) => j<{ models: RevModel[] }>("/revisions" + (projectId ? `?project_id=${projectId}` : "")),
   revExport: (run_id: string, format: "bcf" | "report" | "csv") =>
     j<Revision & { download: string }>("/revisions/export", { method: "POST", body: JSON.stringify({ run_id, format }) }),
-  revGet: (id: number) => j<Revision & { data: RunMeta & { run: Run; snapshot?: { marks: { incorrect: Record<string, Incorrect> } } } }>(`/revisions/${id}`),
+  revGet: (id: number) => j<Revision & { data: (RunMeta & { run: Run; bounds?: number[] | null; edited?: boolean; snapshot?: { marks: { incorrect: Record<string, Incorrect> } } }) | null }>(`/revisions/${id}`),
   revLabel: (id: number, label: string) => j<Revision>(`/revisions/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
   revCompare: (a: number, b: number) => j<RevCompare>(`/revisions/compare?a=${a}&b=${b}`),
 };
@@ -83,9 +98,10 @@ export async function download(path: string, name: string) {
   a.href = URL.createObjectURL(await r.blob()); a.download = name; a.click();
 }
 
-export interface Revision { id: number; model_id: number; seq: number; letter: string; label: string; state: "draft" | "saved"; run_id: string;
-  file: string | null; file_sha: string | null; counts: Record<string, number> | null; created: string; saved_at: string | null }
-export interface RevModel { id: number; name: string; created: string; revisions: Revision[] }
+export interface Revision { id: number; model_id: number; seq: number; letter: string; label: string; state: "draft" | "saved"; run_id: string | null;
+  file: string | null; file_sha: string | null; source: string | null; counts: Record<string, number> | null; created: string; saved_at: string | null }
+export interface RevModel { id: number; name: string; created: string; project_id?: number | null; revisions: Revision[] }
+export interface Project { id: number; name: string; created: string; demo: number; shared: number; guide_done: number; expires: string | null; models: RevModel[] }
 export interface RevCompare { a: Revision; b: Revision; new_findings: DiffRow[]; cleared: DiffRow[]; still_open: DiffRow[]; changed: DiffRow[];
   fallback_matches: number; counts_delta: Record<string, number>; added_checks: number; removed_checks: number }
 
@@ -168,7 +184,7 @@ export const rag = {
 import { useEffect as _useEffect, useState as _useState } from "react";
 export function useIncorrect(): [Record<string, Incorrect>, () => void] {
   const [m, setM] = _useState<Record<string, Incorrect>>({});
-  const load = () => { api.incorrect().then((r) => setM(r.incorrect)).catch(() => {}); };
-  _useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t); }, []);
+  const load = () => { const at = SCOPE.rev; api.incorrect().then((r) => { if (at === SCOPE.rev) setM(r.incorrect); }).catch(() => {}); };
+  _useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t); }, [SCOPE.rev]); // eslint-disable-line react-hooks/exhaustive-deps
   return [m, load];
 }

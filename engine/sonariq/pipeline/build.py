@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import collections
 import json
+import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -18,12 +20,33 @@ from .tiles import write_tiles
 ROOT = Path(__file__).resolve().parents[3]
 PACK = ROOT / "scripts" / "node" / "pack_tiles.mjs"
 RCRV = ROOT / "data" / "rcrv"
+MISSING = ("The 3D converter is not available on this server: Node.js was not found. The findings still work; "
+           "an administrator can install Node.js 18 or newer, or set SONARIQ_NODE_BIN, and restart the engine.")
+_NODE: dict = {}
+
+
+def converter() -> dict:
+    """Resolve the Node binary once: SONARIQ_NODE_BIN, else `node` on PATH. {state: ok|missing, bin, version, message}."""
+    if not _NODE:
+        b = os.getenv("SONARIQ_NODE_BIN") or shutil.which("node")
+        v = None
+        if b:
+            try:
+                v = subprocess.run([b, "--version"], capture_output=True, text=True, timeout=10).stdout.strip() or None
+            except (OSError, subprocess.SubprocessError):
+                v = None
+        _NODE.update({"state": "ok", "bin": b, "version": v} if v else {"state": "missing", "bin": b, "message": MISSING})
+        logging.getLogger("sonariq").warning("3D converter: %s", f"node {v} at {b}" if v else f"missing ({b or 'not on PATH'})")
+    return dict(_NODE)
 
 
 def build(source: str | Path, out: Path, progress=lambda f, msg="": None) -> dict:
     t0 = time.time()
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    node = converter()
+    if node["state"] != "ok":
+        raise RuntimeError(MISSING)
     progress(0.01, "Reading the model")
     if str(source) == "rcrv":
         from .rcrv_source import RcrvSource
@@ -38,7 +61,7 @@ def build(source: str | Path, out: Path, progress=lambda f, msg="": None) -> dic
     index = write_tiles(src.elements, src.meshes, out, disciplines(),
                         progress=lambda f: progress(0.5 + f * 0.35, "Writing tiles"))
     progress(0.85, "Compressing tiles")
-    r = subprocess.run(["node", str(PACK), str(out / "raw"), str(out / "tiles")], capture_output=True, text=True)
+    r = subprocess.run([node["bin"], str(PACK), str(out / "raw"), str(out / "tiles")], capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"tile packing failed: {(r.stderr or r.stdout)[-400:]}")
     pack = json.loads(r.stdout.strip().splitlines()[-1])

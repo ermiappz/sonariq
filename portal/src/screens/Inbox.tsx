@@ -30,7 +30,7 @@ const age = (iso?: string) => {
   return min < 60 ? `${min} min` : min < 1440 ? `${Math.round(min / 60)} h` : `${Math.round(min / 1440)} d`;
 };
 
-export default function Inbox({ run, hvac, meta, onOpen }: { run: Run | null; hvac: Run | null; meta?: RunMeta | null; onOpen: (c: Check) => void }) {
+export default function Inbox({ run, hvac, meta, where, onOpen }: { run: Run | null; hvac: Run | null; meta?: RunMeta | null; where?: string; onOpen: (c: Check) => void }) {
   const [tab, setTab] = useState("all");
   const [status, setStatus] = useState<string | null>(null);
   const [deck, setDeck] = useState("");
@@ -60,7 +60,7 @@ export default function Inbox({ run, hvac, meta, onOpen }: { run: Run | null; hv
     <div className="flex flex-col gap-4">
       <div className="flex items-baseline gap-3" style={{ flexWrap: "wrap" }}>
         <h1 className="sq-h1">Inbox</h1>
-        <span className="sq-muted">Demo ship · Rev {run.revision}{meta ? ` · ${meta.source === "FreeCAD panel" ? "sent from FreeCAD" : "from " + meta.source} ${meta.time.slice(11, 16)} · ` : " · "}<span className="mono">{meta?.file ?? ""}</span> · {run.total_checks} checks</span>
+        <span className="sq-muted">{where || `Rev ${run.revision}`}{meta ? ` · ${meta.source === "FreeCAD panel" ? "sent from FreeCAD" : "from " + meta.source} ${meta.time.slice(11, 16)} · ` : " · "}<span className="mono">{meta?.file ?? ""}</span> · {run.total_checks} checks</span>
       </div>
       <div className="sq-tabs">
         {TABS.map(([k, label]) => {

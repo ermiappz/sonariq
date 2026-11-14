@@ -94,6 +94,7 @@ class AnalyseReq(BaseModel):
     scope: str = "deck:5"
     packs: list[str] | None = None
     selection: list[str] | None = None
+    revision_id: int | None = None   # the Studio's open revision: analyse its file and file the run under it
     model_id: int | None = None      # revisions (B11): file this run under that model ("New revision of <model>")
     new_model: str | None = None     # … or start a new model with this name ("New model")
 
@@ -108,9 +109,15 @@ class AcceptReq(BaseModel):
     by: str = "Designer"
 
 
+from .pipeline.build import converter as _converter  # noqa: E402
+_converter()   # resolve Node at startup and log its version (3D converter)
+
+
 @app.get("/health")
 def health():
+    c = _converter()
     return {"ok": True, "engine": "ready", "ai": S.llm.status(), "revision": S.model.revision,
+            "converter": {"state": c["state"], "version": c.get("version"), "message": c.get("message")},
             "simulate": _os.getenv("SIMULATE_ENABLED", "0").lower() in ("1", "true", "on", "yes")}
 
 
@@ -320,7 +327,10 @@ def _save_revision(d: dict) -> dict:
         versions = {pk: hashlib.sha256(json.dumps([r.model_dump() for r in rules if r.pack == pk], sort_keys=True,
                                                   default=str).encode()).hexdigest()[:12] for pk in packs}
         keys = {c["check_key"] for c in run["checks"]}
-        inc = {k: v for k, v in incorrect_map().items() if k in keys}
+        rv = _revs.by_run(d["id"])
+        rid = rv["id"] if rv else None
+        inc = {k: v for k, v in incorrect_map(rid).items() if k in keys}
+        tasks = {k: v for k, v in _scoped(TASKS).get(str(rid), {}).items() if k in keys}
         acc = None
         if d.get("revision") in SCENARIO:
             try:
@@ -331,9 +341,9 @@ def _save_revision(d: dict) -> dict:
         meta = {k: v for k, v in d.items() if k not in ("run", "path")}
         snap = {"run_meta": meta, "model_file_sha256": sha, "model_file_basis": "data/rcrv/manifest.json" if rcrv else meta.get("file"),
                 "rule_packs": versions, "run": run, "marks": {"incorrect": inc,
-                "decisions": [x for x in S.decisions if x.get("revision") == d.get("revision")]},
+                "decisions": [x for x in S.decisions if x.get("revision") == d.get("revision")]}, "tasks": tasks,
                 "readiness": run.get("readiness"), "accuracy": acc,
-                "views": [v for v in _jload(VIEWS, []) if mid and v["model"] == mid]}
+                "views": [v for v in _jload(VIEWS, []) if mid and v["model"] == mid and v.get("revision_id") in (None, rid)]}
         (out / "snapshot.json").write_text(json.dumps(snap, ensure_ascii=False, default=str), encoding="utf-8")
         (out / "report.json").write_text(json.dumps(_report_body(d), ensure_ascii=False, indent=1), encoding="utf-8")
         with open(out / "checks.csv", "w", encoding="utf-8", newline="") as fh:
@@ -369,16 +379,18 @@ def _rev_run(r: dict) -> dict:
     if r["state"] == "saved":
         snap = json.loads((_revs.folder(r) / "snapshot.json").read_text(encoding="utf-8"))
         return {**snap["run_meta"], "run": snap["run"], "snapshot": {k: snap[k] for k in
-                ("model_file_sha256", "rule_packs", "marks", "readiness", "accuracy", "views")}}
+                ("model_file_sha256", "rule_packs", "marks", "tasks", "readiness", "accuracy", "views") if k in snap}}
+    if not r["run_id"]:
+        return None                       # opened but not analysed yet
     d = _load_run(r["run_id"])
     d.pop("path", None)
     return d
 
 
 @app.get("/revisions")
-def revisions_list():
-    """Every model with its revision timeline (oldest first)."""
-    return {"models": _revs.models()}
+def revisions_list(project_id: int | None = None):
+    """Every model (of one project) with its revision timeline (oldest first)."""
+    return {"models": _revs.models(project_id)}
 
 
 @app.post("/revisions/export")
@@ -388,10 +400,131 @@ def revisions_export(req: RevExportReq):
     return {**r, "download": f"/revisions/{r['id']}/files/{req.format}"}
 
 
+# ------------------------------------------------------------------ projects (Studio reliability, DECISIONS M15)
+class ProjectReq(BaseModel):
+    name: str | None = None
+    guide_done: bool | None = None
+
+
+class NewModelReq(BaseModel):
+    name: str | None = None
+    revision: str | None = None      # /upload's answer for a demo file (A / B / Bfix2) …
+    path: str | None = None          # … or the uploaded file's path on the engine
+
+
+def _purge_demo() -> None:
+    for pid in _revs.expired_demo_projects():
+        _delete_demo(pid)
+
+
+def _delete_demo(pid: int) -> None:
+    revs = _revs.delete_demo_project(pid)
+    _drop_scope([r["id"] for r in revs])
+    for r in revs:
+        if r.get("run_id") and re.fullmatch(r"[0-9]{4,}_[0-9]{8}-[0-9]{6}", r["run_id"]):
+            (RUNS / f"{r['run_id']}.json").unlink(missing_ok=True)
+
+
+@app.get("/projects")
+def projects_list():
+    """Projects with their models and revisions (newest last). Demo run-through projects are not listed."""
+    _purge_demo()
+    return {"projects": _revs.projects()}
+
+
+@app.post("/projects")
+def projects_create(req: ProjectReq):
+    name = (req.name or "").strip()
+    if not name or len(name) > 80:
+        raise HTTPException(422, "Give the project a name (1-80 characters).")
+    return _revs.create_project(name)
+
+
+@app.post("/projects/demo")
+def projects_demo():
+    """A throwaway project for the demo run-through: Deck 5 with Rev A and Rev B, deleted at Stop or after an hour."""
+    _purge_demo()
+    import datetime as _dt
+    return _revs.create_project(f"Demo run-through {_dt.datetime.now():%H:%M:%S}", demo=True)
+
+
+@app.get("/projects/{pid}")
+def projects_get(pid: int):
+    p = _revs.project(pid)
+    if p is None:
+        raise HTTPException(404, "no such project")
+    return p
+
+
+@app.patch("/projects/{pid}")
+def projects_update(pid: int, req: ProjectReq):
+    name = req.name.strip() if req.name is not None else None
+    if name is not None and not 0 < len(name) <= 80:
+        raise HTTPException(422, "Give the project a name (1-80 characters).")
+    try:
+        return _revs.update_project(pid, name, req.guide_done)
+    except KeyError:
+        raise HTTPException(404, "no such project")
+
+
+@app.delete("/projects/{pid}")
+def projects_delete(pid: int):
+    """Only the demo run-through's throwaway projects can be deleted."""
+    try:
+        _delete_demo(pid)
+    except KeyError:
+        raise HTTPException(404, "no such project")
+    except PermissionError as e:
+        raise HTTPException(409, str(e))
+    return {"deleted": pid}
+
+
+def _new_source(req: NewModelReq) -> tuple[str, str]:
+    if req.revision in REVISIONS:
+        return f"demo:{req.revision}", REVISIONS[req.revision].name
+    p = _check_path(req.path)
+    if not p or not _owned(Path(p)):
+        raise HTTPException(404, "Upload the IFC first.")
+    return f"path:{p}", re.sub(r"^[0-9a-f]{12}_", "", Path(p).name)
+
+
+@app.post("/projects/{pid}/models")
+def projects_add_model(pid: int, req: NewModelReq):
+    """Upload → "New model in this project": the model with its first revision (not analysed yet)."""
+    src, file = _new_source(req)
+    name = (req.name or "").strip() or re.sub(r"\.ifc$", "", file, flags=re.I)
+    try:
+        return _revs.add_model(pid, name[:120], src, file)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/projects/{pid}/models/{mid}/revisions")
+def projects_add_revision(pid: int, mid: int, req: NewModelReq):
+    """Upload → "New revision of <model>"."""
+    p = _revs.project(pid)
+    if p is None or not any(m["id"] == mid for m in p["models"]):
+        raise HTTPException(404, "no such model in this project")
+    src, file = _new_source(req)
+    return _revs.add_revision(mid, src, file)
+
+
+@app.get("/runs/{rid}/scope")
+def runs_scope(rid: str):
+    """Project, model and revision of a stored run (the FreeCAD Export link names only the run)."""
+    _load_run(rid)
+    r = _revs.by_run(rid)
+    if r is None:
+        raise HTTPException(404, "This run is not filed under a revision.")
+    return _revs.scope_of(r["id"])
+
+
 @app.get("/revisions/compare")
 def revisions_compare(a: int, b: int):
     ra, rb = _rev(a), _rev(b)
     da, db = _rev_run(ra), _rev_run(rb)
+    if da is None or db is None:
+        raise HTTPException(409, "Both revisions need an analysis to compare.")
     return {"a": ra, "b": rb, **_diff(da["run"], db["run"])}
 
 
@@ -494,7 +627,8 @@ def _report_body(r: dict) -> dict:
     rep = {"run_id": r["id"], "time": _dt.datetime.now().isoformat(timespec="seconds"),
            "file": r.get("file"), "revision": r.get("revision"), "counts": r.get("counts"),
            "total_checks": r.get("total_checks")}
-    inc = incorrect_map()
+    rv = _revs.by_run(r["id"])
+    inc = incorrect_map(rv["id"] if rv else -1)
     fs = r["run"].get("findings", [])
     rep["open_findings"] = sum(1 for f in fs if f["check_key"] not in inc)
     rep["excluded"] = [{"finding": f.get("id"), "check_key": f["check_key"], "reason": inc[f["check_key"]]["reason"]}
@@ -514,6 +648,7 @@ class ViewReq(BaseModel):
     cuts: list[CutModel] = []
     camera: dict                  # {position: [x,y,z], target: [x,y,z], projection: perspective|orthographic, zoom}
     mode: str = "edges"
+    revision_id: int | None = None   # the revision it belongs to (views are part of a revision's state)
 
 
 _MODES = {"shaded", "edges", "realistic", "xray", "lines", "wireframe"}
@@ -527,10 +662,10 @@ def _vec(v, n=3) -> list[float]:
 
 
 @app.get("/views")
-def views_list(model: str | None = None):
-    """Named views (spec A3): cuts + camera + display mode, per model."""
+def views_list(model: str | None = None, revision_id: int | None = None):
+    """Named views (spec A3): cuts + camera + display mode, per model and revision."""
     vs = _jload(VIEWS, [])
-    return {"views": [v for v in vs if model is None or v["model"] == model]}
+    return {"views": [v for v in vs if (model is None or v["model"] == model) and (revision_id is None or v.get("revision_id") == revision_id)]}
 
 
 @app.post("/views")
@@ -562,7 +697,7 @@ def views_create(req: ViewReq):
     v = {"id": f"V-{n:03d}", "name": name, "model": req.model, "cuts": [c.model_dump() for c in req.cuts],
          "camera": {"position": _vec(cam.get("position")), "target": _vec(cam.get("target")), "projection": proj,
                     "zoom": float(zoom)},
-         "mode": req.mode, "time": _dt.datetime.now().isoformat(timespec="seconds")}
+         "mode": req.mode, "revision_id": req.revision_id, "time": _dt.datetime.now().isoformat(timespec="seconds")}
     vs.append(v)
     _jsave(VIEWS, vs)
     return v
@@ -584,29 +719,119 @@ class TaskReq(BaseModel):
 
 
 @app.get("/tasks")
-def tasks_list():
-    return {"tasks": _jload(TASKS, {})}
+def tasks_list(revision_id: int | None = None):
+    """Task cards of one revision (default: the revision of the latest Analyse). A saved revision: as it was saved."""
+    rid = _scope(revision_id)
+    if rid is None:
+        return {"tasks": {}}
+    snap = _snapshot(rid)
+    return {"tasks": snap.get("tasks", {}) if snap is not None else _scoped(TASKS).get(str(rid), {})}
 
 
 @app.put("/tasks/{key}")
-def tasks_put(key: str, req: TaskReq):
+def tasks_put(key: str, req: TaskReq, revision_id: int | None = None):
     if len(key) > 200:
         raise HTTPException(400, "bad key")
     if req.column is not None and req.column not in ("backlog", "doing", "done"):
         raise HTTPException(400, "column must be backlog, doing or done")
-    t = _jload(TASKS, {})
-    cur = t.get(key, {"column": "backlog", "assignee": None})
-    if req.column is not None:
-        cur["column"] = req.column
-    if req.assignee is not None:
-        cur["assignee"] = req.assignee or None
-    t[key] = cur
-    _jsave(TASKS, t)
+    rid = _writable(revision_id)
+    with _STORE_LOCK:
+        t = _scoped(TASKS)
+        mine = t.setdefault(str(rid), {})
+        cur = mine.get(key, {"column": "backlog", "assignee": None})
+        if req.column is not None:
+            cur["column"] = req.column
+        if req.assignee is not None:
+            cur["assignee"] = req.assignee or None
+        mine[key] = cur
+        _jsave(TASKS, t)
     return {"key": key, **cur}
+
+
+# ------------------------------------------------------------------ revision-scoped stores (tasks, incorrect marks)
+import threading as _threading  # noqa: E402
+_STORE_LOCK = _threading.Lock()
+_SNAPS: dict[tuple, dict] = {}
+
+
+def _scoped(p: Path) -> dict:
+    """{"<revision id>": {check_key: record}}. A step 7 file keyed by check key only is archived once (never deleted)."""
+    d = _jload(p, {})
+    if d and not all(str(k).isdigit() for k in d):
+        import datetime as _dt
+        import shutil
+        arch = DATA / "archive" / f"{_dt.datetime.now():%Y%m%d-%H%M%S}-unscoped"
+        arch.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(p), str(arch / p.name))
+        return {}
+    return d
+
+
+def _scope(revision_id: int | None) -> int | None:
+    """The revision a request is about: the one named, else the revision of this engine's latest Analyse (the FreeCAD
+    panel never names one)."""
+    if revision_id is not None:
+        return revision_id
+    r = _revs.by_run(_LAST_RUN["id"]) if _LAST_RUN.get("id") else None
+    return r["id"] if r else None
+
+
+def _snapshot(rid: int) -> dict | None:
+    """Marks and tasks of a saved revision, from its frozen snapshot (cached: it never changes). None for a draft."""
+    r = _revs.get(rid)
+    if r is None or r["state"] != "saved":
+        return None
+    key = (rid, r["saved_at"], str(_revs.DB))   # ids restart after a reset or in a fresh store: never trust the id alone
+    if key not in _SNAPS:
+        snap = json.loads((_revs.folder(r) / "snapshot.json").read_text(encoding="utf-8"))
+        _SNAPS[key] = {"incorrect": snap.get("marks", {}).get("incorrect", {}), "tasks": snap.get("tasks", {})}
+    return _SNAPS[key]
+
+
+def _writable(revision_id: int | None) -> int:
+    rid = _scope(revision_id)
+    if rid is None or _revs.get(rid) is None:
+        raise HTTPException(409, "Open a model revision and analyse it first.")
+    if _revs.get(rid)["state"] == "saved":
+        raise HTTPException(409, "This revision is saved, so it stays as it was. Analyse it again to start a new draft.")
+    return rid
+
+
+def _copy_scope(src: int, dst: int) -> None:
+    """A new draft opened from an earlier revision starts with that revision's marks and tasks."""
+    snap = _snapshot(src)
+    with _STORE_LOCK:
+        for p, k in ((INCORRECT, "incorrect"), (TASKS, "tasks")):
+            d = _scoped(p)
+            got = snap[k] if snap is not None else d.get(str(src), {})
+            if got:
+                d[str(dst)] = {**got, **d.get(str(dst), {})}
+                _jsave(p, d)
+
+
+def _drop_scope(rids: list[int]) -> None:
+    with _STORE_LOCK:
+        for p in (INCORRECT, TASKS):
+            d = _scoped(p)
+            if any(str(r) in d for r in rids):
+                _jsave(p, {k: v for k, v in d.items() if int(k) not in rids})
 
 
 @app.post("/analyse")
 def analyse(req: AnalyseReq, request: Request):
+    if req.revision_id is not None:
+        rv = _revs.get(req.revision_id)
+        if rv is None:
+            raise HTTPException(404, "no such revision")
+        src = rv.get("source") or ""
+        if src.startswith("demo:"):
+            req.revision, req.path = src[5:], None
+        elif src == "rcrv":
+            req.revision, req.path, req.scope = "RCRV", None, "whole"
+        elif src.startswith("path:"):
+            req.revision, req.path = None, src[5:]
+        else:
+            raise HTTPException(409, "This revision has no model file the engine can open.")
     req.path = _check_path(req.path)
     # Reopen on a new path, a new revision, or a revision whose demo file is not the open model
     # (after a file opened by path, e.g. an RCRV deck, which also carries revision "A").
@@ -631,9 +856,12 @@ def analyse(req: AnalyseReq, request: Request):
     d["run_meta"] = _save_run(d, req, "FreeCAD panel" if "Python-urllib" in ua else "portal" if "Mozilla" in ua else "API")
     _LAST_RUN["id"] = d["run_meta"]["id"]
     try:
-        d["run_meta"]["draft"] = _revs.attach(d["run_meta"], req.model_id, (req.new_model or "").strip() or None)
+        rv = _revs.attach(d["run_meta"], req.model_id, (req.new_model or "").strip() or None, req.revision_id)
     except KeyError as e:
         raise HTTPException(404, str(e))
+    if rv.get("from_revision"):
+        _copy_scope(rv["from_revision"], rv["id"])
+    d["run_meta"]["draft"] = rv
     return d
 
 
@@ -725,11 +953,13 @@ def recheck(revision: str | None = None):
 INCORRECT = Path(_os.getenv("SONARIQ_INCORRECT", str(DATA / "incorrect.json")))
 
 
-def incorrect_map() -> dict:
-    try:
-        return json.loads(INCORRECT.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001
+def incorrect_map(revision_id: int | None = None) -> dict:
+    """Marks of one revision (default: the revision of the latest Analyse); a saved revision's are frozen."""
+    rid = _scope(revision_id)
+    if rid is None:
         return {}
+    snap = _snapshot(rid)
+    return snap["incorrect"] if snap is not None else _scoped(INCORRECT).get(str(rid), {})
 
 
 class IncorrectReq(BaseModel):
@@ -739,13 +969,14 @@ class IncorrectReq(BaseModel):
     by: str = "Designer"
     revision: str | None = None
     file: str | None = None
+    revision_id: int | None = None
 
 
 @app.get("/incorrect")
-def incorrect_list():
-    """Findings marked incorrect, by check key. They stay in every run (the verdict is the engine's) but are greyed
-    and left out of BCF and reports."""
-    return {"incorrect": incorrect_map()}
+def incorrect_list(revision_id: int | None = None):
+    """Findings marked incorrect in one revision, by check key. They stay in the run (the verdict is the engine's) but
+    are greyed and left out of BCF and reports."""
+    return {"incorrect": incorrect_map(revision_id)}
 
 
 @app.post("/incorrect")
@@ -756,24 +987,27 @@ def incorrect_mark(req: IncorrectReq):
     if len(reason) > 200 or len(req.check_key) > 200:
         raise HTTPException(422, "Keep the reason short (200 characters).")
     import datetime as _dt
-    m = incorrect_map()
+    rid = _writable(req.revision_id)
     rec = {"finding": req.finding, "reason": reason, "by": req.by[:80], "revision": req.revision, "file": req.file,
            "time": _dt.datetime.now().isoformat(timespec="seconds")}
-    m[req.check_key] = rec
-    INCORRECT.parent.mkdir(parents=True, exist_ok=True)
-    INCORRECT.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+    with _STORE_LOCK:
+        d = _scoped(INCORRECT)
+        d.setdefault(str(rid), {})[req.check_key] = rec
+        _jsave(INCORRECT, d)
     S.history.append({"time": rec["time"][11:16], "event": "incorrect", "finding": req.finding, "check_key": req.check_key,
                       "reason": reason, "by": rec["by"]})
     return {"check_key": req.check_key, **rec}
 
 
 @app.delete("/incorrect/{check_key:path}")
-def incorrect_undo(check_key: str):
-    m = incorrect_map()
-    rec = m.pop(check_key, None)
-    if rec is None:
-        raise HTTPException(404, "Not marked incorrect.")
-    INCORRECT.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+def incorrect_undo(check_key: str, revision_id: int | None = None):
+    rid = _writable(revision_id)
+    with _STORE_LOCK:
+        d = _scoped(INCORRECT)
+        rec = d.get(str(rid), {}).pop(check_key, None)
+        if rec is None:
+            raise HTTPException(404, "Not marked incorrect.")
+        _jsave(INCORRECT, d)
     import datetime as _dt
     S.history.append({"time": _dt.datetime.now().strftime("%H:%M"), "event": "incorrect_undone",
                       "finding": rec.get("finding"), "check_key": check_key})
@@ -834,6 +1068,7 @@ def admin_reset():
     (arch / "ARCHIVE.json").write_text(json.dumps({"archived": ts, "from": str(DATA), "by": "portal"}), encoding="utf-8")
     S = Session("A")
     _LAST_BCF, _LAST_RUN = {}, {}
+    _SNAPS.clear()
     return {"ok": True, "archived": ts, **moved}
 
 

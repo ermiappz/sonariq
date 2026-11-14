@@ -1,5 +1,5 @@
 // Step 5: View pane: six display modes, discipline show/hide/solo, colour by; dark and light themes.
-import { browser, check, shot, done, BASE } from './lib.mjs';
+import { browser, check, shot, done, BASE, openModel } from './lib.mjs';
 import crypto from 'node:crypto';
 
 const MODES = [['shaded', 'Shaded'], ['edges', 'Shaded + edges'], ['realistic', 'Realistic'], ['xray', 'X-ray'], ['lines', 'Lines'], ['wireframe', 'Wireframe']];
@@ -17,9 +17,8 @@ for (const theme of ['dark', 'light']) {
   const { b, page, errors } = await browser({ theme });
   await page.goto(BASE + '#model');
   if (theme === 'light') await page.getByRole('button', { name: /theme|◐/i }).first().click().catch(() => {});
-  const model = theme === 'dark' ? /RCRV whole ship/ : /deck5_revB\.ifc/;
   const has = theme === 'light' || await page.evaluate(async () => (await fetch('/api/models/rcrv')).ok);
-  await page.getByRole('button', { name: has ? model : /deck5_revB\.ifc/ }).click();
+  if (theme === 'dark' && has) await openModel(page, 'RCRV whole ship'); else await openModel(page, 'Deck 5', 'Rev B');
   await page.waitForFunction(() => window.__sqViewer?.stats.overviewMs != null, null, { timeout: 300000 });
   await page.getByRole('tab', { name: 'View' }).click();
   const tag = theme === 'dark' && has ? 'rcrv' : 'deck5';

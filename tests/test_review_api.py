@@ -12,6 +12,10 @@ def c(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "REPORTS", tmp_path / "reports.json")
     monkeypatch.setattr(api, "TASKS", tmp_path / "tasks.json")
     monkeypatch.setattr(api, "INCORRECT", tmp_path / "incorrect.json")
+    from sonariq import revisions   # run ids restart per test (own run store), so the revision index must too
+    monkeypatch.setattr(revisions, "DB", tmp_path / "revisions.sqlite")
+    monkeypatch.setattr(api, "_LAST_RUN", {})
+    monkeypatch.setattr(api, "_SNAPS", {})
     monkeypatch.setenv("SONARIQ_RATE_LIMIT", "0")
     return TestClient(api.app)
 
@@ -34,6 +38,9 @@ def test_incorrect_is_left_out_of_bcf_and_report_and_undo_restores(c):
     assert rep["id"] == "R-001" and rep["open_findings"] == len(j["findings"]) - 1
     assert [x["finding"] for x in rep["excluded"]] == ["U-01"]
     assert any(e["event"] == "incorrect" and e["finding"] == "U-01" for e in c.get("/history").json()["history"])
+    # the export saved the revision: it stays as it was; analysing again opens a draft that keeps the mark
+    assert c.delete("/incorrect/" + u01["check_key"]).status_code == 409
+    c.post("/analyse", json={"revision": "B"})
     assert c.delete("/incorrect/" + u01["check_key"]).status_code == 200
     assert c.post("/export/bcf").json()["excluded"] == 0
     # the verdict itself never changes
@@ -70,6 +77,7 @@ def test_upload_rejects_ifc2x3_and_oversize(c, monkeypatch):
 
 
 def test_tasks_validate_column(c):
+    _run_b(c)                                   # tasks belong to the revision of the latest Analyse
     assert c.put("/tasks/k1", json={"column": "doing", "assignee": "ms"}).json()["column"] == "doing"
     assert c.put("/tasks/k1", json={"column": "nowhere"}).status_code == 400
 

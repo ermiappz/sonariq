@@ -214,3 +214,91 @@ system name and usually a material value, there are **no spaces**. Hence:
 
 The spec says "open a PR, do not merge". The user asked on 14 Nov to finish steps 8–9, merge to main and push, then
 review it themselves. Merged with `--no-ff` so the milestone stays one reviewable merge; nothing was deployed.
+
+## M15 — Projects → models → revisions (Studio reliability, 14 Nov)
+
+Reconciled with step 7 (B11, M11). Differences from step 7, all deliberate:
+
+- **Project level added.** `projects` table; every model has a `project_id`. The header's Project menu lists, creates
+  and renames projects. Projects are never deleted from the UI. Demo run-through projects are the exception (M17).
+- **A revision is one file version** (`source`: `demo:A|B|Bfix2`, `rcrv`, `path:<file>`) plus its analysis state. It can
+  exist before any analysis (`run_id` NULL). Step 7 created a revision only on Analyse and kept one draft per model,
+  which any file replaced. Now:
+  - analysing a draft replaces its run;
+  - analysing a saved revision opens a new draft of the same file (`Rev <letter of seq>`), which starts with that
+    revision's marks and tasks;
+  - an FreeCAD-panel run without a revision goes to the draft that read the same file, else to a new draft. The panel
+    never names a revision; its runs go to the shared "Demo ship" project.
+- **Scoped state:**
+  - marks, tasks and saved views are kept per revision (`{"<revision id>": {...}}`). In step 7 they were global by
+    check key, which is why Inbox (7) and Tasks leaked between models.
+  - a saved revision's marks and tasks come from its snapshot, which now also stores tasks, and they cannot be changed:
+    writes get 409 with "Analyse it again to start a new draft". Step 7 let marks change after an export because they
+    were global.
+  - requests without `revision_id` (the FreeCAD panel) use the revision of the engine's latest Analyse.
+- **Migration** (on first open of a step 7 store): the old index is archived (`data/archive/<ts>-projects/`), as are
+  the Deck 5 demo / RCRV snapshot folders. These were all made by demo runs and tests, so nothing is deleted. Any other
+  model keeps its revisions (same ids and folders) in a project "Earlier uploads". "Demo ship" is then seeded:
+  - Deck 5: Rev A, Rev B, Fix 2;
+  - RCRV whole ship: Rev 1, if `data/rcrv` exists;
+  - nothing analysed.
+
+  Old global `tasks.json` / `incorrect.json` are archived (`<ts>-unscoped/`) on first read; there's no revision to
+  give them to. Reset all data re-seeds the same way.
+- **Revision menu** in the header: revisions of the open model, newest first, with fail / pass / cannot-verify counts
+  ("not analysed" before the first run). It replaces step 7's "Open read-only / Back to current". Opening a saved
+  revision is the same as switching to it, and the Studio shows it read-only. The Studio's Revisions tab shows only
+  the open model.
+- **Open model** lists the project's models; picking one opens its latest revision. Upload asks "New model in this
+  project" or "New revision of <model>" right after the upload, and creates the revision before analysis. Step 7 asked
+  in a "Save as" select at Analyse time.
+- **Clear all** replaces the Studio's Close button, which was the model-list toggle (the toggle is now always "Open
+  model"). "Save and clear" uses the step 7 save (POST /revisions/export, format report). Clearing closes the model in
+  this browser only and deletes nothing.
+- **Reset all data** moved from the sidebar into Settings → Danger zone and needs RESET typed.
+- **Not scoped yet:**
+  - the Revisions screen (the engine's whole run history);
+  - the finding Thread, which reads the engine session's latest run.
+
+  Both are as before; noted in the fix report.
+- Steps 2 and 3 share one commit: the Clear all dialog is part of the same Studio rewrite.
+
+## M16 — Demo that cannot get stuck (Studio reliability step 4, 14 Nov)
+
+- **Own project.** Pressing ▶ Demo creates a throwaway project (`POST /projects/demo`: Deck 5 with Rev A and Rev B,
+  `demo = 1`, expires in 1 h). The demo never writes into the user's project. The project is deleted, with its runs,
+  marks and saved revisions, when:
+  - Stop or Finish is pressed;
+  - a `GET /projects` / `POST /projects/demo` call finds it expired.
+
+  A closed tab therefore leaves it at most an hour. Demo projects are not listed in the Project menu.
+- **Start and restore.** The project is created in the start handler, not in step 1, so React StrictMode's double
+  effect can't make two. Stop and Finish restore the project, revision, panel tab and model list that were open. The
+  display mode and cuts come back once the previous model is in the 3D again (at most 60 s).
+- **Steps.** Every step has:
+  - a precondition: the demo project is open, plus whatever the step needs;
+  - a timeout: 20 s, or 60 s for loading the 3D;
+  - an AbortSignal: Next, Skip and Stop abort the running step, so it stops changing the Studio;
+  - an error state in the card: "Couldn't <action>: <reason>" with Retry and Skip step.
+
+  Next, Pause and Stop are never disabled.
+- **No conversion during the demo.** The viewer asks `/models/prepare` with `convert: false`. A model that isn't
+  prepared shows "not prepared on the server yet" as the step 2 error and never starts a conversion. The deploy
+  pre-converts every bundled model (step 1).
+- **Compare.** Step 3 analyses and saves Rev A, then analyses Rev B, both in the demo project. Step 7 compares the two.
+  Step 8's BCF export saves Rev B there too.
+
+## M17 — First-run guide and landing page (Studio reliability step 5, 14 Nov)
+
+- **Landing page.** `/` rewrites to `/studio` without a reload. The workspace screens stay hash routes
+  (`/studio#inbox`), so old links keep working. The marketing Home moved to `/welcome`, and the logo links there.
+- **Placement.** The guide's cards are placed by `placeCallout`, the finding callouts' module. Each card sits beside
+  its first target and never over it, with a ring on every target and a leader to the ring's edge. Targets carry
+  `data-guide` attributes so styling changes don't break them. A target that isn't on screen yet (findings before
+  Analyse) gets a centred card that says what to do first. Placement is measured every 300 ms, not on every render:
+  placing a card changes its size, which caused an endless update loop.
+- **When it shows.** On a first visit: no `sq.guide.done` in this browser and no revision opened in this project from
+  this browser. Skip and Done set both the browser flag and the project's `guide_done`. On the shared "Demo ship"
+  project the server flag doesn't hide the guide: every visitor shares that project, so one visitor's Skip would hide
+  it for all new visitors. On a project of your own it does. The ? Help menu reopens the guide or plays the demo.
+- **e2e:** all other specs start with the guide marked done (`lib.mjs` init script); `guide.spec.mjs` starts fresh.

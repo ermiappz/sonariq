@@ -64,17 +64,21 @@ def _run(mid: str, source: str) -> None:
                                       "integrity", "seconds", "max_quantization_dev_mm", "box")}
         _write_status(mid, state="ready", progress=1.0, message="Ready", summary=summary)
     except Exception as e:  # noqa: BLE001  (shown to the user; the original file stays untouched)
-        _write_status(mid, state="error", message=f"Could not prepare the web version: {str(e)[:300]}")
+        from .pipeline.build import MISSING
+        _write_status(mid, state="error", message=MISSING if str(e) == MISSING else f"Could not prepare the 3D version of this model: {str(e)[:300]}")
     finally:
         _ACTIVE.discard(mid)
 
 
-def ensure(mid: str, source: str) -> dict:
-    """Start a conversion unless it is ready or already queued. Cache = the content hash in the id."""
+def ensure(mid: str, source: str, convert: bool = True) -> dict:
+    """Start a conversion unless it is ready or already queued. Cache = the content hash in the id.
+    convert=False (the demo) never starts one: a model that is not ready reports state "not-prepared"."""
     with _LOCK:
         st = status(mid)
         if st["state"] == "ready" or mid in _ACTIVE:   # a "running" left by a restarted engine is started again
             return st
+        if not convert:
+            return {"id": mid, "state": "not-prepared", "message": "This model's 3D version is not prepared on the server yet."}
         _ACTIVE.add(mid)
         _write_status(mid, state="queued", progress=0.0, message="Preparing a fast web version")
         _POOL.submit(_run, mid, source)
@@ -94,9 +98,9 @@ def _store(data: bytes, name: str) -> str:
     return mid
 
 
-def prepare_file(p: Path) -> dict:
+def prepare_file(p: Path, convert: bool = True) -> dict:
     mid = _store(p.read_bytes(), p.name)
-    return ensure(mid, str(MODELS / mid / ("original" + p.suffix.lower())))
+    return ensure(mid, str(MODELS / mid / ("original" + p.suffix.lower())), convert)
 
 
 @router.post("/models")
@@ -120,6 +124,7 @@ class PrepareReq(BaseModel):
     path: str | None = None
     run: str | None = None
     source: str | None = None
+    convert: bool = True          # False: only report the cached version, never start a conversion (demo)
 
 
 @router.post("/models/prepare")
@@ -128,11 +133,11 @@ def prepare(req: PrepareReq):
     if req.source == "rcrv":
         if not (RCRV / "gltf").exists() or not (RCRV / "properties.sqlite").exists():
             raise HTTPException(404, "The RCRV model is not on this engine (data/rcrv is not in git; see README).")
-        return {**ensure("rcrv", "rcrv"), "id": "rcrv"}
+        return {**ensure("rcrv", "rcrv", req.convert), "id": "rcrv"}
     if req.run:
         d = api._load_run(req.run)
         if d.get("revision") == "RCRV":
-            return prepare(PrepareReq(source="rcrv"))
+            return prepare(PrepareReq(source="rcrv", convert=req.convert))
         p = api._run_file(d)
     elif req.revision:
         p = api.REVISIONS.get(req.revision)
@@ -140,8 +145,7 @@ def prepare(req: PrepareReq):
         p = Path(api._check_path(req.path)) if req.path else None
     if p is None or not api._owned(p):
         raise HTTPException(404, "no such model on the engine")
-    st = prepare_file(p)
-    return st
+    return prepare_file(p, req.convert)
 
 
 @router.get("/models/{mid}")

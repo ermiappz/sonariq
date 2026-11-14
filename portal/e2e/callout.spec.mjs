@@ -2,7 +2,7 @@
 // anchor, never over its element, numbers only from the finding; dimension lines; pins for the other findings;
 // hidden behind solid parts; survives Section here and display modes; class findings get the "must be" outline.
 import fs from 'node:fs';
-import { browser, check, shot, done, BASE } from './lib.mjs';
+import { browser, check, shot, done, BASE, openModel } from './lib.mjs';
 
 const F = JSON.parse(fs.readFileSync(new URL('../src/viewer/fixtures/deck5_revB_findings.json', import.meta.url), 'utf8'));
 const nums = (s) => (s.match(/\d[\d,]*(?:\.\d+)?/g) ?? []).map((x) => Number(x.replace(/,/g, '')));
@@ -15,7 +15,7 @@ const geo = (page) => page.evaluate(() => {
 
 const { b, page, errors } = await browser();
 await page.goto(BASE + '#model');
-await page.getByRole('button', { name: /deck5_revB\.ifc/ }).click();
+await openModel(page, 'Deck 5', 'Rev B');
 await page.waitForFunction(() => window.__sqViewer?.stats.firstFrame != null, null, { timeout: 300000 });
 await page.getByRole('button', { name: 'Analyse' }).click();
 await page.getByText('F-07').first().waitFor({ timeout: 60000 });

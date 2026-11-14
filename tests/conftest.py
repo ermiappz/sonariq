@@ -10,6 +10,11 @@ os.environ.setdefault("SONARIQ_AI", "off")
 # tests must never add runs to the demo's run store (data/runs)
 import tempfile
 os.environ.setdefault("SONARIQ_RUNS", tempfile.mkdtemp(prefix="sonariq-test-runs-"))
+# … nor to its revisions, tasks, marks, views or reports
+_T = tempfile.mkdtemp(prefix="sonariq-test-stores-")
+for _k, _f in (("SONARIQ_REVISIONS", "revisions.sqlite"), ("SONARIQ_TASKS", "tasks.json"), ("SONARIQ_INCORRECT", "incorrect.json"),
+               ("SONARIQ_VIEWS", "views.json"), ("SONARIQ_REPORTS", "reports.json")):
+    os.environ.setdefault(_k, os.path.join(_T, _f))
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine"))

@@ -1,9 +1,9 @@
 // Step 3: readiness before analysis, accuracy banner computed, source chips on values, RCRV structure & systems run.
-import { browser, check, shot, done, BASE } from './lib.mjs';
+import { browser, check, shot, done, BASE, openModel } from './lib.mjs';
 
 const { b, page, errors } = await browser();
 await page.goto(BASE + '#model');
-await page.getByRole('button', { name: /deck5_revB\.ifc/ }).click();
+await openModel(page, 'Deck 5', 'Rev B');
 await page.locator('.ready-card').waitFor({ timeout: 60000 });
 const rd = await page.locator('.ready-card').innerText();
 check('readiness card before analysis (Rev B)', /Spaces/.test(rd) && /Ready/.test(rd) && /Partial/.test(rd), rd.replace(/\s+/g, ' ').slice(0, 160));
@@ -21,8 +21,7 @@ await shot(page, 'm3-02-banner-chips.png');
 
 const has = await page.evaluate(async () => (await fetch('/api/models/rcrv')).ok);
 if (has) {
-  await page.getByRole('button', { name: 'Open model', exact: true }).click();
-  await page.getByRole('button', { name: /RCRV whole ship/ }).click();
+  await openModel(page, 'RCRV whole ship');
   await page.locator('.ready-card').waitFor({ timeout: 120000 });
   const r2 = await page.locator('.ready-card').innerText();
   check('RCRV readiness: fire not possible (no spaces), structure & systems partial', /Not possible[\s\S]*No spaces/.test(r2) && /Partial[\s\S]*pipe parts without a material/.test(r2));

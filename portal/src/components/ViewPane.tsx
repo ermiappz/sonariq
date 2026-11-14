@@ -1,7 +1,7 @@
 // View pane (spec A4, DECISIONS M8): display mode, disciplines (show / hide / solo) and colour by. It only changes how
 // the model is drawn; the findings and their numbers stay the engine's.
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch } from "../api";
+import { apiFetch, SCOPE } from "../api";
 import type { DisplayMode, ShipViewer } from "../viewer/ShipViewer";
 import type { Cut } from "../viewer/section";
 
@@ -31,13 +31,13 @@ export default function ViewPane({ v, modelId }: { v: ShipViewer | null; modelId
   const [views, setViews] = useState<SavedView[]>([]);
   const [vname, setVname] = useState("");
   const [vmsg, setVmsg] = useState("");
-  const loadViews = () => { if (modelId) apiFetch(`/views?model=${modelId}`).then((r) => r.json()).then((d) => setViews(d.views ?? [])).catch(() => setViews([])); };
+  const loadViews = () => { if (modelId) apiFetch(`/views?model=${modelId}${SCOPE.rev != null ? `&revision_id=${SCOPE.rev}` : ""}`).then((r) => r.json()).then((d) => setViews(d.views ?? [])).catch(() => setViews([])); };
   useEffect(loadViews, [modelId]);
   const saveView = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!v || !modelId || !vname.trim()) return;
     const r = await apiFetch("/views", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: vname.trim(), model: modelId, cuts: v.cuts, camera: v.cameraState(), mode: v.mode }) });
+      body: JSON.stringify({ name: vname.trim(), model: modelId, cuts: v.cuts, camera: v.cameraState(), mode: v.mode, revision_id: SCOPE.rev }) });
     const d = await r.json();
     if (!r.ok) { setVmsg(`Not saved: ${d.detail ?? r.statusText}`); return; }
     setVname(""); setVmsg(`Saved "${d.name}".`); loadViews();

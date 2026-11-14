@@ -1,5 +1,5 @@
 // Task board: one card per open finding in Backlog / Doing / Done. Column and assignee are stored by the engine
-// (data/tasks.json), keyed by check. People and due dates are mock, and say so.
+// (data/tasks.json), per revision and check. People and due dates are mock, and say so.
 import { useEffect, useState } from "react";
 import { api, ORDER, type Check, type Run, type Task } from "../api";
 import { Pill } from "../components/ui";
@@ -15,7 +15,7 @@ export const DISC: Record<string, [string, string]> = {
 };
 const COLS: [Task["column"], string][] = [["backlog", "Backlog"], ["doing", "Doing"], ["done", "Done"]];
 
-export default function Board({ run, hvac, onOpen }: { run: Run; hvac: Run | null; onOpen: (c: Check) => void }) {
+export default function Board({ run, hvac, where, onOpen }: { run: Run; hvac: Run | null; where?: string; onOpen: (c: Check) => void }) {
   const [tasks, setTasks] = useState<Record<string, Task>>({});
   const [pop, setPop] = useState<string | null>(null);
   const [drag, setDrag] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export default function Board({ run, hvac, onOpen }: { run: Run; hvac: Run | nul
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-baseline gap-3">
-        <h1 className="sq-h1">Demo ship · Rev {run.revision} · {cards.length} tasks</h1>
+        <h1 className="sq-h1">Tasks · {cards.length}</h1><span className="sq-muted">{where || `Rev ${run.revision}`}</span>
         <span className="sq-chip" style={{ fontSize: 11 }}>people and dates mock</span>
       </div>
       {err && <div className="sq-banner">{err}</div>}

@@ -47,11 +47,13 @@ export function overlaySpec(c: Check): { z: number; lines: Line[]; title: string
 const ISO = new THREE.Vector3(-0.55, -0.75, 0.42);
 const VIEWS: [ViewName, string][] = [["iso", "Iso"], ["top", "Top"], ["port", "Port"], ["starboard", "Stbd"], ["bow", "Bow"], ["stern", "Stern"]];
 
-export default function ShipView({ src, findings, apiRef, onSelectElement, onViewer, onPick, onOpenEvidence }: {
+export default function ShipView({ src, findings, apiRef, onSelectElement, onViewer, onPick, onOpenEvidence, noConvert, onStatus }: {
   src: ModelSrc; findings: Check[] | null; apiRef: React.MutableRefObject<View | null>;
   onSelectElement?: (guid: string | null) => void; onViewer?: (v: ShipViewer | null, modelId: string | null) => void;
   /** a pin was clicked: select that finding (Studio list + 3D) */ onPick?: (c: Check) => void;
   /** callout "Open evidence" */ onOpenEvidence?: (c: Check) => void;
+  /** never start a conversion (the demo): a model that is not prepared shows an error instead */ noConvert?: boolean;
+  /** load state for callers that must wait on it (the demo) */ onStatus?: (state: "idle" | "preparing" | "loading" | "ready" | "error", msg: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const vref = useRef<ShipViewer | null>(null);
@@ -66,7 +68,9 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
   const [, bump] = useState(0);
   const [sectionOpen, setSectionOpen] = useState(false);
   const [summary, setSummary] = useState<Record<string, any> | null>(null);
-  const key = JSON.stringify(src);
+  const [attempt, setAttempt] = useState(0);         // Retry after an error reloads the same model
+  const key = JSON.stringify(src) + "#" + attempt;
+  useEffect(() => { onStatus?.(state, msg); }, [state, msg]); // eslint-disable-line react-hooks/exhaustive-deps
   // callout of the active finding + pins for the others (spec Phase 5)
   const [active, setActive] = useState<{ c: Check; unlocatable: boolean } | null>(null);
   const [geo, setGeo] = useState<CalloutGeo>(null);
@@ -278,13 +282,13 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
     (async () => {
       try {
         setState("preparing"); setMsg("Preparing a fast web version"); setProgress(0);
-        const r = await apiFetch("/models/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(src) });
+        const r = await apiFetch("/models/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...src, convert: !noConvert }) });
         let st = await r.json();
         if (!r.ok) throw new Error(st.detail ?? r.statusText);
         modelId = st.id;
         while (st.state !== "ready") {
           if (disposed) return;
-          if (st.state === "error") throw new Error(st.message);
+          if (st.state === "error" || st.state === "not-prepared") throw new Error(st.message);
           setProgress(st.progress ?? 0); setMsg(st.message ?? "Preparing a fast web version");
           await new Promise((res) => setTimeout(res, 700));
           st = await apiFetch(`/models/${modelId}`).then((x) => x.json());
@@ -323,7 +327,14 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
           {state === "preparing" && <div className="ship-bar"><i style={{ width: `${Math.round(progress * 100)}%` }} /></div>}
           <div className="sq-faint" style={{ fontSize: 12 }}>Converted once on the engine and kept, so the next opening is fast.</div></div>
       )}
-      {state === "error" && <div className="sq-banner" style={{ position: "absolute", left: 16, top: 12, right: 16 }}>3D preview not available for this model: {msg} The findings list still works.</div>}
+      {state === "error" && (
+        <div className="sq-card ship-error" role="alert">
+          <b>The 3D view could not open this model</b>
+          <div className="sq-muted">{msg}</div>
+          <div className="sq-faint" style={{ fontSize: 12 }}>The findings list still works.</div>
+          <div><button className="sq-btn is-sm" onClick={() => setAttempt((n) => n + 1)}>Retry</button></div>
+        </div>
+      )}
       {state === "ready" && v && (
         <div className="ship-tools" role="toolbar" aria-label="View tools">
           <div className="sq-seg">{VIEWS.map(([k, l]) => <button key={k} onClick={() => v.view(k)} title={`${l} view`}>{l}</button>)}</div>
