@@ -40,3 +40,17 @@ export async function openModel(page, model, rev) {
     if ((await sel.inputValue()) !== v) await sel.selectOption(v);
   }
 }
+
+/** Non-blank check for the WebGL canvas: screenshot it, decode in the page, count distinct colours in a 64×64 sample. */
+export async function canvasColours(page, sel = '.studio-3d canvas') {
+  const el = page.locator(sel).first();
+  const png = (await el.screenshot({ timeout: 60000 })).toString('base64');
+  return page.evaluate(async (b64) => {
+    const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    const g = c.getContext('2d'); g.drawImage(img, 0, 0, 64, 64);
+    const d = g.getImageData(0, 0, 64, 64).data, seen = new Set();
+    for (let i = 0; i < d.length; i += 4) seen.add((d[i] >> 3) << 10 | (d[i + 1] >> 3) << 5 | (d[i + 2] >> 3));
+    return seen.size;
+  }, png);
+}

@@ -262,3 +262,28 @@ Reconciled with step 7 (B11, M11). Differences from step 7, all deliberate:
 
   Both are as before; noted in the fix report.
 - Steps 2 and 3 share one commit: the Clear all dialog is part of the same Studio rewrite.
+
+## M16 — Demo that cannot get stuck (Studio reliability step 4, 14 Nov)
+
+- **Own project.** Pressing ▶ Demo creates a throwaway project (`POST /projects/demo`: Deck 5 with Rev A and Rev B,
+  `demo = 1`, expires in 1 h). The demo never writes into the user's project. The project is deleted, with its runs,
+  marks and saved revisions, when:
+  - Stop or Finish is pressed;
+  - a `GET /projects` / `POST /projects/demo` call finds it expired.
+
+  A closed tab therefore leaves it at most an hour. Demo projects are not listed in the Project menu.
+- **Start and restore.** The project is created in the start handler, not in step 1, so React StrictMode's double
+  effect can't make two. Stop and Finish restore the project, revision, panel tab and model list that were open. The
+  display mode and cuts come back once the previous model is in the 3D again (at most 60 s).
+- **Steps.** Every step has:
+  - a precondition: the demo project is open, plus whatever the step needs;
+  - a timeout: 20 s, or 60 s for loading the 3D;
+  - an AbortSignal: Next, Skip and Stop abort the running step, so it stops changing the Studio;
+  - an error state in the card: "Couldn't <action>: <reason>" with Retry and Skip step.
+
+  Next, Pause and Stop are never disabled.
+- **No conversion during the demo.** The viewer asks `/models/prepare` with `convert: false`. A model that isn't
+  prepared shows "not prepared on the server yet" as the step 2 error and never starts a conversion. The deploy
+  pre-converts every bundled model (step 1).
+- **Compare.** Step 3 analyses and saves Rev A, then analyses Rev B, both in the demo project. Step 7 compares the two.
+  Step 8's BCF export saves Rev B there too.

@@ -9,6 +9,7 @@ import RevisionTimeline from "../components/RevisionTimeline";
 import ShipView, { type ModelSrc, type View } from "../components/ShipView";
 import { AccuracyBanner, NotRun, ReadinessCard, SourceChips } from "../components/Evidence";
 import FindingsList from "../components/FindingsList";
+import DemoRun, { type DemoStep } from "../components/DemoRun";
 import TraceMatrix from "../components/TraceMatrix";
 import ViewPane from "../components/ViewPane";
 import type { ShipViewer } from "../viewer/ShipViewer";
@@ -61,6 +62,10 @@ export default function Studio({ scope: sc, openRev, refresh, onOpenFinding }: {
   const [incorrect, reloadInc] = useIncorrect();
   const view = useRef<View | null>(null);
   const fileIn = useRef<HTMLInputElement>(null);
+  const [cmpPick, setCmpPick] = useState<number[] | undefined>(undefined);
+  // demo run-through (spec B8): its own throwaway project; Stop restores what was open before
+  const [demo, setDemo] = useState<{ pid: number; prev: { pid: number | null; rev: number | null; tab: typeof tab; mode: string | null; cuts: unknown[]; setup: boolean } } | null>(null);
+  const vstat = useRef<{ state: string; msg: string }>({ state: "idle", msg: "" });
   useEffect(() => { setSetup(!rev || !data); setSel(null); setMsg(""); }, [rev?.id, !!data]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (rev?.source === "rcrv") { setScope("whole"); setDiscs((d) => (d.includes("HULL") ? d : [...d, "HULL"])); } }, [rev?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -128,6 +133,124 @@ export default function Studio({ scope: sc, openRev, refresh, onOpenFinding }: {
     } catch (e) { setMsg(`Export failed: ${(e as Error).message}`); }
   };
   const latest = (m: RevModel) => m.revisions[m.revisions.length - 1];
+
+  // ------------------------------------------------------------------ demo run-through
+  const now = useRef({ sc, viewer, demo });
+  now.current = { sc, viewer, demo };
+  const [starting, setStarting] = useState(false);
+  const startDemo = async () => {
+    setStarting(true); setMsg("");
+    try {
+      const v = viewer.v;
+      const prev = { pid: project?.id ?? null, rev: rev?.id ?? null, tab, mode: v?.mode ?? null, cuts: v ? [...v.cuts] : [], setup };
+      const p = await api.projectDemo();
+      setDemo({ pid: p.id, prev });
+    } catch (e) { setMsg(`The demo could not start: ${(e as Error).message}`); }
+    setStarting(false);
+  };
+  const stopDemo = async () => {
+    const d = now.current.demo;
+    if (!d) return;
+    setDemo(null); setCmpPick(undefined);
+    api.projectDelete(d.pid).catch(() => {});           // also deleted by the engine after an hour
+    const { prev } = d;
+    const v0 = now.current.viewer.v;
+    if (v0) { v0.setSolo(null); v0.setCuts([]); }
+    try {
+      if (prev.pid != null) await openRev(prev.rev, prev.pid); else await openRev(null);
+    } catch { /* the scope stays on what loads */ }
+    setTab(prev.tab); setSetup(prev.setup); setSel(null);
+    // display mode and cuts come back once the previous model is in the 3D again (at most 60 s)
+    const t0 = Date.now();
+    while (Date.now() - t0 < 60000) {
+      const v = now.current.viewer.v;
+      if (prev.rev == null) break;
+      if (v && v.stats.firstFrame != null && vstat.current.state === "ready") {
+        if (prev.mode) v.setMode(prev.mode as never);
+        v.setCuts(prev.cuts as never);
+        break;
+      }
+      if (vstat.current.state === "error") break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  };
+  const dScope = () => now.current.sc;
+  const dRev = (label: string) => dScope().project?.models[0]?.revisions.filter((r) => r.label === label || r.file === (label === "Rev A" ? "deck5_revA.ifc" : "deck5_revB.ifc")) ?? [];
+  const demoFinding = () => dScope().data?.run.checks.find((c) => c.id === "F-07") ?? null;
+  const inDemo = () => (dScope().project?.id === now.current.demo?.pid ? null : "the demo's own project is not open");
+  const analyseRev = async (id: number) => {
+    const r = await apiFetch("/analyse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision_id: id, scope: "deck:5", packs: ["fls", "acc", "dnv"] }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.detail ?? r.statusText);
+    return d.run_meta as RunMeta & { draft: { id: number } };
+  };
+  const demoSteps: DemoStep[] = [
+    { title: "1 · Data readiness", fail: "open the demo model",
+      text: "The demo works in its own copy of the Deck 5 model, so nothing you have open changes. Before any rule runs, SonarIQ reads what the model actually contains (spaces, doors, fire ratings, systems). Rules the data cannot support are listed as not run, never guessed.",
+      run: async ({ until }) => {
+        const d = now.current.demo; if (!d) throw new Error("the demo project is missing");
+        const p = await api.project(d.pid);
+        const b = p.models[0]?.revisions.find((r) => r.label === "Rev B"); if (!b) throw new Error("Rev B is missing in the demo project");
+        setTab("findings"); setSetup(true);
+        await openRev(b.id, d.pid);
+        await until(() => !!document.querySelector(".studio-setup .ready-card, .studio-setup [data-readiness]") || /Spaces/.test(document.querySelector(".studio-setup")?.textContent ?? ""), "the readiness check");
+      } },
+    { title: "2 · The whole model in 3D", fail: "load the 3D model", timeout: 60000, pre: inDemo,
+      text: "The exact file is converted once on the engine into compressed web tiles and streamed. Every part keeps its IFC GlobalId, so a click maps to the engine's element.",
+      run: async ({ until }) => {
+        await until(() => {
+          if (vstat.current.state === "error") throw new Error(vstat.current.msg || "the 3D view reported an error");
+          return vstat.current.state === "ready" && now.current.viewer.v?.stats.firstFrame != null;
+        }, "the 3D model", 60000);
+        now.current.viewer.v?.view("iso");
+      } },
+    { title: "3 · Analyse, with the accuracy banner", fail: "run the analysis", pre: inDemo,
+      text: "The deterministic rule engine runs. The banner compares the result with hand-checked findings and an independent scan: what was found, false alarms, expected passes.",
+      run: async ({ until }) => {
+        const a = dRev("Rev A")[0], b = dRev("Rev B").slice(-1)[0];
+        if (!a || !b) throw new Error("the demo revisions are missing");
+        // the compare step needs Rev A analysed and saved: done here, in the demo's own project
+        if (a.state !== "saved") { const ra = await analyseRev(a.id); await api.revExport(ra.id, "report"); }
+        const rb = await analyseRev(b.id);
+        await refresh(); await openRev(rb.draft.id);
+        setSetup(false);
+        await until(() => !!demoFinding(), "the analysis");
+        await until(() => !!document.querySelector(".acc-banner") && !/Checking/.test(document.querySelector(".acc-banner")?.textContent ?? ""), "the accuracy banner");
+        document.querySelector(".acc-banner")?.scrollIntoView({ block: "nearest" });
+      } },
+    { title: "4 · One finding, with its callout", fail: "show the finding", pre: () => inDemo() ?? (demoFinding() ? null : "F-07 is not in this analysis"),
+      text: "F-07: the stair is narrower than the FSS Code formula needs. The callout shows what the model has, what it must be with the formula filled in from the model, the clause, and where each value comes from.",
+      run: async ({ until }) => { pick(demoFinding()!); await until(() => !!document.querySelector(".co-card, .co-pin.is-active"), "the callout"); } },
+    { title: "5 · Section at the finding", fail: "cut the section", pre: () => inDemo() ?? (now.current.viewer.v ? null : "the 3D model is not loaded"),
+      text: "One click cuts a deck plan through the finding and turns the camera to face it. Cut faces are capped, so walls and stairs read as solid.",
+      run: async ({ until }) => {
+        const c = demoFinding(); if (!c) throw new Error("F-07 is not in this analysis");
+        if (!(await view.current?.sectionAt(c))) throw new Error("there is no position for the cut");
+        await until(() => !(now.current.viewer.v as unknown as { anim: unknown } | null)?.anim, "the camera move");
+      } },
+    { title: "6 · X-ray, one system solo", fail: "switch the display", pre: () => inDemo() ?? (now.current.viewer.v ? null : "the 3D model is not loaded"),
+      text: "X-ray with one system soloed and everything else as faint context. Deck 5 has no pipes, so this solos the HVAC ducts; on the RCRV whole ship the same button solos piping.",
+      run: () => {
+        const v = now.current.viewer.v!;
+        view.current?.showAll(); setSel(null); v.setCuts([]);
+        // piping when the model has pipes (the group can exist with no parts), else HVAC
+        const g = v.index.groups, pipe = g.indexOf("piping"), k = pipe >= 0 && v.disc.includes(pipe) ? pipe : g.indexOf("hvac");
+        v.setMode("xray"); if (k >= 0) v.setSolo(k); setTab("view");
+      } },
+    { title: "7 · Revisions and compare", fail: "compare the revisions", pre: inDemo,
+      text: "Saving keeps a revision exactly as it was. Comparing the saved Rev A with this analysis of Rev B: the new cabins add three findings, matched by element ID.",
+      run: async ({ until }) => {
+        const v = now.current.viewer.v; if (v) { v.setSolo(null); v.setMode("edges"); }
+        await refresh();
+        const a = dRev("Rev A").find((r) => r.state === "saved"), b = dScope().rev;
+        if (!a || !b) throw new Error("there is no Rev A / Rev B pair to compare");
+        setCmpPick([a.id, b.id]); setTab("revisions");
+        await until(() => !!document.querySelector('[aria-label="Compare revisions"]'), "the comparison");
+      } },
+    { title: "8 · BCF export", fail: "export BCF", pre: () => inDemo() ?? (dScope().data ? null : "there is no analysis to export"),
+      text: "Findings go to the CAD tool as BCF (the FreeCAD panel reads them back on the right parts). Exporting saves this revision; findings marked incorrect are left out. All of this stays in the demo's own project, which is deleted when the demo ends.",
+      run: async () => { setTab("findings"); await exportAs("bcf"); } },
+  ];
+
   // Clear all: optionally save this revision (the step 7 save), then close the model; Studio, Inbox and Tasks go empty
   const [clearAsk, setClearAsk] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -181,7 +304,9 @@ export default function Studio({ scope: sc, openRev, refresh, onOpenFinding }: {
   return (
     <div className="studio">
       <div className="studio-left">
-        <ShipView src={viewSrc} findings={painted} apiRef={view} onViewer={(v, id) => setViewer({ v, id })} onPick={pick} onOpenEvidence={onOpenFinding} />
+        <ShipView src={viewSrc} findings={painted} apiRef={view} onViewer={(v, id) => setViewer({ v, id })} onPick={pick} onOpenEvidence={onOpenFinding}
+          noConvert={!!demo} onStatus={(state, m) => { vstat.current = { state, msg: m }; }} />
+        {demo && <DemoRun steps={demoSteps} onStop={stopDemo} />}
       </div>
       <aside className="studio-panel">
         <header className="studio-head">
@@ -192,11 +317,13 @@ export default function Studio({ scope: sc, openRev, refresh, onOpenFinding }: {
           {rev && <button className="sq-btn" onClick={() => setClearAsk(true)}>Clear all</button>}
           <button className="sq-btn is-primary" disabled={busy || !rev || !packs.length} title={!rev ? "Open a model to analyse" : ""} onClick={() => analyse()}>{busy ? "Analysing…" : "Analyse"}</button>
           {shown && <button className="sq-btn" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}
+          <button className="sq-btn" aria-pressed={!!demo} aria-label="Demo run-through" disabled={starting} onClick={() => (demo ? stopDemo() : startDemo())}
+                  title="Demo run-through: a guided tour that plays by itself (Space / → next, Esc stops). It works in its own copy of the demo model and changes nothing here.">{demo ? "Stop" : starting ? "Starting…" : "▶ Demo"}</button>
         </header>
         <div className="sq-seg studio-tabs" role="tablist" aria-label="Panel">
           {(["findings", "view", "revisions"] as const).map((k) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>{k === "findings" ? "Findings" : k === "view" ? "View" : "Revisions"}</button>)}
         </div>
-        {tab === "view" ? <ViewPane v={viewer.v} modelId={viewer.id} /> : tab === "revisions" ? <RevisionTimeline models={model ? [model] : []} current={rev?.id ?? null} onOpen={(r) => openRev(r.id)} /> : <>
+        {tab === "view" ? <ViewPane v={viewer.v} modelId={viewer.id} /> : tab === "revisions" ? <RevisionTimeline models={model ? [model] : []} current={rev?.id ?? null} onOpen={(r) => openRev(r.id)} pick={cmpPick} /> : <>
         {readOnly && <div className="sq-banner studio-past"><span style={{ flex: 1 }}><b>{rev!.label}</b> · saved {rev!.saved_at?.replace("T", " ").slice(0, 16)} · read-only: verdicts, marks and tasks as they were saved. Analyse to continue in a new draft.</span></div>}
         {shown && !readOnly && <div className="sq-faint" style={{ fontSize: 12, textAlign: "right", padding: "0 12px 6px" }}>All findings are exported except those marked incorrect.</div>}
         {msg && <div className="sq-banner" style={{ margin: "0 12px 8px" }}>{msg}</div>}

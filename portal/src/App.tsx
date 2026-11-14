@@ -214,7 +214,7 @@ function Workspace() {
           <button className="sq-btn is-sm" title="Light / dark" aria-label="Light / dark theme" aria-pressed={light} onClick={() => setLight(!light)}>◐</button>
           <span className="tb-user"><b className="tb-av">{USER.initials}</b><span><span>{USER.name}</span><span className="sq-faint">{USER.role}</span></span></span>
         </header>
-        <main className="page" key={`${project?.id ?? 0}:${revId ?? 0}:${screen === "model" ? "" : data?.id ?? ""}`}>
+        <main className="page" key={screen === "model" ? "studio" : `${project?.id ?? 0}:${revId ?? 0}:${data?.id ?? ""}`}>
           {error && <div className="sq-banner" style={{ marginBottom: 16 }}>{error}</div>}
           {report && ["inbox", "board"].includes(screen) && (
             <div className="sq-banner is-acc" style={{ marginBottom: 16 }}>

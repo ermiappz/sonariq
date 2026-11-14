@@ -445,3 +445,4 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .demo-text b { display: block; margin: 2px 0; }
 .demo-actions { align-self: end; }
 .studio-left:has(.sec-bar) .demo-bar { bottom: 150px; }
+.demo-err { display: flex; flex-direction: column; gap: 6px; color: var(--st-warn); }
