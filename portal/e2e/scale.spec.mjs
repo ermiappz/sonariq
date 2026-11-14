@@ -7,6 +7,8 @@ await page.goto(BASE + '#model');
 await page.getByRole('button', { name: /deck5_revB\.ifc/ }).click();
 await page.getByRole('button', { name: 'Analyse' }).click();
 await page.locator('.fl-head').first().waitFor({ timeout: 120000 });
+// the virtualised list renders the rows that fit; wait until it has its full height
+await page.waitForFunction(() => document.querySelectorAll('.fl-head').length >= 5, null, { timeout: 15000 }).catch(() => {});
 const heads = await page.locator('.fl-head').allTextContents();
 check('Rev B findings grouped by rule, fails first, with counts', /Fire door class[\s\S]*part/.test(heads[0]) && heads.length >= 5, heads.slice(0, 3).join(' | '));
 await page.getByText('F-07').first().click();

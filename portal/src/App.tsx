@@ -140,7 +140,7 @@ function Workspace() {
           <span style={{ flex: 1 }} />
           <span className="sq-faint">Units</span>
           <div className="sq-seg">{(["mm", "in"] as const).map((u) => <button key={u} className={units === u ? "is-on" : ""} onClick={() => setUnits(u)}>{u}</button>)}</div>
-          <button className="sq-btn is-sm" title="Light / dark" onClick={() => setLight(!light)}>◐</button>
+          <button className="sq-btn is-sm" title="Light / dark" aria-label="Light / dark theme" aria-pressed={light} onClick={() => setLight(!light)}>◐</button>
           <span className="tb-user"><b className="tb-av">{USER.initials}</b><span><span>{USER.name}</span><span className="sq-faint">{USER.role}</span></span></span>
         </header>
         <main className="page">

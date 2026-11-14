@@ -32,6 +32,9 @@ Engineers review, mark findings as incorrect with a reason, assign them and sign
 | 6 | **Create report** → **Inbox** and **Tasks** | Report R-001; findings with clause, measured vs required, owner and decision; task board with (mock) people ![](docs/screenshots/07-inbox.jpg) ![](docs/screenshots/08-tasks.jpg) |
 | 7 | **Settings → Reset all data** (or the link at the bottom of the sidebar) | Everything archived on the server, portal empty again, next report is R-001 ![](docs/screenshots/09-reset.jpg) |
 
+**Shortest tour:** Studio → **Demo run-through** plays the whole story by itself in eight steps (readiness → 3D →
+accuracy banner → finding callout → section at finding → x-ray solo → revision compare → BCF). Space / → next, Esc stops.
+
 Also in the portal: **Simulate** (evacuation, see below), **Revisions** (every Analyse is kept as a version),
 **Rules** (the rulebook with clause texts), and a finding thread with the AI explanation and signed approvals.
 
@@ -43,6 +46,24 @@ Also in the portal: **Simulate** (evacuation, see below), **Revisions** (every A
 - **Cannot verify** means the model lacks the data a rule needs (for example a door without `Pset_DoorCommon.FireRating`).
   SonarIQ never guesses and never turns missing data into a Pass; the card says which property to add.
 - **Dormant** means the rule applies to something that is not designed yet (design spiral): no warning until it exists.
+
+## Whole-ship viewer
+
+The Studio 3D streams the **whole RCRV research vessel** (90,331 parts, 50.8 M triangles) in the browser. The engine
+converts each IFC once into compressed glTF tiles (Meshopt) and keeps every part's IFC GlobalId, so a click in 3D is
+the engine's element and every finding lands on the right part.
+
+- **Readiness + accuracy:** what the model contains and which rules it can support; a banner compares each run with
+  hand-checked findings and an independent scan. Every value has a source chip (model, derived, public text, confirmed).
+- **Callouts:** a selected finding gets a card beside it with *Is* / *Must be* (formula filled in from the model),
+  clause, location, sources and actions; dimension lines in 3D; pins for the other findings
+  ![](docs/screenshots/m8-01-deck5-callout-stair.png)
+- **Section blade** (cross, longitudinal, deck plan) with capped cut faces, **display modes** (shaded, edges, x-ray,
+  lines, wireframe, realistic), discipline show / hide / solo, **named views**.
+- **Findings at scale:** virtualised list, traceability matrix, printable report and CSV.
+- **Revisions:** Export saves a frozen revision; timeline, open read-only, compare (new / resolved / still open).
+- Details: [docs/VIEWER.md](docs/VIEWER.md) · measured speed: [docs/PERFORMANCE.md](docs/PERFORMANCE.md) ·
+  milestone report: [docs/MILESTONE_REPORT.md](docs/MILESTONE_REPORT.md).
 
 ## Optional: inside FreeCAD
 
@@ -135,7 +156,7 @@ self-hosted model or off, and notes for Red Hat OpenShift AI.
 ## Tech stack, layout, run locally, tests
 
 Python 3.11 (FastAPI, IfcOpenShell, Shapely, NetworkX, JuPedSim, Google Gen AI SDK) · React + Vite + TypeScript,
-That Open Components / three.js, d3 · FreeCAD 1.x (PySide, Coin3D) · Caddy · MCP server.
+three.js (Meshopt glTF tiles, own shaders), d3 · FreeCAD 1.x (PySide, Coin3D) · Caddy · MCP server.
 
 ```
 engine/sonariq/   rule engine, API (api.py), session, BCF, AI gateway (llm.py), RAG, chat edits
@@ -152,7 +173,9 @@ design/           design references and brand (logos in design/brand)
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh      # Python 3.11 + deps (Node.js 20+ for the portal)
 make setup          # uv sync + portal npm install
-make test           # unit tests (82)
+make test           # engine unit tests (pytest)
+cd portal && npm test   # viewer unit tests (section maths, callouts)
+make e2e            # browser checks in headless Chromium (throwaway engine, software GL)
 make api-sim        # engine on http://127.0.0.1:8765 with Simulate
 make portal         # portal on http://localhost:5173
 make fc-golden      # FreeCAD headless golden path (needs FreeCAD + xvfb)
@@ -163,7 +186,7 @@ make eval           # rules benchmark, simulation sanity, AI evals -> docs/EVAL.
 
 - Rules marked **to verify** (including all DNV class rules) have not been signed off by a class society; SonarIQ is not class approved.
 - Simulation is a **Deck 5 sub-model with inflows from Decks 4, 6, 7** — design insight, not a full-ship MSC.1/Circ.1533 analysis.
-- The real-ship RCRV model (90,331 objects) is converted to IFC but too heavy for FreeCAD; it is used in the portal only.
+- The real-ship RCRV model (90,331 objects) is too heavy for FreeCAD; it is used in the portal only (whole-ship viewer).
 - **No user authentication** in the prototype: the portal is public, the API sits behind a demo key and basic auth.
 - The self-hosted AI path is implemented and unit-tested, not yet run against a live vLLM server.
 

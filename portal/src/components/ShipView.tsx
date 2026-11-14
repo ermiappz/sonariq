@@ -81,9 +81,17 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
     const v = new ShipViewer(host.current);
     vref.current = v;
     (window as any).__sqViewer = v;            // e2e checks (portal/e2e) read stats and pick through this handle
-    const css = getComputedStyle(host.current);
-    v.setTheme(css.getPropertyValue("--plan-bg").trim() || "#17191c", "#8b95a1", undefined, css.getPropertyValue("--fd-ink").trim() || "#c9ccd2");
-    v.accent.set(css.getPropertyValue("--accent").trim() || "#e392c8");
+    const theme = () => {
+      if (!host.current) return;
+      const css = getComputedStyle(host.current);
+      v.setTheme(css.getPropertyValue("--plan-bg").trim() || "#17191c", "#8b95a1", undefined, css.getPropertyValue("--fd-ink").trim() || "#c9ccd2");
+      v.accent.set(css.getPropertyValue("--accent").trim() || "#e392c8");
+    };
+    theme();
+    // the light / dark toggle swaps a class on the app root: follow it without reloading the model
+    const themeObs = new MutationObserver(theme);
+    const root = host.current.closest(".sq");
+    if (root) themeObs.observe(root, { attributes: true, attributeFilter: ["class"] });
     v.onView = () => bump((n) => n + 1);
     let extras: THREE.Object3D[] = [];
     let labelPts: { text: string; v: THREE.Vector3; dashed: boolean }[] = [];
@@ -298,7 +306,7 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
         setState("ready");
       } catch (e) { if (!disposed) { setMsg(String((e as Error).message ?? e)); setState("error"); } }
     })();
-    return () => { disposed = true; apiRef.current = null; vref.current = null; window.clearInterval(timer); v.dispose(); setProps(null); setDeck(null); setSectionOpen(false); setActive(null); setGeo(null); setPins([]); onViewer?.(null, null); };
+    return () => { disposed = true; themeObs.disconnect(); apiRef.current = null; vref.current = null; window.clearInterval(timer); v.dispose(); setProps(null); setDeck(null); setSectionOpen(false); setActive(null); setGeo(null); setPins([]); onViewer?.(null, null); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fkey = (findings ?? []).map((c) => c.check_key + c.status).join("|");

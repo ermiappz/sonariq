@@ -6,7 +6,8 @@ import { Row, Stat } from "../screens/Revisions";
 
 const when = (s: string) => s.replace("T", " ").slice(0, 16);
 
-export default function RevisionTimeline({ current, onOpen }: { current: string | null; onOpen: (r: Revision) => void }) {
+/** `pick`: revision ids to tick (the demo run-through compares two revisions this way) */
+export default function RevisionTimeline({ current, onOpen, pick }: { current: string | null; onOpen: (r: Revision) => void; pick?: number[] }) {
   const [models, setModels] = useState<RevModel[] | null>(null);
   const [sel, setSel] = useState<number[]>([]);
   const [cmp, setCmp] = useState<RevCompare | null>(null);
@@ -15,6 +16,7 @@ export default function RevisionTimeline({ current, onOpen }: { current: string 
   const [inc] = useIncorrect();
   const load = () => api.revisions().then((r) => setModels(r.models)).catch((e) => setErr(String(e)));
   useEffect(() => { load(); }, [current]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (pick?.length) setSel(pick.slice(-2)); }, [pick?.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setCmp(null);
     if (sel.length !== 2) return;

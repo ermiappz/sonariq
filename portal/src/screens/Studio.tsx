@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, apiFetch, download, WORD, useIncorrect, type Check, type Incorrect, type RevModel, type Revision, type Run, type RunMeta } from "../api";
 import RevisionTimeline from "../components/RevisionTimeline";
+import DemoRun, { type DemoStep } from "../components/DemoRun";
 import ShipView, { type ModelSrc, type View } from "../components/ShipView";
 import { AccuracyBanner, NotRun, ReadinessCard, SourceChips } from "../components/Evidence";
 import FindingsList from "../components/FindingsList";
@@ -59,6 +60,8 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   const [liveMarks, reloadInc] = useIncorrect();
   const incorrect = past ? past.marks : liveMarks;
   const view = useRef<View | null>(null);
+  const [demo, setDemo] = useState(false);
+  const [cmpPick, setCmpPick] = useState<number[] | undefined>(undefined);
   const fileIn = useRef<HTMLInputElement>(null);
   useEffect(() => { if (shown) setSetup(false); }, [shown?.meta.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -97,8 +100,8 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
     } catch (e) { setMsg(`Upload failed: ${(e as Error).message}`); }
     setBusy(false);
   };
-  const analyse = async () => {
-    const t = target ?? (shown ? { kind: "demo", rev: shown.meta.revision, name: shown.meta.file } as Target : null);
+  const analyse = async (given?: Target) => {
+    const t = given ?? target ?? (shown ? { kind: "demo", rev: shown.meta.revision, name: shown.meta.file } as Target : null);
     if (!t || !packs.length) return;
     setBusy(true); setMsg(""); setSel(null); view.current?.showAll();
     try {
@@ -136,6 +139,69 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
       setTarget(null); setSel(null); setTab("findings"); setMsg("");
     } catch (e) { setMsg(`Could not open ${r.label}: ${(e as Error).message}`); }
   };
+
+  // ------------------------------------------------------------------ demo run-through (spec B8)
+  const now = useRef({ shown, viewer, target });
+  now.current = { shown, viewer, target };
+  const until = async (ok: () => boolean, what: string, ms = 600000) => {
+    const t0 = Date.now();
+    while (!ok()) { if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}`); await new Promise((r) => setTimeout(r, 250)); }
+  };
+  const DEMO_MODEL = "Deck 5 demo";
+  const demoFinding = () => now.current.shown?.run.checks.find((c) => c.id === "F-07") ?? null;
+  const demoSteps: DemoStep[] = [
+    { title: "1 · Data readiness",
+      text: "Before any rule runs, SonarIQ reads what the model actually contains (spaces, doors, fire ratings, systems). Rules the data cannot support are listed as not run, never guessed.",
+      run: () => { setPast(null); setTab("findings"); setSetup(true); setMsg(""); setTarget({ kind: "demo", rev: "B", name: "deck5_revB.ifc" }); } },
+    { title: "2 · The whole model in 3D",
+      text: "The exact file is converted once on the engine into compressed web tiles and streamed. Every part keeps its IFC GlobalId, so a click maps to the engine's element.",
+      run: async () => { await until(() => now.current.viewer.v?.stats.firstFrame != null, "the 3D model"); now.current.viewer.v?.view("iso"); } },
+    { title: "3 · Analyse, with the accuracy banner",
+      text: "The deterministic rule engine runs. The banner compares the result with hand-checked findings and an independent scan: what was found, false alarms, expected passes.",
+      run: async () => {
+        // the compare step needs a saved Rev A of the demo model: save one first if there is none (said in step 7)
+        const m = (await api.revisions()).models.find((x) => x.name === DEMO_MODEL);
+        if (!m?.revisions.some((r) => r.state === "saved" && r.file === "deck5_revA.ifc")) {
+          const r = await apiFetch("/analyse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: "A", scope: "deck:5", packs }) });
+          const d = await r.json(); if (!r.ok) throw new Error(d.detail ?? r.statusText);
+          await api.revExport(d.run_meta.id, "bcf");
+        }
+        setTarget({ kind: "demo", rev: "B", name: "deck5_revB.ifc" });
+        await new Promise((r) => setTimeout(r, 50));
+        await analyse({ kind: "demo", rev: "B", name: "deck5_revB.ifc" });
+        await until(() => !!demoFinding(), "the analysis");
+        await until(() => !/Checking/.test(document.querySelector(".acc-banner")?.textContent ?? "Checking"), "the accuracy banner", 120000);
+        document.querySelector(".acc-banner")?.scrollIntoView({ block: "nearest" });
+      } },
+    { title: "4 · One finding, with its callout",
+      text: "F-07: the stair is narrower than the FSS Code formula needs. The callout shows what the model has, what it must be with the formula filled in from the model, the clause, and where each value comes from.",
+      run: async () => { const c = demoFinding(); if (!c) throw new Error("F-07 not in this run"); pick(c); await new Promise((r) => setTimeout(r, 1500)); } },
+    { title: "5 · Section at the finding",
+      text: "One click cuts a deck plan through the finding and turns the camera to face it. Cut faces are capped, so walls and stairs read as solid.",
+      run: async () => { const c = demoFinding(); if (c && !(await view.current?.sectionAt(c))) throw new Error("no position for the cut"); } },
+    { title: "6 · X-ray, one system solo",
+      text: "X-ray with one system soloed and everything else as faint context. Deck 5 has no pipes, so this solos the HVAC ducts; on the RCRV whole ship the same button solos piping.",
+      run: () => {
+        const v = now.current.viewer.v; if (!v) return;
+        view.current?.showAll(); setSel(null); v.setCuts([]);
+        // piping when the model has pipes (the group can exist with no parts), else HVAC
+        const g = v.index.groups, pipe = g.indexOf("piping"), k = pipe >= 0 && v.disc.includes(pipe) ? pipe : g.indexOf("hvac");
+        v.setMode("xray"); if (k >= 0) v.setSolo(k); setTab("view");
+      } },
+    { title: "7 · Revisions and compare",
+      text: "Export saves a run as a frozen revision. Comparing Rev A with this analysis of Rev B: the new cabins add three findings, matched by element ID. (If the demo model had no saved Rev A, step 3 saved one.)",
+      run: async () => {
+        const v = now.current.viewer.v; if (v) { v.setSolo(null); v.setMode("edges"); }
+        const m = (await api.revisions()).models.find((x) => x.name === DEMO_MODEL);
+        const a = [...(m?.revisions ?? [])].reverse().find((r) => r.state === "saved" && r.file === "deck5_revA.ifc");
+        const b = m?.revisions.find((r) => r.run_id === now.current.shown?.meta.id);
+        if (!a || !b) throw new Error("no Rev A / Rev B pair to compare");
+        setCmpPick([a.id, b.id]); setTab("revisions");
+      } },
+    { title: "8 · BCF export",
+      text: "Findings go to the CAD tool as BCF (the FreeCAD panel reads them back on the right parts). Exporting saves this run as a revision; findings marked incorrect are left out.",
+      run: async () => { setTab("findings"); await exportAs("bcf"); } },
+  ];
 
   const renderCard = (c: Check) => {
                 const [tag, color] = DISC[c.group] ?? ["··", "var(--fg-3)"];
@@ -176,6 +242,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
     <div className="studio">
       <div className="studio-left">
         <ShipView src={viewSrc.src} findings={painted} apiRef={view} onViewer={(v, id) => setViewer({ v, id })} onPick={pick} onOpenEvidence={onOpenFinding} />
+        {demo && <DemoRun steps={demoSteps} onStop={() => setDemo(false)} />}
       </div>
       <aside className="studio-panel">
         <header className="studio-head">
@@ -184,13 +251,14 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
           <span style={{ flex: 1 }} />
           {past ? <button className="sq-btn" onClick={() => setPast(null)}>Back to current</button> : <>
           <button className="sq-btn" onClick={() => setSetup(!setup)}>{setup ? "Close" : "Open model"}</button>
-          <button className="sq-btn is-primary" disabled={busy || (!target && !shown) || !packs.length} title={!target && !shown ? "Open an IFC model to analyse" : ""} onClick={analyse}>{busy ? "Analysing…" : "Analyse"}</button>
+          <button className="sq-btn is-primary" disabled={busy || (!target && !shown) || !packs.length} title={!target && !shown ? "Open an IFC model to analyse" : ""} onClick={() => analyse()}>{busy ? "Analysing…" : "Analyse"}</button>
           {shown && !target && <button className="sq-btn" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}</>}
+          <button className="sq-btn" aria-pressed={demo} aria-label="Demo run-through" onClick={() => setDemo(!demo)} title="Demo run-through: a guided tour that plays by itself (Space / → next, Esc stops)">{demo ? "Stop" : "▶ Demo"}</button>
         </header>
         <div className="sq-seg studio-tabs" role="tablist" aria-label="Panel">
           {(["findings", "view", "revisions"] as const).map((k) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>{k === "findings" ? "Findings" : k === "view" ? "View" : "Revisions"}</button>)}
         </div>
-        {tab === "view" ? <ViewPane v={viewer.v} modelId={viewer.id} /> : tab === "revisions" ? <RevisionTimeline current={shown?.meta.id ?? null} onOpen={openPast} /> : <>
+        {tab === "view" ? <ViewPane v={viewer.v} modelId={viewer.id} /> : tab === "revisions" ? <RevisionTimeline current={shown?.meta.id ?? null} onOpen={openPast} pick={cmpPick} /> : <>
         {past && <div className="sq-banner studio-past"><span style={{ flex: 1 }}><b>{past.rev.label}</b> · saved {past.rev.saved_at?.replace("T", " ").slice(0, 16)} · read-only: verdicts and marks as they were saved.</span>
           <button className="sq-btn is-sm" onClick={() => setPast(null)}>Back to current</button></div>}
         {shown && !target && <div className="sq-faint" style={{ fontSize: 12, textAlign: "right", padding: "0 12px 6px" }}>All findings are exported except those marked incorrect.</div>}
