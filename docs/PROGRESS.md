@@ -9,3 +9,4 @@ One line per step: step · status · commit · gaps.
 - Step 5 · done · b3ae89e · Realistic has no shadows (cut first per plan); edges are element outlines only (no creases inside one element).
 - Step 6 · done · 3c72499 · caps on structure and architecture only (pipes, ducts, cables, equipment get outlines: open meshes); RCRV cut + caps + edges settle in ~60 s on software GL; RCRV frames are metres from the aft end (no frame grid in the model).
 - Step 7 · done · d81c019 · fallback match (rule + element name) is flagged "please confirm", never auto-merged; past revisions open read-only in the list, the 3D shows the file of that run; revision store is runtime data (gitignored).
+- Step 8 · done · (this commit) · pins only for findings with an evidence box; anchor height is 2 m above the footprint (engine sends 2D boxes); tinted volumes cut (plan cut-list); unlocatable card not exercised in e2e (no such finding on deck5).

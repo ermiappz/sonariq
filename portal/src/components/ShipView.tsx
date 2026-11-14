@@ -7,6 +7,8 @@ import { API, HDR, apiFetch, type Check } from "../api";
 import { ShipViewer, type ElementRow, type ViewName } from "../viewer/ShipViewer";
 import { cutForFinding } from "../viewer/section";
 import SectionBar from "./SectionBar";
+import Callout, { type CalloutGeo } from "./Callout";
+import { fmtVal } from "../viewer/callout";
 
 export type ModelSrc = { revision?: string; path?: string; run?: string; source?: "rcrv" } | null;
 export type View = {
@@ -45,9 +47,11 @@ export function overlaySpec(c: Check): { z: number; lines: Line[]; title: string
 const ISO = new THREE.Vector3(-0.55, -0.75, 0.42);
 const VIEWS: [ViewName, string][] = [["iso", "Iso"], ["top", "Top"], ["port", "Port"], ["starboard", "Stbd"], ["bow", "Bow"], ["stern", "Stern"]];
 
-export default function ShipView({ src, findings, apiRef, onSelectElement, onViewer }: {
+export default function ShipView({ src, findings, apiRef, onSelectElement, onViewer, onPick, onOpenEvidence }: {
   src: ModelSrc; findings: Check[] | null; apiRef: React.MutableRefObject<View | null>;
   onSelectElement?: (guid: string | null) => void; onViewer?: (v: ShipViewer | null, modelId: string | null) => void;
+  /** a pin was clicked: select that finding (Studio list + 3D) */ onPick?: (c: Check) => void;
+  /** callout "Open evidence" */ onOpenEvidence?: (c: Check) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const vref = useRef<ShipViewer | null>(null);
@@ -63,6 +67,13 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
   const [sectionOpen, setSectionOpen] = useState(false);
   const [summary, setSummary] = useState<Record<string, any> | null>(null);
   const key = JSON.stringify(src);
+  // callout of the active finding + pins for the others (spec Phase 5)
+  const [active, setActive] = useState<{ c: Check; unlocatable: boolean } | null>(null);
+  const [geo, setGeo] = useState<CalloutGeo>(null);
+  const [pins, setPins] = useState<{ c: Check; x: number; y: number }[]>([]);
+  const [vsize, setVsize] = useState({ w: 800, h: 600 });
+  const findRef = useRef<Check[] | null>(findings);
+  findRef.current = findings;
 
   useEffect(() => {
     if (!host.current || !src) { setState("idle"); return; }
@@ -78,13 +89,51 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
     let labelPts: { text: string; v: THREE.Vector3; dashed: boolean }[] = [];
     let painted: { i: number; rgb: [number, number, number] }[] = [];
     let focusBox: THREE.Box3 | null = null;
+    // active finding: anchor box (evidence footprint raised to room height, else the element's box) and its parts
+    let act: { c: Check; ids: number[]; box: THREE.Box3 | null } | null = null;
+    let occ = false, occKey = "", stillSince = 0, occDone = true;
     const update = () => {
       if (disposed || !host.current) return;
       const cam = v.camera; cam.updateMatrixWorld();
       const w = host.current.clientWidth, h = host.current.clientHeight;
-      setLabels(labelPts.map(({ text, v: p0, dashed }) => { const p = p0.clone().project(cam); return { text, dashed, x: (p.x + 1) / 2 * w, y: (1 - p.y) / 2 * h, visible: p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2 }; }));
+      const scr = (p0: THREE.Vector3) => { const p = p0.clone().project(cam); return { x: (p.x + 1) / 2 * w, y: (1 - p.y) / 2 * h, on: p.z < 1 && Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1 }; };
+      const ls = labelPts.map(({ text, v: p0, dashed }) => { const p = p0.clone().project(cam); return { text, dashed, x: (p.x + 1) / 2 * w, y: (1 - p.y) / 2 * h, visible: p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2 }; });
+      // labels never overlap: push a later label down until it clears the earlier ones (width from 12 px mono glyphs)
+      for (let i = 1; i < ls.length; i++) for (let j = 0; j < i; j++) {
+        const a = ls[i], b = ls[j], ww = (a.text.length + b.text.length) * 3.6 + 12;
+        const up = (l: typeof a) => (l.dashed ? 0 : 13);                  // solid labels sit above their point (CSS)
+        if (Math.abs(a.x - b.x) < ww && Math.abs(a.y - up(a) - (b.y - up(b))) < 20) { a.y = b.y - up(b) + up(a) + 20; j = -1; }
+      }
+      setLabels(ls);
+      // shortcut: pins only for findings with an evidence box (no element-box fetch per finding); cap 300 for big runs
+      const ps: { c: Check; x: number; y: number }[] = [];
+      for (const c of findRef.current ?? []) {
+        const ev = c.evidence;
+        if (!ev?.bbox || ev.z == null || c.check_key === act?.c.check_key) continue;
+        const s = scr(new THREE.Vector3((ev.bbox[0] + ev.bbox[2]) / 2, (ev.bbox[1] + ev.bbox[3]) / 2, ev.z + 1));
+        if (s.on) ps.push({ c, x: s.x, y: s.y });
+        if (ps.length >= 300) break;
+      }
+      setPins(ps);
+      if (act?.box) {
+        const b = act.box, xs: number[] = [], ys: number[] = [];
+        for (let k = 0; k < 8; k++) { const s = scr(new THREE.Vector3(k & 1 ? b.max.x : b.min.x, k & 2 ? b.max.y : b.min.y, k & 4 ? b.max.z : b.min.z)); xs.push(s.x); ys.push(s.y); }
+        const a = scr(b.getCenter(new THREE.Vector3()));
+        setGeo({ anchor: [a.x, a.y], rect: { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }, occluded: occ || !a.on });
+      } else setGeo(null);
+      setVsize((o) => (o.w === w && o.h === h ? o : { w, h }));
     };
-    v.onChange = () => { if (labelPts.length) update(); };
+    // occlusion: one depth pixel once the view has been still for 300 ms (orbiting keeps the last answer)
+    const occTick = () => {
+      if (!act?.box) return;
+      const k = v.camera.matrixWorld.elements.join() + (v.camera as any).zoom + JSON.stringify(v.cuts) + v.mode + v.solo + (v as any).visHash;
+      if (k !== occKey) { occKey = k; stillSince = performance.now(); occDone = false; return; }
+      if (occDone || performance.now() - stillSince < 300) return;
+      occDone = true;
+      const o = v.occluded(act.box.getCenter(new THREE.Vector3()), act.ids);
+      if (o !== occ) { occ = o; update(); }
+    };
+    v.onChange = () => update();
     v.onSelect = (i) => {
       if (i === null) { setProps(null); onSelectElement?.(null); return; }
       const row = v.elements[i];
@@ -105,15 +154,10 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
       (h.material as THREE.LineBasicMaterial).depthTest = false;
       v.overlay.add(h); extras.push(h);
     };
-    const focus = (c: Check) => {
-      clearExtras();
-      const ids = v.indices([c.element?.guid, ...(c.evidence?.guids ?? [])]);
-      const rgb = STATUS_RGB[c.status] ?? [227, 146, 200];
-      const color = hex(rgb);
+    // evidence geometry of a finding: footprint ring + tint, dimension lines, "must be" outline for class findings
+    const drawEvidence = (c: Check): THREE.Box3 => {
+      const color = hex(STATUS_RGB[c.status] ?? [227, 146, 200]);
       const box = new THREE.Box3();
-      v.loadElements(ids);
-      v.paint = new Map([...painted.map((p) => [p.i, p.rgb] as const), ...ids.map((i) => [i, rgb] as const)]);
-      v.isolate(ids, "ghost");
       const ev = c.evidence;
       if (ev?.bbox && ev.z != null) {
         const [x0, y0, x1, y1] = ev.bbox, z = ev.z + 0.05;
@@ -125,15 +169,14 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
         fill.position.set((x0 + x1) / 2, (y0 + y1) / 2, z);
         v.overlay.add(fill); extras.push(fill);
         box.setFromPoints(ring);
-      }
-      if (ids.length) {
-        const eb = new THREE.Box3();
-        // precise element box from the metadata index when the finding has no evidence box
-        if (box.isEmpty() && modelId) {
-          Promise.all(ids.slice(0, 20).map((i) => apiFetch(`/models/${modelId}/elements/${i}`).then((r) => r.ok ? r.json() : null))).then((ms) => {
-            for (const m of ms) if (m?.bbox) eb.union(new THREE.Box3(new THREE.Vector3(...m.bbox.slice(0, 3)), new THREE.Vector3(...m.bbox.slice(3))));
-            if (!eb.isEmpty() && !disposed) { outline(eb, 0xffd2b8); focusBox = eb; v.currentFocusBox = eb; fit(eb); }
-          });
+        if (c.measured?.unit === "class" && c.required?.value != null) {
+          // material / fire class: the element is tinted by what it is; the dashed outline is what it must be
+          const bw = Math.max(Math.abs(x1 - x0), 0.2), bd = Math.max(Math.abs(y1 - y0), 0.2), bh = 2;
+          const o = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(bw + 0.3, bd + 0.3, bh)),
+            new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 0.18, gapSize: 0.12, depthTest: false }));
+          o.position.set((x0 + x1) / 2, (y0 + y1) / 2, ev.z + bh / 2); o.computeLineDistances();
+          v.overlay.add(o); extras.push(o);
+          labelPts.push({ text: `must be ${fmtVal(c.required)}`, v: new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, ev.z + bh + 0.3), dashed: true });
         }
       }
       const spec = overlaySpec(c);
@@ -148,6 +191,37 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
         }
         setLegend(spec.title);
       }
+      return box;
+    };
+    const setActiveFinding = (c: Check, ids: number[]) => {
+      const ev = c.evidence;
+      // shortcut: evidence boxes are 2D footprints; 2 m stands in for the room height until the engine sends z1
+      const box = ev?.bbox && ev.z != null ? new THREE.Box3(new THREE.Vector3(ev.bbox[0], ev.bbox[1], ev.z), new THREE.Vector3(ev.bbox[2], ev.bbox[3], ev.z + 2)) : null;
+      if (act?.c.check_key !== c.check_key || box) act = { c, ids, box };
+      occ = false; occKey = "";
+      setActive({ c, unlocatable: !ids.length && !box });
+    };
+    const clearActive = () => { act = null; occ = false; setActive(null); setGeo(null); };
+    const focus = (c: Check) => {
+      clearExtras();
+      const ids = v.indices([c.element?.guid, ...(c.evidence?.guids ?? [])]);
+      const rgb = STATUS_RGB[c.status] ?? [227, 146, 200];
+      v.loadElements(ids);
+      v.paint = new Map([...painted.map((p) => [p.i, p.rgb] as const), ...ids.map((i) => [i, rgb] as const)]);
+      v.isolate(ids, "ghost");
+      setActiveFinding(c, ids);
+      const ev = c.evidence;
+      const box = drawEvidence(c);
+      if (ids.length) {
+        const eb = new THREE.Box3();
+        // precise element box from the metadata index when the finding has no evidence box
+        if (box.isEmpty() && modelId) {
+          Promise.all(ids.slice(0, 20).map((i) => apiFetch(`/models/${modelId}/elements/${i}`).then((r) => r.ok ? r.json() : null))).then((ms) => {
+            for (const m of ms) if (m?.bbox) eb.union(new THREE.Box3(new THREE.Vector3(...m.bbox.slice(0, 3)), new THREE.Vector3(...m.bbox.slice(3))));
+            if (!eb.isEmpty() && !disposed) { outline(eb, 0xffd2b8); focusBox = eb; v.currentFocusBox = eb; fit(eb); if (act?.c.check_key === c.check_key) { act.box = eb; update(); } }
+          });
+        }
+      }
       if (!box.isEmpty()) { focusBox = box; v.currentFocusBox = box; fit(box); }
       v.invalidate(); update();
       return ids.length > 0 || !!ev?.bbox;
@@ -155,9 +229,9 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
     apiRef.current = {
       focus,
       isolate: (c) => { focus(c); v.isolate(v.indices([c.element?.guid, ...(c.evidence?.guids ?? [])]), "hide"); },
-      showAll: () => { clearExtras(); restorePaint(); v.showAll(); home(); },
+      showAll: () => { clearExtras(); clearActive(); restorePaint(); v.showAll(); home(); },
       zoom: () => { if (focusBox) fit(focusBox); },
-      resetView: () => { clearExtras(); restorePaint(); home(); },
+      resetView: () => { clearExtras(); clearActive(); restorePaint(); home(); },
       paint: (cs) => {
         painted = [];
         for (const c of cs) for (const i of v.indices([c.element?.guid])) if (v.base[i * 4 + 3] > 0) painted.push({ i, rgb: STATUS_RGB[c.status] ?? [227, 146, 200] });
@@ -179,8 +253,11 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
           : eb ? new THREE.Box3(new THREE.Vector3(...eb.slice(0, 3)), new THREE.Vector3(...eb.slice(3))) : undefined;
         const cut = cutForFinding({ evidence: c.evidence, elementBox: eb }, v.grid);
         if (!cut || disposed) return false;
-        // the finding stays painted and selected-looking; the rest of the ship is solid so the section shows context
+        // the finding stays painted and selected-looking, with its evidence and callout; the rest of the ship is solid
+        // so the section shows context
         clearExtras();
+        drawEvidence(c);
+        setActiveFinding(c, ids);
         v.loadElements(ids);
         v.focus = null;
         v.setPaint(new Map([...painted.map((p) => [p.i, p.rgb] as const), ...ids.map((i) => [i, STATUS_RGB[c.status] ?? [227, 146, 200]] as const)]));
@@ -217,11 +294,11 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
         setDecks(v.deckLevels());
         const g = await apiFetch(`/models/${modelId}/grid`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
         if (g && !disposed) v.grid = g;
-        timer = window.setInterval(() => { if (labelPts.length) update(); }, 250);
+        timer = window.setInterval(() => { update(); occTick(); }, 250);
         setState("ready");
       } catch (e) { if (!disposed) { setMsg(String((e as Error).message ?? e)); setState("error"); } }
     })();
-    return () => { disposed = true; apiRef.current = null; vref.current = null; window.clearInterval(timer); v.dispose(); setProps(null); setDeck(null); setSectionOpen(false); onViewer?.(null, null); };
+    return () => { disposed = true; apiRef.current = null; vref.current = null; window.clearInterval(timer); v.dispose(); setProps(null); setDeck(null); setSectionOpen(false); setActive(null); setGeo(null); setPins([]); onViewer?.(null, null); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fkey = (findings ?? []).map((c) => c.check_key + c.status).join("|");
@@ -257,6 +334,17 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
       {state === "ready" && v && sectionOpen && <SectionBar v={v} modelId={v ? apiRef.current?.modelId() ?? null : null} decks={decks} onClose={() => setSectionOpen(false)} />}
       {state === "ready" && summary && (
         <div className="ship-stats mono sq-faint">{summary.elements.toLocaleString("en-US")} elements · {summary.tris >= 1e6 ? `${(summary.tris / 1e6).toFixed(1)} M` : summary.tris.toLocaleString("en-US")} triangles · {summary.bytes >= 1048576 ? `${(summary.bytes / 1048576).toFixed(0)} MB` : `${Math.ceil(summary.bytes / 1024)} KB`}</div>
+      )}
+      {state === "ready" && pins.map(({ c, x, y }) => (
+        <button key={c.check_key} className={`co-pin s-${c.status}`} style={{ left: x, top: y }} onClick={() => onPick?.(c)}
+                title={`${c.id}: ${c.title}`} aria-label={`Finding ${c.id}: ${c.title}`}>{c.id}</button>))}
+      {state === "ready" && active && (
+        <Callout c={active.c} geo={geo} view={vsize} unlocatable={active.unlocatable} onClose={() => apiRef.current?.resetView()}
+          actions={[
+            { label: "Section here", title: "Cut through this finding and face the cut", run: () => { apiRef.current?.sectionAt(active.c); } },
+            { label: "Isolate", run: () => apiRef.current?.isolate(active.c) },
+            ...(onOpenEvidence ? [{ label: "Open evidence", title: "Thread with clause text, inputs and history", run: () => onOpenEvidence(active.c) }] : []),
+          ]} />
       )}
       {props && v && (
         <div className="ship-props sq-card" aria-live="polite">

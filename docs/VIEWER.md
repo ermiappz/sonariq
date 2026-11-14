@@ -158,3 +158,30 @@ Proof: `tests/test_pipeline.py` (every finding of Rev B, every product GlobalId 
   `GET /revisions/compare?a=&b=`. Reset all data archives the store.
 - Tests: `tests/test_revisions.py` (A → B → Fix 2 counts, frozen rows, bundle, upload choice, fallback, reset),
   `e2e/revisions.spec.mjs`.
+
+## Callouts (step 8, spec A5)
+
+Selecting a finding (list, traceability matrix or a pin in the 3D) frames it, ghosts the rest and opens a callout:
+
+- **Card:** status + id, title, **Is** (the measured value or property), **Must be** (requirement, with the engine's
+  worked formula when the rule has one), clause + location, the two source chips, and actions **Section here**,
+  **Isolate**, **Open evidence** (the finding's thread). Every number is a number of the finding JSON:
+  `strayNumbers()` checks it in `callout.test.ts` (all deck5 Rev B finding kinds) and in `e2e/callout.spec.mjs`.
+- **Leader + placement:** the anchor is the evidence footprint raised to 2 m, else the element box. The card sits
+  beside the anchor's screen rectangle (right, left, above, below), never over it, and follows it while orbiting.
+- **Occlusion:** once the view is still, one depth pixel at the anchor (`ShipViewer.occluded`) tells whether solid
+  parts other than the finding's own are in front; then the card collapses to a dashed pin.
+- **Evidence in 3D:** footprint ring + tint; dimension lines (measured solid white, required dashed in the status
+  colour) for widths; depth vs allowed depth for dead ends; for fire-class findings a dashed outline labelled
+  "must be A-60" around the tinted element. Dimension labels push apart so they never overlap.
+- **Pins:** every other painted finding with an evidence box shows a small id pin; click → it becomes the active one.
+- **Survives** Section here (the cut is added, the evidence and card stay) and display-mode changes.
+- **Unlocatable** findings (no element in the model, no evidence box) open the card in the corner with "Not located
+  in the 3D".
+
+## Demo run-through (step 9, spec B8)
+
+Studio → **Demo run-through**: readiness → model in 3D → Analyse with the accuracy banner → F-07 with its callout →
+section at the finding → X-ray with one system solo → revision timeline + compare Rev A → Rev B → BCF export. Each
+step does the real action, then a caption explains it; it advances after 7 s. Space / → next, Esc stops. Choices:
+DECISIONS M13. Proof: `e2e/demo.spec.mjs` walks every step.

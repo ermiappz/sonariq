@@ -175,7 +175,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   return (
     <div className="studio">
       <div className="studio-left">
-        <ShipView src={viewSrc.src} findings={painted} apiRef={view} onViewer={(v, id) => setViewer({ v, id })} />
+        <ShipView src={viewSrc.src} findings={painted} apiRef={view} onViewer={(v, id) => setViewer({ v, id })} onPick={pick} onOpenEvidence={onOpenFinding} />
       </div>
       <aside className="studio-panel">
         <header className="studio-head">

@@ -44,3 +44,4 @@ data/models/
 data/readiness/
 data/revisions.sqlite
 data/revisions/
+data/open/

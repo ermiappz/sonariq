@@ -414,3 +414,21 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .studio-past { margin: 0 12px 8px; display: flex; gap: 8px; align-items: center; }
 .rtl .rev-row { padding: 8px 10px; gap: 8px; }
 .rtl .rev-row > span:first-child { width: auto !important; min-width: 40px; }
+
+/* Callouts in the 3D (step 8): card + leader for the active finding, pins for the others */
+.co-lead { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 3; }
+.co-lead line { stroke: var(--fg-1); stroke-width: 1.25; }
+.co-lead circle { fill: var(--accent); stroke: var(--bg-0, #000); stroke-width: 1.5; }
+.co-card { position: absolute; z-index: 4; width: 320px; max-width: calc(100% - 24px); padding: 10px 12px; font-size: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); border-left: 3px solid var(--line-2); }
+.co-card.s-fail { border-left-color: var(--st-fail); } .co-card.s-warn { border-left-color: var(--st-warn); } .co-card.s-unk { border-left-color: var(--fg-3); border-left-style: dashed; }
+.co-title { font-weight: 600; font-size: 13px; margin: 4px 0 6px; }
+.co-kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 0 0 6px; }
+.co-kv dt { color: var(--fg-3); } .co-kv dd { margin: 0; }
+.co-where { font-size: 11px; margin-bottom: 6px; }
+.co-note { margin-top: 6px; color: var(--st-warn); }
+.co-actions { flex-wrap: wrap; margin-top: 8px; }
+.co-pin { position: absolute; z-index: 2; transform: translate(-50%, -50%); font: 600 10px "IBM Plex Mono", monospace; padding: 1px 5px; border-radius: 9px; border: 1px solid var(--line-2); background: var(--bg-1); color: var(--fg-1); cursor: pointer; }
+.co-pin.s-fail { border-color: var(--st-fail); color: var(--st-fail); } .co-pin.s-warn { border-color: var(--st-warn); color: var(--st-warn); }
+.co-pin.is-hidden-anchor { border-style: dashed; opacity: .75; cursor: default; }
+.co-pin:focus-visible { outline: none; box-shadow: var(--focus); }
+.sec-bar ~ .studio-legend { bottom: 150px; }

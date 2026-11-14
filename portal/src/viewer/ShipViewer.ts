@@ -37,7 +37,8 @@ const VERT = /* glsl */ `
   }`;
 const FRAG = /* glsl */ `
   precision highp float;
-  uniform float uPass;        // 0 solid, 1 ghost, 2 pick
+  #include <packing>
+  uniform float uPass;        // 0 solid, 1 ghost, 2 pick, 3 depth of solids (callout occlusion)
   uniform float uLight;       // 0 flat, 1 realistic
   uniform float uFill;        // 1 = draw the background colour (hidden-line "Lines" mode: only the edge pass shows)
   uniform vec3 uGhost; uniform vec3 uBg;
@@ -48,6 +49,7 @@ const FRAG = /* glsl */ `
     float a = vCol.a * 255.0;
     if (a < 0.5) discard;
     bool solid = a > 254.5;
+    if (uPass == 3.0) { if (!solid) discard; o = packDepthToRGBA(gl_FragCoord.z); return; }
     if (uPass == 2.0) { o = vec4(mod(vId, 256.0), mod(floor(vId / 256.0), 256.0), floor(vId / 65536.0), 255.0) / 255.0; return; }
     if ((uPass == 0.0) != solid) discard;
     vec3 n = normalize(cross(dFdx(vPos), dFdy(vPos)));
@@ -349,6 +351,30 @@ export class ShipViewer {
     this.dirty = true;
     const id = px[0] + px[1] * 256 + px[2] * 65536;
     return id ? id - 1 : null;
+  }
+
+  /** true when solid geometry other than `own` lies between the camera and world point p (1-pixel depth render;
+   *  ghosted and hidden elements do not count, cuts apply). Off-screen counts as hidden. */
+  occluded(p: THREE.Vector3, own: number[]): boolean {
+    if (!this.material) return false;
+    const cam = this.camera; cam.updateMatrixWorld();
+    const q = p.clone().project(cam);
+    if (q.z > 1 || Math.abs(q.x) > 1 || Math.abs(q.y) > 1) return true;
+    const r = this.renderer, w = r.domElement.width, h = r.domElement.height;
+    const saved = own.map((i) => this.state[i * 4 + 3]);
+    own.forEach((i) => { if (this.state[i * 4 + 3] === 255) this.state[i * 4 + 3] = GHOST; });
+    this.tex.needsUpdate = true;
+    cam.setViewOffset(w, h, Math.floor((q.x + 1) / 2 * w), Math.floor((1 - q.y) / 2 * h), 1, 1);
+    this.material.uniforms.uPass.value = 3;
+    this.overlay.visible = false;
+    r.setRenderTarget(this.pickTarget); r.setClearColor(0xffffff, 1); r.clear(); r.render(this.scene, cam);
+    const px = new Uint8Array(4); r.readRenderTargetPixels(this.pickTarget, 0, 0, 1, 1, px);
+    r.setRenderTarget(null); r.setClearColor(this.bg, 1); this.material.uniforms.uPass.value = 0; cam.clearViewOffset();
+    own.forEach((i, k) => { this.state[i * 4 + 3] = saved[k]; });
+    this.tex.needsUpdate = true; this.dirty = true;
+    // unpackRGBAToDepth (three.js packing.glsl)
+    const d = (px[0] / 16777216 + px[1] / 65536 + px[2] / 256 + px[3]) / 255 * (255 / 256);
+    return d < (q.z + 1) / 2 - 1e-5;
   }
 
   // ---------------------------------------------------------------- element state

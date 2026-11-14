@@ -184,3 +184,33 @@ system name and usually a material value, there are **no spaces**. Hence:
   as "please confirm", only when that pairing is unique. On compact (whole-ship) runs passes are not in `checks`, so a
   finding that passes in the newer run counts as resolved with status "removed".
 - **Reset all data** archives the revision store and saved views too (it used to keep views).
+
+## M12 — Callouts (A5, added 14 Nov)
+
+- **Module split:** `portal/src/viewer/callout.ts` is pure (content, placement, number guard) and unit-tested;
+  `components/Callout.tsx` draws the card and leader; `ShipView` owns the anchor, pins and occlusion. Content comes
+  only from the finding JSON (`calloutContent`); `strayNumbers` is the guard the unit test and e2e run on every card.
+- **Anchor** = the evidence footprint raised to 2 m (the engine sends 2D footprints + floor z), else the element's
+  box from the metadata index. Placement tries right / left / above / below the anchor box's screen rectangle and
+  never overlaps it; a model filling the view gets the far corner.
+- **Occlusion** = one extra depth pass at the anchor pixel (`ShipViewer.occluded`, uPass 3: solid elements only, the
+  finding's own parts excluded, cuts applied), run once the view has been still for 300 ms. Occluded → the card
+  collapses to a dashed pin. No CPU raycast: tiles have no BVH and RCRV has 50 M triangles.
+- **Pins** only for findings with an evidence box (no element-box fetch per finding); at most 300 on screen.
+- **Material / fire class:** the element is tinted with the status colour (what it is); a dashed outline labelled
+  "must be A-60" shows what it must be. Tinted volumes were cut (plan cut-list); the footprint fill + ring stay.
+
+## M13 — Demo run-through (B8, added 14 Nov)
+
+- Runs on the **Deck 5 demo model**, not the RCRV: it has every finding kind with callouts and loads in seconds on any
+  laptop; the RCRV whole-ship analysis takes minutes on this VM. The whole-ship story is in the README and screenshots.
+- Deck 5 has no pipes, so step 6 solos HVAC and says so; the same step solos piping on a model that has it.
+- The compare step needs a saved Rev A of the demo model. If there is none, step 3 analyses Rev A and saves it before
+  analysing Rev B (said in the step 7 caption). Later plays reuse it, so the hosted store grows by one revision at most
+  per demo, plus the BCF export of step 8 (Export = save, as everywhere else).
+- Plays by itself (7 s per step after the step's action finishes); Space / → next, Esc stops, Pause holds.
+
+## M14 — Merge to main (14 Nov)
+
+The spec says "open a PR, do not merge". The user asked on 14 Nov to finish steps 8–9, merge to main and push, then
+review it themselves. Merged with `--no-ff` so the milestone stays one reviewable merge; nothing was deployed.
