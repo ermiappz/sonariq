@@ -27,6 +27,7 @@ Environment=PYTHONPATH=engine:.
 Environment=PYTHONUTF8=1
 Environment=SONARIQ_HOSTED=1
 Environment=SIMULATE_ENABLED=1
+Environment=SONARIQ_NODE_BIN=$(readlink -f "$(command -v node)")
 Environment=SONARIQ_RUNS=$LIVE/data/runs
 ExecStart=$NEXT/.venv/bin/python -m uvicorn sonariq.api:app --app-dir engine --host 127.0.0.1 --port $NEXT_PORT
 Restart=always

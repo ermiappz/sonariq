@@ -55,3 +55,17 @@ def test_rejects_bad_input_and_paths(client):
     assert client.get("/models/nothexnothexnoth").status_code == 404
     head = b"ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('CIS2'));\n"
     assert client.post("/models", content=head).status_code == 422
+
+
+def test_converter_missing_is_readable_and_prepare_without_convert(client, monkeypatch):
+    from sonariq.pipeline import build
+    monkeypatch.setattr(build, "_NODE", {})
+    monkeypatch.setenv("SONARIQ_NODE_BIN", "/nonexistent/node")
+    h = client.get("/health").json()["converter"]
+    assert h["state"] == "missing" and "Node.js" in h["message"] and "Errno" not in h["message"]
+    # the demo never converts: a model that is not prepared says so instead of starting a job
+    st = client.post("/models/prepare", json={"revision": "B", "convert": False}).json()
+    assert st["state"] == "not-prepared"
+    st = _wait(client, client.post("/models/prepare", json={"revision": "B"}).json()["id"])
+    assert st["state"] == "error" and st["message"] == build.MISSING
+    monkeypatch.setattr(build, "_NODE", {})   # the next test resolves the real node again

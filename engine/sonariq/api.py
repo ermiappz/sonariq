@@ -108,9 +108,15 @@ class AcceptReq(BaseModel):
     by: str = "Designer"
 
 
+from .pipeline.build import converter as _converter  # noqa: E402
+_converter()   # resolve Node at startup and log its version (3D converter)
+
+
 @app.get("/health")
 def health():
+    c = _converter()
     return {"ok": True, "engine": "ready", "ai": S.llm.status(), "revision": S.model.revision,
+            "converter": {"state": c["state"], "version": c.get("version"), "message": c.get("message")},
             "simulate": _os.getenv("SIMULATE_ENABLED", "0").lower() in ("1", "true", "on", "yes")}
 
 
