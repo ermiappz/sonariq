@@ -5,6 +5,7 @@ tiles, cache by content hash, serve tiles with long cache headers. The engine's 
   POST /models/prepare          {revision | path | run | source: "rcrv"}  -> {id, state}  (a file the engine already has)
   GET  /models/{id}             -> status: state queued|running|ready|error, progress 0-1, message, summary
   GET  /models/{id}/files/<p>   index.json | elements.json | meta.json | colors.bin | tiles/<name>.glb
+  GET|PUT /models/{id}/grid     frame grid for the section blade (DECISIONS M6): frame zero x and spacing
 """
 from __future__ import annotations
 
@@ -187,6 +188,54 @@ def model_column(mid: str, field: str):
     if not _ID.match(mid) or field not in COLUMNS:
         raise HTTPException(404, "no such column")
     return [m.get(field) for m in _meta(mid)]
+
+
+_SPACING = re.compile(rb"IFCPROPERTYSINGLEVALUE\('frame_spacing_m',\$,IFCREAL\(([0-9.eE+-]+)\)")
+
+
+def _default_grid(mid: str) -> dict:
+    """Frames as the engine counts them (checks.py: frame = x / spacing): IFC -> frame 0 at x = 0, spacing from the
+    SonarIQ_Ship pset (engine default 0.8 m); RCRV has no frame grid -> metres from the aft end (rcrv_model.py)."""
+    ix = MODELS / mid / "web" / "index.json"
+    if not ix.exists():
+        raise HTTPException(404, "no such model")
+    box = json.loads(ix.read_text())["box"]
+    if mid == "rcrv":
+        return {"frame0_x": box[0][0], "spacing_m": 1.0, "source": "no frame grid in the model: metres from the aft end"}
+    orig = MODELS / mid / "original.ifc"
+    m = None
+    if orig.exists():
+        with orig.open("rb") as f:          # the pset sits near the top; a 600 MB file is never read whole
+            m = _SPACING.search(f.read(4 * 1024 * 1024))
+    if m:
+        return {"frame0_x": 0.0, "spacing_m": float(m.group(1)), "source": "model (SonarIQ_Ship.frame_spacing_m)"}
+    return {"frame0_x": 0.0, "spacing_m": 0.8, "source": "engine default (no frame spacing in the model)"}
+
+
+@router.get("/models/{mid}/grid")
+def model_grid(mid: str):
+    if not _ID.match(mid):
+        raise HTTPException(404, "no such model")
+    user = MODELS / mid / "grid.json"
+    if user.exists():
+        return {**json.loads(user.read_text()), "source": "user"}
+    return _default_grid(mid)
+
+
+class GridReq(BaseModel):
+    frame0_x: float
+    spacing_m: float
+
+
+@router.put("/models/{mid}/grid")
+def model_grid_set(mid: str, req: GridReq):
+    """User-set frame zero and spacing for a model without a frame grid (stored next to the tiles, never in the IFC)."""
+    if not _ID.match(mid) or not (MODELS / mid / "web" / "index.json").exists():
+        raise HTTPException(404, "no such model")
+    if not (0.1 <= req.spacing_m <= 5.0) or not (-10000 < req.frame0_x < 10000):
+        raise HTTPException(422, "spacing must be 0.1-5 m and frame zero within 10 km of the origin")
+    (MODELS / mid / "grid.json").write_text(json.dumps({"frame0_x": req.frame0_x, "spacing_m": req.spacing_m}))
+    return model_grid(mid)
 
 
 @router.get("/models/{mid}/files/{path:path}")

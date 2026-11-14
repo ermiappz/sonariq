@@ -5,11 +5,15 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { API, HDR, apiFetch, type Check } from "../api";
 import { ShipViewer, type ElementRow, type ViewName } from "../viewer/ShipViewer";
+import { cutForFinding } from "../viewer/section";
+import SectionBar from "./SectionBar";
 
 export type ModelSrc = { revision?: string; path?: string; run?: string; source?: "rcrv" } | null;
 export type View = {
   focus: (c: Check) => boolean; isolate: (c: Check) => void; showAll: () => void; zoom: () => void; resetView: () => void;
   paint: (cs: Check[]) => void; setBounds: (b?: number[] | null) => void; viewer: () => ShipViewer | null; modelId: () => string | null;
+  /** Section at finding: one cut through the finding (deck plan through its room, else cross section through the part). */
+  sectionAt: (c: Check) => Promise<boolean>;
 };
 type Label = { text: string; x: number; y: number; dashed: boolean; visible: boolean };
 type Line = { a: [number, number]; b: [number, number]; text: string; dashed: boolean };
@@ -55,7 +59,8 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
   const [props, setProps] = useState<{ i: number; row: ElementRow; meta: Record<string, any> | null } | null>(null);
   const [decks, setDecks] = useState<{ deck: number; z: number; top: number }[]>([]);
   const [deck, setDeck] = useState<number | null>(null);
-  const [proj, setProj] = useState<"perspective" | "orthographic">("perspective");
+  const [, bump] = useState(0);
+  const [sectionOpen, setSectionOpen] = useState(false);
   const [summary, setSummary] = useState<Record<string, any> | null>(null);
   const key = JSON.stringify(src);
 
@@ -67,6 +72,8 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
     (window as any).__sqViewer = v;            // e2e checks (portal/e2e) read stats and pick through this handle
     const css = getComputedStyle(host.current);
     v.setTheme(css.getPropertyValue("--plan-bg").trim() || "#17191c", "#8b95a1", undefined, css.getPropertyValue("--fd-ink").trim() || "#c9ccd2");
+    v.accent.set(css.getPropertyValue("--accent").trim() || "#e392c8");
+    v.onView = () => bump((n) => n + 1);
     let extras: THREE.Object3D[] = [];
     let labelPts: { text: string; v: THREE.Vector3; dashed: boolean }[] = [];
     let painted: { i: number; rgb: [number, number, number] }[] = [];
@@ -159,6 +166,29 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
       setBounds: () => { /* tiles are in the engine's frame: no offset */ },
       viewer: () => vref.current,
       modelId: () => modelId,
+      sectionAt: async (c) => {
+        const ids = v.indices([c.element?.guid, ...(c.evidence?.guids ?? [])]);
+        let eb: number[] | null = null;
+        const ev = c.evidence;
+        if (!(ev?.bbox && ev.z != null) && ids.length && modelId) {
+          const m = await apiFetch(`/models/${modelId}/elements/${ids[0]}`).then((r) => (r.ok ? r.json() : null));
+          eb = m?.bbox ?? null;
+        }
+        // frame the finding on the cut (its evidence box, else its element), with the neighbouring rooms in view
+        const around = ev?.bbox && ev.z != null ? new THREE.Box3(new THREE.Vector3(ev.bbox[0], ev.bbox[1], ev.z), new THREE.Vector3(ev.bbox[2], ev.bbox[3], ev.z + 2.5))
+          : eb ? new THREE.Box3(new THREE.Vector3(...eb.slice(0, 3)), new THREE.Vector3(...eb.slice(3))) : undefined;
+        const cut = cutForFinding({ evidence: c.evidence, elementBox: eb }, v.grid);
+        if (!cut || disposed) return false;
+        // the finding stays painted and selected-looking; the rest of the ship is solid so the section shows context
+        clearExtras();
+        v.loadElements(ids);
+        v.focus = null;
+        v.setPaint(new Map([...painted.map((p) => [p.i, p.rgb] as const), ...ids.map((i) => [i, STATUS_RGB[c.status] ?? [227, 146, 200]] as const)]));
+        v.setCuts([cut]);
+        v.faceCut(cut, 650, around, around ? Math.max(around.getBoundingSphere(new THREE.Sphere()).radius * 2.2, 7) : 0);
+        setSectionOpen(true);
+        return true;
+      },
     };
     (async () => {
       try {
@@ -185,11 +215,13 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
         v.setColourBy({ kind: "discipline" });
         onViewer?.(v, modelId);
         setDecks(v.deckLevels());
+        const g = await apiFetch(`/models/${modelId}/grid`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+        if (g && !disposed) v.grid = g;
         timer = window.setInterval(() => { if (labelPts.length) update(); }, 250);
         setState("ready");
       } catch (e) { if (!disposed) { setMsg(String((e as Error).message ?? e)); setState("error"); } }
     })();
-    return () => { disposed = true; apiRef.current = null; vref.current = null; window.clearInterval(timer); v.dispose(); setProps(null); setDeck(null); onViewer?.(null, null); };
+    return () => { disposed = true; apiRef.current = null; vref.current = null; window.clearInterval(timer); v.dispose(); setProps(null); setDeck(null); setSectionOpen(false); onViewer?.(null, null); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fkey = (findings ?? []).map((c) => c.check_key + c.status).join("|");
@@ -211,7 +243,9 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
         <div className="ship-tools" role="toolbar" aria-label="View tools">
           <div className="sq-seg">{VIEWS.map(([k, l]) => <button key={k} onClick={() => v.view(k)} title={`${l} view`}>{l}</button>)}</div>
           <div className="sq-seg">{(["perspective", "orthographic"] as const).map((p) => (
-            <button key={p} className={proj === p ? "is-on" : ""} onClick={() => { v.setProjection(p); setProj(p); }}>{p === "perspective" ? "Persp" : "Ortho"}</button>))}</div>
+            <button key={p} className={v.cameraState().projection === p ? "is-on" : ""} onClick={() => v.setProjection(p)}>{p === "perspective" ? "Persp" : "Ortho"}</button>))}</div>
+          <button className={`sq-btn is-sm sec-toggle${sectionOpen ? " is-on" : ""}`} aria-pressed={sectionOpen} onClick={() => setSectionOpen(!sectionOpen)}
+                  title="Section blade: cross section, longitudinal, deck plan">Section{v.cuts.length ? ` · ${v.cuts.length}` : ""}</button>
           <label className="ship-deck">Deck
             <select className="sq-input" value={deck ?? ""} onChange={(e) => setDeck(e.target.value ? Number(e.target.value) : null)} aria-label="Cut above deck">
               <option value="">All</option>
@@ -220,6 +254,7 @@ export default function ShipView({ src, findings, apiRef, onSelectElement, onVie
           <button className="sq-btn is-sm" onClick={() => apiRef.current?.resetView()}>Reset view</button>
         </div>
       )}
+      {state === "ready" && v && sectionOpen && <SectionBar v={v} modelId={v ? apiRef.current?.modelId() ?? null : null} decks={decks} onClose={() => setSectionOpen(false)} />}
       {state === "ready" && summary && (
         <div className="ship-stats mono sq-faint">{summary.elements.toLocaleString("en-US")} elements · {summary.tris >= 1e6 ? `${(summary.tris / 1e6).toFixed(1)} M` : summary.tris.toLocaleString("en-US")} triangles · {summary.bytes >= 1048576 ? `${(summary.bytes / 1048576).toFixed(0)} MB` : `${Math.ceil(summary.bytes / 1024)} KB`}</div>
       )}

@@ -98,3 +98,41 @@ Proof: `tests/test_pipeline.py` (every finding of Rev B, every product GlobalId 
 - Disciplines: 8 colour tokens `--disc-*` in `design/sonariq.css` (dark and light), show / hide / **solo** (solid,
   the rest x-ray). Colour by discipline (default), model colours, fire class of boundaries, finding status, deck, SWBS
   group (`GET /models/<id>/column/<field>` serves one metadata column).
+
+## Section blade and capping (step 6)
+
+- **Position, then cut** (`portal/src/components/SectionBar.tsx`, toolbar **Section**): cross section by frame,
+  longitudinal by offset from the centreline, deck plan by height or by deck (deck floor + 1.5 m, through doors).
+  Translucent blade in the accent colour with a bright line where it meets the hull (the slice of the loaded overview
+  tiles of structure and architecture). Live readout: `Fr 152` (or `Fr 152 + 0.30 m` off-grid) with the distance from
+  the aft end, `3.2 m PS of CL`, `Deck 5 + 1.5 m`. Drag the blade, wheel over it, arrow keys (one frame or 0.1 m;
+  Shift = 10), slider, numeric field. Nothing is clipped until **Cut**.
+- **Cut** removes the side the camera is on, eases the camera to face the cut (650 ms, none with reduced motion), caps
+  the cut faces and draws section edges. **Re-cut** after a nudge keeps the side; **Flip** keeps the other side and
+  turns the camera round; **Section view** = orthographic, facing the cut; **Clear cut**; **Add cut** (up to 3). Each
+  cut is a chip to re-open, nudge or clear.
+- **Frames** (DECISIONS M6): `GET /models/<id>/grid`. IFC: frame 0 at x = 0, spacing from `SonarIQ_Ship.frame_spacing_m`
+  (the engine's rule, so Fr numbers match finding locations; default 0.8 m). RCRV: no frame grid, so Fr = metres from
+  the aft end. `PUT /models/<id>/grid` sets frame zero and spacing per model (link under the bar), stored next to the
+  tiles, never in the IFC.
+- **Caps** (`portal/src/viewer/capping.ts`, M5): stencil method per cut and per closed group. The tiles crossing the
+  plane are drawn into the stencil only (back faces +1, front faces −1, the tile shader as is, so hidden and ghosted
+  elements count for nothing); a quad on the plane fills where the count is not 0, in the group's discipline colour,
+  clipped by the other cuts and the deck selector. Caps draw for **structure** and **architecture** only: the CAD
+  export does not guarantee closed meshes for pipes, ducts, cables and equipment, and a cap over an open mesh leaks.
+  Those groups get **section outlines** in their discipline colour instead. Caps follow the element state: x-ray
+  (everything ghosted) shows outlines only; solo shows caps on the soloed discipline if it is capped.
+- **Section edges**: plane ∩ triangles on the CPU in a worker (`section.worker.ts`, maths in `section.ts`), on the
+  tiles' own uint16 coordinates (every cut is axis-aligned), for every loaded tile crossing the cut; re-sliced when
+  streaming loads new tiles. Ink on capped groups, discipline colour on open groups, hidden / ghosted elements left out.
+  With **Shaded + edges** the screen-space element outlines also mark element boundaries inside a cap.
+- Modes combine with cuts: every pass is clipped (solid, ghost, id buffer for edges and picking). Lines + deck plan
+  reads as a GA plan; X-ray + cross section shows outlines.
+- **Section at finding** (finding card): a deck plan through the room when the finding has a plan box on a deck
+  (escape, doors, corridors), else a cross section on the frame through the element; the rest of the ship stays
+  solid, the finding painted, the camera framing it (≥ 7 m around) on the cut.
+- **Named views** (View pane → Saved views): `POST /views` `{name, model, cuts, camera, mode}`, `GET /views?model=`,
+  `DELETE /views/<id>`; stored in `data/views.json` (`SONARIQ_VIEWS`). Opening one restores cuts, camera (position,
+  target, projection, zoom) and display mode.
+- Tests: `npm test` (`section.test.ts`: frames, readouts, plane sides, near side, steps, section at finding, slicing a
+  quantised cube), `tests/test_views_api.py` (views + grid), `e2e/section.spec.mjs` (deck5 and the whole RCRV).

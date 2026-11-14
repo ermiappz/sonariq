@@ -6,6 +6,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { MeshoptDecoder } from "meshoptimizer/decoder";
+import { AXIS, faceDir, type Cut, type Grid } from "./section";
+import { CLOSED_GROUPS, Slicer, bladeMesh, capMesh, crosses, edgeLines, stencilMaterials, toPlane, type SliceOut } from "./capping";
 
 export type TileFile = { f: string; lod: number; group: string; deck: number; base: number; n: number; tris: number; min: number[]; max: number[] };
 export type TileIndex = { elements: number; box: [number[], number[]]; groups: string[]; files: TileFile[]; aliases?: Record<string, string[]>; tris: number };
@@ -98,7 +100,7 @@ export class ShipViewer {
   private ghostSrgb = this.ghostRgb.clone().convertLinearToSRGB();
 
   constructor(readonly host: HTMLElement, opts: { headers?: Record<string, string> } = {}) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", stencil: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.localClippingEnabled = true;
     this.renderer.domElement.style.display = "block";
@@ -119,13 +121,23 @@ export class ShipViewer {
     this.loader.setMeshoptDecoder(MeshoptDecoder);
     this.scene.add(this.overlay);
     this.overlay.renderOrder = 10;
+    this.overlay.add(this.sectionGroup);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
     const el = this.renderer.domElement;
     let down: [number, number] | null = null;
-    el.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; });
+    el.addEventListener("pointerdown", (e) => { down = [e.clientX, e.clientY]; this.bladeDragged = false; this.bladeDown(e); }, { capture: true });
+    el.addEventListener("pointermove", (e) => this.bladeMove(e), { capture: true });
+    el.addEventListener("pointerup", (e) => this.bladeUp(e), { capture: true });
+    el.addEventListener("wheel", (e) => {             // wheel over the blade steps it; elsewhere it zooms
+      if (!this.blade || !this.bladeObj || !this.onBladeWheel) return;
+      const quad = this.bladeObj.getObjectByName("blade");
+      if (!quad || !this.ray(e).intersectObject(quad, false).length) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      this.onBladeWheel(e.deltaY < 0 ? 1 : -1, e.shiftKey);
+    }, { capture: true, passive: false });
     el.addEventListener("pointerup", (e) => {
-      if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;      // a drag is not a click
+      if (this.bladeDragged || !down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;      // a drag is not a click
       const r = el.getBoundingClientRect();
       const i = this.pick(e.clientX - r.left, e.clientY - r.top);
       this.select(i);
@@ -180,9 +192,10 @@ export class ShipViewer {
       const m = g.scene.children[0] as THREE.Mesh;
       m.material = this.material;
       m.updateMatrix(); m.matrixAutoUpdate = false;
-      m.onBeforeRender = () => { this.material.uniforms.uBase.value = t.base; this.material.uniformsNeedUpdate = true; };
+      // the material in use (tile, or a stencil pass sharing its uniforms) gets this tile's first element index
+      m.onBeforeRender = (_r, _s, _c, _g, mat) => { this.material.uniforms.uBase.value = t.base; (mat as THREE.ShaderMaterial).uniformsNeedUpdate = true; };
       if (t.cancel || this.disposed) { m.geometry.dispose(); return; }
-      this.scene.add(m); t.mesh = m; this.stats.loaded++;
+      this.scene.add(m); t.mesh = m; this.stats.loaded++; this.tilesVersion++;
       if (t.lod) this.stats.detailTris += t.tris;
       this.dirty = true;
     }).catch(() => { /* a failed tile stays unloaded; the overview still shows the ship */ })
@@ -204,7 +217,8 @@ export class ShipViewer {
   private unloadTile(t: Tile) {
     if (t.loading) t.cancel = true;
     if (!t.mesh) return;
-    this.scene.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh = null; this.stats.loaded--;
+    this.scene.remove(t.mesh); t.mesh.geometry.dispose(); t.mesh = null; this.stats.loaded--; this.tilesVersion++;
+    this.slicer.drop(t.f);
     if (t.lod) this.stats.detailTris -= t.tris;
     this.dirty = true;
   }
@@ -232,9 +246,10 @@ export class ShipViewer {
   private loop = () => {
     if (this.disposed) return;
     requestAnimationFrame(this.loop);
+    if (this.anim) this.animate();
     if (this.controls.update()) this.dirty = true;
     if (!this.material) return;
-    if (this.frames % 15 === 0) this.stream();
+    if (this.frames % 15 === 0) { this.stream(); if (this.cuts.length && this.edgeVersion !== this.tilesVersion) this.refreshEdges(); }
     this.frames++;
     if (!this.dirty) return;
     this.render();
@@ -250,13 +265,14 @@ export class ShipViewer {
     this.material.transparent = false; this.material.depthWrite = true; this.material.uniforms.uPass.value = 0;
     r.render(this.scene, this.camera);
     r.autoClear = false;
+    this.renderCaps();
     if (this.hasGhosts) {
       this.material.transparent = true; this.material.depthWrite = false; this.material.uniforms.uPass.value = 1;
       r.render(this.scene, this.camera);
       this.material.transparent = false; this.material.depthWrite = true; this.material.uniforms.uPass.value = 0;
     }
     if (this.edgesOn) this.renderEdges();
-    if (this.overlay.children.length) {
+    if (this.overlay.children.length > 1 || this.sectionGroup.children.length) {
       this.overlay.visible = true;
       const vis = this.scene.children.filter((c) => c !== this.overlay && c.visible);
       vis.forEach((c) => { c.visible = false; });
@@ -366,6 +382,7 @@ export class ShipViewer {
     if (!this.index) return;
     const n = this.index.elements, st = this.state, base = this.base, xray = this.mode === "xray";
     const by = this.colourBy;
+    let vis = 0;
     for (let i = 0; i < n; i++) {
       const o = i * 4;
       let a: number;
@@ -380,7 +397,9 @@ export class ShipViewer {
       else if (!c && by.kind === "values" && by.rgb) c = typeof by.rgb === "function" ? by.rgb(i) : by.rgb.get(i) ?? null;
       if (c) { st[o] = c[0]; st[o + 1] = c[1]; st[o + 2] = c[2]; } else { st[o] = base[o]; st[o + 1] = base[o + 1]; st[o + 2] = base[o + 2]; }
       st[o + 3] = a;
+      vis = (vis * 31 + a) | 0;
     }
+    if (vis !== this.visHash) { this.visHash = vis; this.buildEdges(); }
     if (this.selected !== null) st.set([255, 210, 90], this.selected * 4);
     if (this.hovered !== null && this.hovered !== this.selected) {
       const o = this.hovered * 4; st[o] = Math.min(255, st[o] + 60); st[o + 1] = Math.min(255, st[o + 1] + 60); st[o + 2] = Math.min(255, st[o + 2] + 80);
@@ -456,6 +475,7 @@ export class ShipViewer {
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     this.camera = next; this.controls.object = next;
     this.fit(this.currentFocusBox ?? this.modelBox, dir);
+    this.onView?.();
   }
   currentFocusBox: THREE.Box3 | null = null;
 
@@ -465,6 +485,7 @@ export class ShipViewer {
     if (this.deckClip) this.clipPlanes.splice(this.clipPlanes.indexOf(this.deckClip), 1);
     this.deckClip = z === null ? null : new THREE.Plane(new THREE.Vector3(0, 0, -1), z);
     if (this.deckClip) this.clipPlanes.push(this.deckClip);
+    if (this.cuts.length) this.setCuts(this.cuts);       // caps and edges are clipped by the other planes: rebuild
     this.clipsChanged();
   }
   /** the shader is compiled for a number of clip planes: recompile when it changes */
@@ -479,6 +500,207 @@ export class ShipViewer {
     const decks = [...m.keys()].filter((d) => d > 0).sort((a, b) => a - b);
     const floor = (d: number) => { const a = (m.get(d) ?? []).sort((x, y) => x - y); return a[Math.floor(a.length * 0.25)] ?? 0; };
     return decks.map((d, k) => ({ deck: d, z: floor(d), top: k + 1 < decks.length ? floor(decks[k + 1]) - 0.05 : this.index.box[1][2] }));
+  }
+
+  // ---------------------------------------------------------------- section blade and cuts (spec A3, M5)
+  grid: Grid = { frame0_x: 0, spacing_m: 1 };
+  cuts: Cut[] = [];
+  blade: Cut | null = null;
+  capsOn = true;
+  accent = new THREE.Color("#4da3ff");
+  onBladeDrag: ((pos: number) => void) | null = null;
+  onBladeWheel: ((dir: 1 | -1, big: boolean) => void) | null = null;
+  onView: (() => void) | null = null;          // cuts or projection changed (toolbar / section bar re-read)
+  private cutPlanes: THREE.Plane[] = [];
+  private stencil: [THREE.ShaderMaterial, THREE.ShaderMaterial][] = [];
+  private caps: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>[] = [];
+  private capScene = new THREE.Scene();
+  private sectionGroup = new THREE.Group();
+  private bladeObj: THREE.Group | null = null;
+  private slicer = new Slicer();
+  private cutEdges: SliceOut[][] = [];
+  private edgeObjs: THREE.Object3D[] = [];
+  private tilesVersion = 0;
+  private edgeVersion = -1;
+  private edgeJob = 0;
+  private visHash = 0;
+  private bladeBusy = false;
+  private bladeAgain = false;
+  private drag: { axis: 0 | 1 | 2; grab: THREE.Vector3; pos0: number } | null = null;
+  private bladeDragged = false;
+  private anim: { t0: number; ms: number; p0: THREE.Vector3; p1: THREE.Vector3; q0: THREE.Vector3; q1: THREE.Vector3 } | null = null;
+  capStats = { groups: 0 };                     // e2e: cap passes drawn in the last frame
+
+  private clearCutObjects() {
+    for (const [a, b] of this.stencil) { a.dispose(); b.dispose(); }
+    for (const c of this.caps) { this.capScene.remove(c); c.geometry.dispose(); c.material.dispose(); }
+    this.stencil = []; this.caps = [];
+  }
+
+  /** Apply cuts (at most 3): clip planes on every pass, a stencil cap per closed group, section edges. */
+  setCuts(cuts: Cut[]) {
+    this.cuts = cuts.slice(0, 3).map((c) => ({ ...c }));
+    for (const p of this.cutPlanes) this.clipPlanes.splice(this.clipPlanes.indexOf(p), 1);
+    this.cutPlanes = this.cuts.map(toPlane);
+    this.clipPlanes.push(...this.cutPlanes);
+    this.clearCutObjects();
+    if (this.index && this.material) {
+      this.cuts.forEach((c, i) => {
+        this.stencil.push(stencilMaterials(this.material, this.cutPlanes[i]));
+        const cap = capMesh(c, this.modelBox, this.clipPlanes.filter((p) => p !== this.cutPlanes[i]));
+        this.caps.push(cap); this.capScene.add(cap);
+      });
+    }
+    this.cutEdges = this.cuts.map(() => []);
+    this.buildEdges();
+    this.clipsChanged();
+    this.refreshEdges();
+    this.onView?.();
+  }
+
+  /** The blade being positioned (nothing clipped); null hides it. */
+  setBlade(c: Cut | null) {
+    if (this.bladeObj) { this.sectionGroup.remove(this.bladeObj); this.bladeObj.traverse((o) => (o as THREE.Mesh).geometry?.dispose()); this.bladeObj = null; }
+    this.blade = c ? { ...c } : null;
+    if (c && this.index) { this.bladeObj = bladeMesh(c, this.modelBox, this.accent); this.sectionGroup.add(this.bladeObj); this.bladeOutline(); }
+    this.dirty = true;
+  }
+
+  /** Bright line where the blade meets the hull: the slice of the loaded overview tiles of closed groups. */
+  private async bladeOutline() {
+    if (this.bladeBusy) { this.bladeAgain = true; return; }
+    const c = this.blade;
+    if (!c) return;
+    this.bladeBusy = true;
+    let src = this.tiles.filter((t) => t.lod === 0 && t.mesh && CLOSED_GROUPS.has(t.group) && crosses(t.box, c));
+    if (!src.length) src = this.tiles.filter((t) => t.lod === 0 && t.mesh && crosses(t.box, c));
+    const out = await this.slicer.slice(c, src);
+    this.bladeBusy = false;
+    if (this.bladeAgain) { this.bladeAgain = false; this.bladeOutline(); return; }
+    if (this.disposed || this.blade !== c || !this.bladeObj) return;
+    const line = edgeLines(out, () => this.accent, () => true, new THREE.Vector3(), []);
+    if (line) { (line.material as THREE.LineBasicMaterial).depthTest = false; line.renderOrder = 2; this.bladeObj.add(line); }
+    this.dirty = true;
+  }
+
+  /** Slice every loaded tile crossing each cut (worker), then draw the edges. */
+  private async refreshEdges() {
+    const job = ++this.edgeJob, ver = this.tilesVersion, cuts = this.cuts;
+    const res = await Promise.all(cuts.map((c) => this.slicer.slice(c, this.tiles.filter((t) => t.mesh && crosses(t.box, c)))));
+    if (job !== this.edgeJob || this.disposed) return;
+    this.cutEdges = res; this.edgeVersion = ver;
+    this.buildEdges();
+  }
+
+  private buildEdges() {
+    for (const o of this.edgeObjs) { this.sectionGroup.remove(o); (o as THREE.LineSegments).geometry.dispose(); }
+    this.edgeObjs = [];
+    if (!this.index) return;
+    const ink = new THREE.Color(0x101216), col = new Map<string, THREE.Color>();
+    this.index.groups.forEach((g, k) => { const c = this.discRgb[k]; col.set(g, c ? new THREE.Color().setRGB(c[0] / 255, c[1] / 255, c[2] / 255, THREE.SRGBColorSpace) : ink); });
+    this.cuts.forEach((c, i) => {
+      // edges of open groups in their discipline colour (their only trace in the cut), of capped groups in ink;
+      // 2 mm towards the removed side so they sit on the cap, clipped by the other cuts
+      const d = faceDir(c), shift = new THREE.Vector3(...d).normalize().multiplyScalar(0.002);
+      const l = edgeLines(this.cutEdges[i] ?? [], (t) => (CLOSED_GROUPS.has(t.group) ? ink : col.get(t.group) ?? ink),
+        (e) => this.state[e * 4 + 3] === 255, shift, this.clipPlanes.filter((p) => p !== this.cutPlanes[i]));
+      if (l) { this.sectionGroup.add(l); this.edgeObjs.push(l); }
+    });
+    this.dirty = true;
+  }
+
+  private renderCaps() {
+    this.capStats.groups = 0;
+    if (!this.cuts.length || !this.capsOn || this.stencil.length !== this.cuts.length) return;
+    const r = this.renderer, loaded = this.tiles.filter((t) => t.mesh);
+    const ov = this.overlay.visible; this.overlay.visible = false;
+    this.caps.forEach((c) => { c.visible = false; });
+    this.cuts.forEach((c, i) => {
+      this.index.groups.forEach((g, gi) => {
+        if (!CLOSED_GROUPS.has(g) || this.discOff.has(gi)) return;
+        const set = new Set(loaded.filter((t) => t.group === g && crosses(t.box, c)));
+        if (!set.size) return;
+        for (const t of loaded) t.mesh!.visible = set.has(t);
+        for (const m of this.stencil[i]) { this.scene.overrideMaterial = m; r.render(this.scene, this.camera); }
+        this.scene.overrideMaterial = null;
+        const cap = this.caps[i], rgb = this.discRgb[gi] ?? [154, 157, 163];
+        cap.material.uniforms.uColor.value.setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
+        cap.visible = true; r.render(this.capScene, this.camera); cap.visible = false;
+        r.clearStencil();
+        this.capStats.groups++;
+      });
+    });
+    for (const t of loaded) t.mesh!.visible = true;
+    this.overlay.visible = ov;
+  }
+
+  /** Ease the camera to face a cut from its removed side, framing the section (or `around`, e.g. a finding, with
+   *  room for its neighbours: at least `minRadius`). */
+  faceCut(c: Cut, ms = 650, around?: THREE.Box3, minRadius = 0) {
+    if (!this.index) return;
+    const a = AXIS[c.kind], box = (around ?? this.modelBox).clone();
+    box.min.setComponent(a, c.pos); box.max.setComponent(a, c.pos);
+    const p0 = this.camera.position.clone(), q0 = this.controls.target.clone();
+    this.currentFocusBox = box;
+    this.fit(box, new THREE.Vector3(...faceDir(c)), minRadius);
+    const p1 = this.camera.position.clone(), q1 = this.controls.target.clone();
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || ms <= 0) return;
+    this.camera.position.copy(p0); this.controls.target.copy(q0);
+    this.anim = { t0: performance.now(), ms, p0, p1, q0, q1 };
+  }
+
+  private animate() {
+    const a = this.anim!, t = Math.min(1, (performance.now() - a.t0) / a.ms), e = 1 - (1 - t) ** 3;
+    this.camera.position.lerpVectors(a.p0, a.p1, e); this.controls.target.lerpVectors(a.q0, a.q1, e);
+    this.camera.lookAt(this.controls.target);
+    if (t >= 1) this.anim = null;
+    this.dirty = true; this.onChange?.();
+  }
+
+  /** Camera as a plain record (named views). */
+  cameraState() {
+    return { position: this.camera.position.toArray(), target: this.controls.target.toArray(),
+      projection: this.camera === this.ortho ? "orthographic" as const : "perspective" as const, zoom: this.camera.zoom };
+  }
+  setCameraState(s: { position: number[]; target: number[]; projection: "perspective" | "orthographic"; zoom: number }) {
+    this.setProjection(s.projection);
+    this.anim = null;
+    this.camera.position.set(s.position[0], s.position[1], s.position[2]); this.controls.target.set(s.target[0], s.target[1], s.target[2]);
+    this.camera.zoom = s.zoom; this.camera.updateProjectionMatrix();
+    this.controls.update(); this.dirty = true; this.onView?.();
+  }
+
+  private ray(e: { clientX: number; clientY: number }) {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), this.camera);
+    return rc;
+  }
+  private bladeDown(e: PointerEvent) {
+    if (!this.blade || !this.bladeObj || e.button !== 0) return;
+    const quad = this.bladeObj.getObjectByName("blade");
+    const hit = quad && this.ray(e).intersectObject(quad, false)[0];
+    if (!hit) return;
+    this.controls.enabled = false;
+    this.drag = { axis: AXIS[this.blade.kind], grab: hit.point.clone(), pos0: this.blade.pos };
+    this.renderer.domElement.setPointerCapture(e.pointerId);
+  }
+  private bladeMove(e: PointerEvent) {
+    if (!this.drag) return;
+    // drag on the plane that holds the cut axis and faces the camera best
+    const axis = new THREE.Vector3().setComponent(this.drag.axis, 1);
+    const view = this.camera.getWorldDirection(new THREE.Vector3());
+    const n = view.clone().addScaledVector(axis, -view.dot(axis));
+    if (n.lengthSq() < 1e-6) return;                       // looking along the axis: use the slider or arrows
+    const p = this.ray(e).ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(n.normalize(), this.drag.grab), new THREE.Vector3());
+    if (!p) return;
+    this.bladeDragged = true;
+    this.onBladeDrag?.(this.drag.pos0 + p.getComponent(this.drag.axis) - this.drag.grab.getComponent(this.drag.axis));
+  }
+  private bladeUp(e: PointerEvent) {
+    if (!this.drag) return;
+    this.drag = null; this.controls.enabled = true;
+    if (this.renderer.domElement.hasPointerCapture(e.pointerId)) this.renderer.domElement.releasePointerCapture(e.pointerId);
   }
 
   setTheme(bg: string, ghost: string, edge?: [number, number, number, number], ink?: string) {
@@ -503,6 +725,7 @@ export class ShipViewer {
     this.ro.disconnect();
     this.controls.dispose();
     for (const t of this.tiles) if (t.mesh) t.mesh.geometry.dispose();
+    this.slicer.dispose(); this.clearCutObjects();
     this.tex?.dispose(); this.material?.dispose(); this.pickTarget.dispose(); this.idTarget.dispose(); this.edgeMat.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../api";
 import type { DisplayMode, ShipViewer } from "../viewer/ShipViewer";
+import type { Cut } from "../viewer/section";
+
+type SavedView = { id: string; name: string; model: string; cuts: Cut[]; mode: DisplayMode; time: string;
+  camera: { position: number[]; target: number[]; projection: "perspective" | "orthographic"; zoom: number } };
 
 const MODES: [DisplayMode, string, string][] = [
   ["shaded", "Shaded", "Flat-lit faces"], ["edges", "Shaded + edges", "Faces with element outlines (default)"],
@@ -24,6 +28,22 @@ export default function ViewPane({ v, modelId }: { v: ShipViewer | null; modelId
   const [solo, setSolo] = useState<number | null>(v?.solo ?? null);
   const [by, setBy] = useState<ColourBy>("discipline");
   const [legend, setLegend] = useState<[string, [number, number, number]][]>([]);
+  const [views, setViews] = useState<SavedView[]>([]);
+  const [vname, setVname] = useState("");
+  const [vmsg, setVmsg] = useState("");
+  const loadViews = () => { if (modelId) apiFetch(`/views?model=${modelId}`).then((r) => r.json()).then((d) => setViews(d.views ?? [])).catch(() => setViews([])); };
+  useEffect(loadViews, [modelId]);
+  const saveView = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!v || !modelId || !vname.trim()) return;
+    const r = await apiFetch("/views", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: vname.trim(), model: modelId, cuts: v.cuts, camera: v.cameraState(), mode: v.mode }) });
+    const d = await r.json();
+    if (!r.ok) { setVmsg(`Not saved: ${d.detail ?? r.statusText}`); return; }
+    setVname(""); setVmsg(`Saved "${d.name}".`); loadViews();
+  };
+  const openView = (sv: SavedView) => { if (!v) return; setMode(sv.mode); v.setCuts(sv.cuts); v.setCameraState(sv.camera); setVmsg(`Opened "${sv.name}".`); };
+  const deleteView = async (sv: SavedView) => { await apiFetch(`/views/${sv.id}`, { method: "DELETE" }); loadViews(); };
   const counts = useMemo(() => {
     const c: Record<number, number> = {};
     if (v) for (let i = 0; i < v.disc.length; i++) if (v.base[i * 4 + 3] > 0) c[v.disc[i]] = (c[v.disc[i]] ?? 0) + 1;
@@ -82,6 +102,20 @@ export default function ViewPane({ v, modelId }: { v: ShipViewer | null; modelId
         <select className="sq-input" aria-label="Colour by" value={by} onChange={(e) => setBy(e.target.value as ColourBy)}>
           {COLOUR.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
         {legend.length > 0 && <div className="vp-legend">{legend.map(([l, c]) => <span key={l}><i style={{ background: rgb(c) }} />{l}</span>)}</div>}
+      </section>
+      <section><div className="sq-label">Saved views</div>
+        <form className="flex gap-1" onSubmit={saveView}>
+          <input className="sq-input" style={{ flex: 1 }} maxLength={80} placeholder="Name this view" aria-label="View name" value={vname} onChange={(e) => setVname(e.target.value)} />
+          <button className="sq-btn is-sm" disabled={!vname.trim() || !modelId}>Save view</button>
+        </form>
+        <div className="sq-faint" style={{ fontSize: 11 }}>Keeps the cuts, the camera and the display mode.</div>
+        {vmsg && <div className="sq-faint" style={{ fontSize: 12 }} role="status">{vmsg}</div>}
+        {views.map((sv) => (
+          <div key={sv.id} className="vp-view">
+            <button className="studio-link" onClick={() => openView(sv)} title="Open this view"><b>{sv.name}</b></button>
+            <span className="mono sq-faint">{sv.cuts.length ? `${sv.cuts.length} cut${sv.cuts.length > 1 ? "s" : ""}` : "no cut"} · {MODES.find(([k]) => k === sv.mode)?.[1]} · {sv.camera.projection === "orthographic" ? "ortho" : "persp"}</span>
+            <button className="studio-link" onClick={() => deleteView(sv)} aria-label={`Delete view ${sv.name}`}>×</button>
+          </div>))}
       </section>
     </div>
   );

@@ -131,6 +131,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
                       <div className="flex gap-1" style={{ flexWrap: "wrap", marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
                         <button className="sq-btn is-sm is-primary" onClick={() => view.current?.zoom()}>Zoom to</button>
                         <button className="sq-btn is-sm" onClick={() => view.current?.isolate(c)}>Isolate</button>
+                        <button className="sq-btn is-sm" onClick={() => view.current?.sectionAt(c)} title="Cut through this finding and face the cut">Section at finding</button>
                         <button className="sq-btn is-sm" onClick={() => { view.current?.showAll(); setSel(null); }}>Show all</button>
                         {!inc && <button className="sq-btn is-sm studio-warn" onClick={() => setWhy({ key: c.check_key, text: "" })}>Incorrect finding</button>}
                         <button className="sq-btn is-sm" onClick={() => onOpenFinding(c)}>Thread →</button>

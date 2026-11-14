@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import hashlib
 import json
 import re
+from typing import Literal
 
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
@@ -320,6 +321,7 @@ def runs_ifc(rid: str):
     return FileResponse(p, media_type="application/x-step", filename=re.sub(r"^[0-9a-f]{12}_", "", p.name))
 
 
+
 @app.get("/model-file")
 def model_file(revision: str | None = None, path: str | None = None):
     """A model opened in the web Studio before Analyse: a demo revision or an uploaded file (only files this engine owns)."""
@@ -332,6 +334,7 @@ def model_file(revision: str | None = None, path: str | None = None):
 # ------------------------------------------------------------------ reports (a run exported from FreeCAD, frozen) + task board
 REPORTS = Path(_os.getenv("SONARIQ_REPORTS", str(DATA / "reports.json")))
 TASKS = Path(_os.getenv("SONARIQ_TASKS", str(DATA / "tasks.json")))
+VIEWS = Path(_os.getenv("SONARIQ_VIEWS", str(DATA / "views.json")))
 
 
 def _jload(p: Path, default):
@@ -377,6 +380,82 @@ def reports_create(req: ReportReq):
     reps.append(rep)
     _jsave(REPORTS, reps)
     return rep
+
+
+class CutModel(BaseModel):
+    kind: Literal["cross", "long", "deck"]
+    pos: float                    # metres along x (cross), y (long) or z (deck), engine frame
+    flip: bool = False
+
+
+class ViewReq(BaseModel):
+    name: str
+    model: str                    # model id (GET /models/<id>)
+    cuts: list[CutModel] = []
+    camera: dict                  # {position: [x,y,z], target: [x,y,z], projection: perspective|orthographic, zoom}
+    mode: str = "edges"
+
+
+_MODES = {"shaded", "edges", "realistic", "xray", "lines", "wireframe"}
+
+
+def _vec(v, n=3) -> list[float]:
+    import math
+    if not isinstance(v, list) or len(v) != n or not all(isinstance(x, (int, float)) and math.isfinite(x) for x in v):
+        raise HTTPException(422, "camera position and target must be three finite numbers")
+    return [float(x) for x in v]
+
+
+@app.get("/views")
+def views_list(model: str | None = None):
+    """Named views (spec A3): cuts + camera + display mode, per model."""
+    vs = _jload(VIEWS, [])
+    return {"views": [v for v in vs if model is None or v["model"] == model]}
+
+
+@app.post("/views")
+def views_create(req: ViewReq):
+    import datetime as _dt
+    import math
+    name = req.name.strip()
+    if not name or len(name) > 80:
+        raise HTTPException(422, "name must be 1-80 characters")
+    if not re.fullmatch(r"rcrv|[0-9a-f]{16}", req.model):
+        raise HTTPException(422, "unknown model id")
+    if len(req.cuts) > 3:
+        raise HTTPException(422, "at most 3 cuts")
+    if any(not math.isfinite(c.pos) or abs(c.pos) > 10000 for c in req.cuts):
+        raise HTTPException(422, "cut position out of range")
+    if req.mode not in _MODES:
+        raise HTTPException(422, f"mode must be one of {sorted(_MODES)}")
+    cam = req.camera
+    proj = cam.get("projection", "perspective")
+    if proj not in ("perspective", "orthographic"):
+        raise HTTPException(422, "projection must be perspective or orthographic")
+    zoom = cam.get("zoom", 1)
+    if not isinstance(zoom, (int, float)) or not 0 < zoom < 1e4:
+        raise HTTPException(422, "zoom out of range")
+    vs = _jload(VIEWS, [])
+    if len(vs) >= 500:
+        raise HTTPException(409, "too many saved views; delete some first")
+    n = max([int(v["id"][2:]) for v in vs] + [0]) + 1
+    v = {"id": f"V-{n:03d}", "name": name, "model": req.model, "cuts": [c.model_dump() for c in req.cuts],
+         "camera": {"position": _vec(cam.get("position")), "target": _vec(cam.get("target")), "projection": proj,
+                    "zoom": float(zoom)},
+         "mode": req.mode, "time": _dt.datetime.now().isoformat(timespec="seconds")}
+    vs.append(v)
+    _jsave(VIEWS, vs)
+    return v
+
+
+@app.delete("/views/{vid}")
+def views_delete(vid: str):
+    vs = _jload(VIEWS, [])
+    keep = [v for v in vs if v["id"] != vid]
+    if len(keep) == len(vs):
+        raise HTTPException(404, "no such view")
+    _jsave(VIEWS, keep)
+    return {"deleted": vid}
 
 
 class TaskReq(BaseModel):
