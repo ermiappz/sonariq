@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import re
 import time
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
 
 from .checks import CHECKS, CheckResult, evidence_bbox
 from .model import Model
-from .rules import DISCIPLINES, PACK_GROUPS, Rule, expand_packs, load_rules
+from .rules import DISCIPLINES, PACK_GROUPS, SOURCES, Rule, expand_packs, load_rules
 
 STATUS_ORDER = ["fail", "warn", "unk", "pass", "dor"]
 STATUS_WORD = {"fail": "Fail", "warn": "Warning", "unk": "Cannot verify", "pass": "Pass", "dor": "Dormant",
@@ -25,6 +26,8 @@ class Run:
     groups: list[str]
     scope: str
     ids: dict[str, str] = field(default_factory=dict)   # check key -> finding id
+    not_run: list[dict] = field(default_factory=list)   # rules that could not run: draft, or the model lacks the data
+    readiness: dict | None = None
 
     def counts(self) -> dict[str, int]:
         c = {s: 0 for s in STATUS_ORDER}
@@ -109,10 +112,20 @@ def analyse(model: Model, groups: list[str] | None = None, scope: str = "deck:5"
     ctx: dict[str, Any] = {}
     results: list[CheckResult] = []
     na: list[dict] = []
+    from .readiness import readiness
+    rd = readiness(model)
+    not_run: list[dict] = []
     for rule in rules:
         if rule.pack not in packs:
             continue
         ok, why = applicable(rule, model)
+        pk = rd["packs"].get(rule.pack, {})
+        if ok and (not rule.runs or pk.get("state") == "not_possible"):
+            # shown as Cannot verify with the reason; never a verdict on an element
+            not_run.append({"rule": rule.id, "title": rule.title, "ref": rule.ref, "status": "unk", "pack": rule.pack,
+                            "group": rule.group, "reason": rule.not_run_reason if not rule.runs else pk["reason"],
+                            "kind": "draft" if not rule.runs else "no_data"})
+            continue
         if not ok:
             na.append({"rule": rule.id, "title": rule.title, "ref": rule.ref, "reason": why, "status": "na"})
             continue
@@ -127,7 +140,7 @@ def analyse(model: Model, groups: list[str] | None = None, scope: str = "deck:5"
                 results.append(r)
     results.sort(key=lambda r: (r.rule.id, r.element.name if r.element else ""))
     run = Run(revision=model.revision, results=results, na=na, duration_s=time.perf_counter() - t0,
-              groups=list(groups or ["fls", "acc", "dnv"]), scope=scope)
+              groups=list(groups or ["fls", "acc", "dnv"]), scope=scope, not_run=not_run, readiness=rd)
     assign_ids(run)
     return run
 
@@ -150,6 +163,39 @@ def assign_ids(run: Run) -> None:
 
 
 # ---------------------------------------------------------------- serialisation
+# check function -> (measured, required) provenance: kind + what is read. "derived" = SonarIQ computes it from the
+# named inputs; "model" = a property as the file states it; "public" = the rule's threshold from its source.
+PROV = {
+    "door_fire_class": (("model", "Pset_DoorCommon.FireRating"), ("model", "host wall Pset_WallCommon.FireRating")),
+    "window_fire_class": (("model", "Pset_WindowCommon.FireRating"), ("model", "host wall Pset_WallCommon.FireRating")),
+    "door_self_closing": (("model", "Pset_DoorCommon.SelfClosing"), ("public", None)),
+    "mvz_bulkhead_class": (("model", "Pset_WallCommon.FireRating"), ("public", None)),
+    "stair_enclosure_class": (("model", "Pset_WallCommon.FireRating"), ("public", None)),
+    "mvz_length": (("derived", "extent of the zone's space footprints"), ("public", None)),
+    "stair_width_formula": (("model", "IfcStairFlight clear width (geometry)"), ("derived", "FSS formula from persons per deck")),
+    "stair_min_width": (("model", "IfcStairFlight clear width (geometry)"), ("public", None)),
+    "dead_end": (("derived", "corridor depth from the space footprint and the corridor graph"), ("derived", "corridor clear width")),
+    "corridor_width": (("derived", "short side of the corridor space footprint"), ("public", None)),
+    "door_clear_width": (("model", "IfcDoor.OverallWidth"), ("public", None)),
+    "duct_damper": (("model", "IfcDamper near the crossing"), ("public", None)),
+    "plate_thickness": (("derived", "vertical extent of the IfcPlate solid"), ("derived", "t0 formula with ship length")),
+}
+
+
+def _with_prov(v: dict | None, kind_prop, r: CheckResult, model: Model | None, which: str) -> dict | None:
+    if not v or v.get("provenance") or not kind_prop:
+        return v
+    kind, prop = kind_prop
+    if kind == "public":
+        p = {"kind": "public", "source": r.rule.ref, "verified_against_official_text": r.rule.verified_against_official_text}
+    else:
+        p = {"kind": kind, "file": Path(model.path).name if model and model.path else None,
+             "element": r.element.guid if r.element else None, "prop": prop}
+        if kind == "derived":
+            p["inputs"] = sorted(r.depends_on)[:12]
+    return {**v, "provenance": p}
+
+
 def check_dict(r: CheckResult, run: Run, model: Model | None = None) -> dict:
     e = r.element
     d = {
@@ -163,6 +209,8 @@ def check_dict(r: CheckResult, run: Run, model: Model | None = None) -> dict:
         "clause_text": r.rule.clause_text,
         "reading": r.rule.reading,
         "rule_status": r.rule.status,
+        "verified_against_official_text": r.rule.verified_against_official_text,
+        "source_group": SOURCES.get(r.rule.source, r.rule.source),
         "to_verify": r.rule.status != "verified",
         "pack": r.rule.pack,
         "group": r.rule.group,
@@ -173,8 +221,8 @@ def check_dict(r: CheckResult, run: Run, model: Model | None = None) -> dict:
         "glyph": STATUS_GLYPH[r.status],
         "element": None if e is None else {"guid": e.guid, "name": e.name, "ifc_class": e.ifc_class},
         "location": r.location,
-        "required": r.required,
-        "measured": r.measured,
+        "required": _with_prov(r.required, PROV.get(r.rule.check, (None, None))[1], r, model, "required"),
+        "measured": _with_prov(r.measured, PROV.get(r.rule.check, (None, None))[0], r, model, "measured"),
         "margin": r.margin,
         "summary": r.summary,
         "formula": r.formula,
@@ -196,9 +244,16 @@ def check_dict(r: CheckResult, run: Run, model: Model | None = None) -> dict:
     return d
 
 
+COMPACT_OVER = 2000   # whole-ship runs: passes as compact rows, findings in full (B6; a 36k-check run is 70 MB in full)
+
+
 def run_dict(run: Run, model: Model | None = None, include_pass: bool = True) -> dict:
-    checks = [check_dict(r, run, model) for r in run.results]
+    compact = len(run.results) > COMPACT_OVER
+    keep = [r for r in run.results if not compact or r.status != "pass"]
+    checks = [check_dict(r, run, model) for r in keep]
     findings = [c for c in checks if c["status"] in ("fail", "warn", "unk")]
+    passes = [[r.rule.id, r.element.guid if r.element else None, r.element.name if r.element else None,
+               (r.location or {}).get("deck"), r.summary] for r in run.results if compact and r.status == "pass"]
     by_group: dict[str, dict] = {}
     for g in run.groups:
         meta = PACK_GROUPS.get(g, {"label": g, "packs": [g]})
@@ -222,8 +277,28 @@ def run_dict(run: Run, model: Model | None = None, include_pass: bool = True) ->
         "by_group": by_group,
         "findings": findings,
         "checks": checks if include_pass else findings,
+        "compact": compact,
+        "passes": passes,              # compact: [rule, element guid, element name, deck, summary] per pass
+        "by_rule": _by_rule(run),
         "not_applicable": run.na,
+        "not_run": run.not_run,
+        "readiness": run.readiness,
+        "rules_verified_against_official_text": _verified_count(run),
     }
+
+
+def _by_rule(run: Run) -> dict:
+    out: dict[str, dict] = {}
+    for r in run.results:
+        d = out.setdefault(r.rule.id, {"title": r.rule.title, "source_group": SOURCES.get(r.rule.source, r.rule.source),
+                                       "ref": r.rule.ref, "group": r.rule.group, "counts": {s: 0 for s in STATUS_ORDER}})
+        d["counts"][r.status] += 1
+    return out
+
+
+def _verified_count(run: Run) -> dict:
+    rs = [r for r in load_rules() if r.pack in expand_packs(run.groups)]
+    return {"verified": sum(1 for r in rs if r.verified_against_official_text), "total": len(rs)}
 
 
 # ---------------------------------------------------------------- impact analysis (the ping)

@@ -41,3 +41,4 @@ data/out/
 *.bcfzip
 # web tiles and stored originals (rebuilt from the source files)
 data/models/
+data/readiness/

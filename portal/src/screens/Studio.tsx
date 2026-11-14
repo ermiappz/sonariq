@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, apiFetch, ORDER, WORD, useIncorrect, type Check, type Run, type RunMeta } from "../api";
 import ShipView, { type ModelSrc, type View } from "../components/ShipView";
+import { AccuracyBanner, NotRun, ReadinessCard, SourceChips } from "../components/Evidence";
 import { Pill } from "../components/ui";
 import { DISC } from "./Board";
 import { valueLine } from "./Inbox";
@@ -13,15 +14,15 @@ const DEMOS = [
   { rev: "B", file: "deck5_revB.ifc", note: "OR-117 · 4 cabins added" },
   { rev: "Bfix2", file: "deck5_revB_fix2.ifc", note: "fix 2 · one berth each" },
 ];
-const DISCS: { code: string; pack: string | null; color: string; sets: string }[] = [
-  { code: "FIRE", pack: "fls", color: "#e27dff", sets: "SOLAS II-2 ✓ · FSS Code ✓" },
-  { code: "HULL", pack: "dnv", color: "#5c9dff", sets: "DNV Pt.3 · To verify" },
-  { code: "INT", pack: "acc", color: "#b98cff", sets: "Accessibility (PVAG/ADA) ✓" },
-  { code: "HVAC", pack: "hvac", color: "#3fd0e6", sets: "SOLAS II-2/9.7 dampers ✓" },
-  { code: "GA", pack: null, color: "#c3c9d4", sets: "Coming" },
-  { code: "PIPE", pack: null, color: "#c4e35c", sets: "Coming" },
-  { code: "ELEC", pack: null, color: "#82dd8a", sets: "Coming" },
-  { code: "MACH", pack: null, color: "#a3a3ff", sets: "Coming" },
+const DISCS: { code: string; packs: string[]; color: string; sets: string }[] = [
+  { code: "FIRE", packs: ["fls"], color: "#e27dff", sets: "SOLAS II-2 ✓ · FSS Code ✓" },
+  { code: "HULL", packs: ["dnv", "sts"], color: "#5c9dff", sets: "DNV Pt.3 · IACS UR W11 / S6 · data quality · To verify" },
+  { code: "INT", packs: ["acc"], color: "#b98cff", sets: "Accessibility (PVAG/ADA) ✓" },
+  { code: "HVAC", packs: ["hvac"], color: "#3fd0e6", sets: "SOLAS II-2/9.7 dampers ✓" },
+  { code: "GA", packs: [], color: "#c3c9d4", sets: "Coming" },
+  { code: "PIPE", packs: ["sts"], color: "#c4e35c", sets: "SOLAS II-2/4.2.2.5.1 oil fuel pipes · To verify" },
+  { code: "ELEC", packs: [], color: "#82dd8a", sets: "Coming" },
+  { code: "MACH", packs: [], color: "#a3a3ff", sets: "Coming" },
 ];
 const MAX_MB = 60;
 
@@ -47,7 +48,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   const fileIn = useRef<HTMLInputElement>(null);
   useEffect(() => { if (shown) setSetup(false); }, [shown?.meta.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const packs = DISCS.filter((d) => d.pack && discs.includes(d.code)).map((d) => d.pack!) as string[];
+  const packs = [...new Set(DISCS.filter((d) => discs.includes(d.code)).flatMap((d) => d.packs))];
   // the viewer shows the model as soon as it is opened; after Analyse it keeps that file (same camera) when the run
   // read the same file unedited, otherwise it shows exactly the run's file
   const targetSrc: ModelSrc = target ? (target.kind === "rcrv" ? { source: "rcrv" } : target.kind === "demo" ? { revision: target.rev }
@@ -88,10 +89,11 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   };
   const analyse = async () => {
     const t = target ?? (shown ? { kind: "demo", rev: shown.meta.revision, name: shown.meta.file } as Target : null);
-    if (!t || !packs.length || t.kind === "rcrv") return;
+    if (!t || !packs.length) return;
     setBusy(true); setMsg(""); setSel(null); view.current?.showAll();
     try {
-      const body = t.kind === "demo" ? { revision: t.rev, scope, packs } : { revision: t.path ? null : t.rev, path: t.path, scope, packs };
+      const body = t.kind === "rcrv" ? { revision: "RCRV", scope: "whole", packs }
+        : t.kind === "demo" ? { revision: t.rev, scope, packs } : { revision: t.path ? null : t.rev, path: t.path, scope, packs };
       const r = await apiFetch("/analyse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail ?? r.statusText);
@@ -126,7 +128,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
         {msg && <div className="sq-banner" style={{ margin: "0 12px 8px" }}>{msg}</div>}
         {!setup && shown && (
           <div className="studio-sum">
-            <span style={{ flex: 1 }}>{scope === "whole" ? "Whole model" : "Deck 5"} · {discs.filter((d) => DISCS.find((x) => x.code === d)?.pack).join(" ")}<br />
+            <span style={{ flex: 1 }}>{shown.run.scope === "whole" ? "Whole model" : "Deck 5"} · {discs.filter((d) => DISCS.find((x) => x.code === d)?.packs.length).join(" ")}<br />
               <span className="mono sq-faint" style={{ fontSize: 12 }}>Rev {shown.meta.revision} · {shown.run.total_checks} checks · {shown.meta.time.slice(11, 16)}{shown.meta.scope_note ? " · whole model" : ""}</span></span>
             <button className="sq-btn is-sm" onClick={() => setSetup(true)}>Edit</button>
           </div>
@@ -140,12 +142,13 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
                   <span className="mono">{d.file}</span><span className="sq-faint">{d.note}</span>
                 </button>
               ))}
-              <button className={`studio-model${target?.kind === "rcrv" ? " is-on" : ""}`} onClick={() => { setTarget({ kind: "rcrv", name: "RCRV whole ship" }); setMsg("RCRV opens as the whole ship; its rule checks arrive with the structure & systems pack."); }}>
+              <button className={`studio-model${target?.kind === "rcrv" ? " is-on" : ""}`} onClick={() => { setTarget({ kind: "rcrv", name: "RCRV whole ship" }); setMsg(""); setDiscs((d) => (d.includes("HULL") ? d : [...d, "HULL"])); }}>
                 <span className="mono">RCRV whole ship</span><span className="sq-faint">research vessel · 90,331 parts</span>
               </button>
               <button className="studio-model" onClick={() => fileIn.current?.click()}><span>Upload IFC…</span><span className="sq-faint">IFC4 · up to {MAX_MB} MB</span></button>
               <input ref={fileIn} type="file" accept=".ifc" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
             </div>
+            {target && <div style={{ marginTop: 10 }}><ReadinessCard src={target.kind === "rcrv" ? { revision: "RCRV" } : target.kind === "demo" ? { revision: target.rev } : target.path ? { path: target.path } : { revision: target.rev ?? "A" }} /></div>}
             <div className="sq-label" style={{ marginTop: 10 }}>Scope</div>
             <div className="sq-seg">{([["deck:5", "Deck 5"], ["whole", "Whole model"]] as const).map(([k, l]) => <button key={k} className={scope === k ? "is-on" : ""} onClick={() => setScope(k)}>{l}</button>)}</div>
             <div className="sq-label" style={{ marginTop: 10 }}>Disciplines</div>
@@ -159,7 +162,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
             <div className="sq-card studio-sets">
               <div className="sq-faint" style={{ fontSize: 12 }}>Rule sets selected automatically</div>
               {DISCS.filter((d) => discs.includes(d.code)).map((d) => (
-                <div key={d.code} className="flex gap-2" style={{ fontSize: 12 }}><b className="mono" style={{ color: d.color, width: 40 }}>{d.code}</b><span className={d.pack ? "" : "sq-faint"}>{d.sets}</span></div>
+                <div key={d.code} className="flex gap-2" style={{ fontSize: 12 }}><b className="mono" style={{ color: d.color, width: 40 }}>{d.code}</b><span className={d.packs.length ? "" : "sq-faint"}>{d.sets}</span></div>
               ))}
               {!packs.length && <div className="sq-muted" style={{ fontSize: 12 }}>Pick a discipline with rule sets.</div>}
             </div>
@@ -167,6 +170,9 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
         )}
         {shown && !target && (
           <>
+            <AccuracyBanner revision={shown.meta.revision} verified={shown.run.rules_verified_against_official_text} />
+            {shown.run.readiness && <details className="ready-details"><summary>Data readiness</summary><ReadinessCard src={null} given={shown.run.readiness} /></details>}
+            <NotRun rows={shown.run.not_run ?? []} />
             <div className="flex gap-1 studio-chips">
               {(["fail", "warn", "unk", "pass", "dor"] as const).map((s) => (
                 <button key={s} className={`ib-chip${status === s ? " is-on" : ""}`} onClick={() => setStatus(status === s ? null : s)}>
@@ -187,6 +193,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
                     <div style={{ fontWeight: 600 }}>{c.title}</div>
                     <div className="mono sq-faint" style={{ fontSize: 11 }}>{[c.element?.name && !c.location.label.includes(c.element.name) ? c.element.name : "", c.location.label, `${c.source.startsWith("SOLAS") ? "SOLAS" : c.source} ${c.clause}`].filter(Boolean).join(" · ")}</div>
                     <div className="mono" style={{ fontSize: 11 }}>{valueLine(c)}</div>
+                    <SourceChips c={c} />
                     {inc && <div className="inc-why flex items-center gap-2"><span style={{ flex: 1 }}>Marked incorrect · {inc.reason} · not exported</span>
                       <button className="studio-link" onClick={(e) => { e.stopPropagation(); undo(c.check_key); }}>Undo</button></div>}
                     {on && (

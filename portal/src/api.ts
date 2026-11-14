@@ -1,6 +1,10 @@
 // Thin client for the SonarIQ engine (vite proxies /api -> http://127.0.0.1:8765). The UI never computes a verdict.
 export type Status = "fail" | "warn" | "unk" | "pass" | "dor" | "na" | "acc";
-export interface Val { value: number | string | boolean | null; unit: string; op?: string; alt?: { value: number; unit: string } }
+export interface Provenance { kind: "model" | "derived" | "public" | "estimated" | "user" | "confirmed"; file?: string | null; element?: string | null;
+  source_id?: string | null; pset?: string; prop?: string; raw?: unknown; inputs?: string[]; source?: string; by?: string; date?: string;
+  verified_against_official_text?: boolean }
+export interface Val { value: number | string | boolean | null; unit: string; op?: string; alt?: { value: number; unit: string }; provenance?: Provenance }
+export interface Readiness { revision: string; inventory: Record<string, any>; packs: Record<string, { state: "ready" | "partial" | "not_possible"; reason: string; n?: number; group: string; group_label: string }> }
 export interface Check {
   id: string | null; check_key: string; rule: string; title: string; source: string; clause: string; ref: string;
   clause_text: string; reading: string; rule_status: string; to_verify: boolean; pack: string; group: string;
@@ -11,12 +15,17 @@ export interface Check {
   formula: { text: string; worked: string; inputs: { name: string; deck: string; value: number; weight: number; source: string }[] } | null;
   method: string; missing: string[]; revision: string; decision?: Decision;
   evidence?: { guids: string[]; bbox: number[] | null; z: number | null };
+  verified_against_official_text?: boolean; source_group?: string; extra?: Record<string, any>;
 }
 export interface Decision { finding: string; kind: string; reason: string; by: string; to: string; time: string; revision: string; approved: boolean }
 export interface Run {
-  revision: string; total_checks: number; duration_s: number; counts: Record<string, number>;
+  revision: string; scope?: string; total_checks: number; duration_s: number; counts: Record<string, number>;
   by_group: Record<string, { label: string; checks: number; counts: Record<string, number>; pack_status: string; short: string }>;
   findings: Check[]; checks: Check[]; not_applicable: { rule: string; title: string; ref: string; reason: string }[];
+  compact?: boolean; passes?: [string, string | null, string | null, string | null, string][];
+  by_rule?: Record<string, { title: string; source_group: string; ref: string; group: string; counts: Record<string, number> }>;
+  not_run?: { rule: string; title: string; ref: string; reason: string; kind: string; group: string }[];
+  readiness?: Readiness | null; rules_verified_against_official_text?: { verified: number; total: number };
 }
 
 // The portal is served at / (live) or /next/ (staging); the API sits next to it. The demo key lets the browser reach

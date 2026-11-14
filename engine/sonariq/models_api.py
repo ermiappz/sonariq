@@ -130,6 +130,8 @@ def prepare(req: PrepareReq):
         return {**ensure("rcrv", "rcrv"), "id": "rcrv"}
     if req.run:
         d = api._load_run(req.run)
+        if d.get("revision") == "RCRV":
+            return prepare(PrepareReq(source="rcrv"))
         p = api._run_file(d)
     elif req.revision:
         p = api.REVISIONS.get(req.revision)

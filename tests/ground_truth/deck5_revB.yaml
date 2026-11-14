@@ -1,0 +1,18 @@
+# Deck 5 Rev B (owner change OR-117, +4 cabins): the golden path. Checked by hand: Stair 3B 1,350 mm against
+# FSS W = 1,380 mm with the new berths in MVZ 4; the shortened cross corridor COR-5-148-P is 4.2 m deep and 1.2 m wide
+# with escape one way; COR-5-152-S is pinched to 850 mm; F-01, U-01 and W-01 carry over from Rev A.
+scenario: deck5_revB
+revision: B
+packs: [fls, acc, dnv]
+scope: "deck:5"
+expected_findings:
+  - {id: F-01, rule: R-FLS-01, status: fail, element: '3QbrbyQ4bITxRQ$S2A0R5M', name: FD-5-165P, value: "A-0 in A-60"}
+  - {id: F-07, rule: R-FLS-03, status: fail, element: '2P97g3lBjP7h6yTv9OwOUE', name: Stair 3B, value: "1,350 mm < 1,380 mm"}
+  - {id: F-08, rule: R-FLS-02, status: fail, element: '2tN08FhY5G8hO_7LqQ9t5z', name: COR-5-148-P, value: "depth 4.2 m > width 1.2 m"}
+  - {id: F-09, rule: R-FLS-04, status: fail, element: '2y9ZtcBKjQFBti02X9WcIg', name: COR-5-152-S, value: "850 mm < 900 mm"}
+  - {id: U-01, rule: R-FLS-01, status: unk, element: '0IItU3WRTI9hSBxE3CMDPK', name: D-5-171-S, value: "FireRating missing"}
+  - {id: W-01, rule: R-ACC-01, status: warn, element: '2y9ZtcBKjQFBti02X9WcIg', name: COR-5-152-S, value: "850 mm < 915 mm"}
+expected_passes:
+  - {rule: R-FLS-01, element: '1Q9JXkjmbUweqRO16JoB$m', name: FD-5-165S, why: "A-60 door in the A-60 bulkhead"}
+  - {rule: R-FLS-03, element: '2vRS1v3LrI$gnpAgAwU5an', name: Stair 3A, why: "1,400 mm against 1,210 mm"}
+  - {rule: R-FLS-04, element: '2tN08FhY5G8hO_7LqQ9t5z', name: COR-5-148-P, why: "1,200 mm against 900 mm"}

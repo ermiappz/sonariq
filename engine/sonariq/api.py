@@ -164,12 +164,13 @@ def _save_run(d: dict, req: "AnalyseReq", source: str) -> dict:
     now = _dt.datetime.now()
     seq = 1 + max([int(p.name.split("_")[0]) for p in RUNS.glob("[0-9]*_*.json")] or [0])
     path = Path(S.model.path or "")
+    whole_ship = d.get("revision") == "RCRV"
     meta = {"id": f"{seq:04d}_{now:%Y%m%d-%H%M%S}", "seq": seq, "time": now.isoformat(timespec="seconds"),
-            "file": re.sub(r"^[0-9a-f]{12}_", "", path.name), "revision": d.get("revision"),
+            "file": "RCRV whole ship" if whole_ship else re.sub(r"^[0-9a-f]{12}_", "", path.name), "revision": d.get("revision"),
             "scope": d.get("scope"), "packs": d.get("groups"), "counts": d.get("counts"),
             "total_checks": d.get("total_checks"), "source": source, "scope_note": d.get("scope_note"),
             # for the web viewer: which file this run read, its bounds, and whether chat edits changed it in memory
-            "path": str(path) if S.model.path else None, "bounds": S.model_info().get("bounds"),
+            "path": str(path) if S.model.path and not whole_ship else None, "bounds": S.model_info().get("bounds"),
             "edited": S.model is not S.base_model}
     while True:
         try:
@@ -385,9 +386,44 @@ def analyse(req: AnalyseReq, request: Request):
         label = label or S.model.revision
         S.open(label, req.path)
     d = S.analyse(req.scope, req.packs, req.selection)
+    if d.get("readiness"):
+        from .readiness import save as _save_rd
+        _save_rd(d["readiness"], DATA / "readiness")      # readiness_<revision>.json, the latest per revision
     ua = request.headers.get("user-agent", "")
     d["run_meta"] = _save_run(d, req, "FreeCAD panel" if "Python-urllib" in ua else "portal" if "Mozilla" in ua else "API")
     return d
+
+
+@app.get("/readiness")
+def readiness_get(revision: str | None = None, path: str | None = None):
+    """What the model can support before analysis (spec B2): inventory + per rule pack Ready / Partial / Not possible."""
+    from .readiness import readiness
+    try:
+        m = S.load(revision or "A", _check_path(path)) if (revision or path) else S.model
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    return readiness(m)
+
+
+SCENARIO = {"A": "deck5_revA", "B": "deck5_revB", "RCRV": "rcrv_structure"}
+
+
+@app.get("/accuracy")
+def accuracy(revision: str):
+    """Accuracy banner (spec B5), computed: a fresh engine run with the scenario's packs, compared with the hand-checked
+    ground truth and the independent scan. Never typed."""
+    from .accuracy import compare, truth
+    from .engine import analyse as _an, run_dict as _rd
+    sc = SCENARIO.get(revision)
+    if sc is None:
+        raise HTTPException(404, f"No hand-checked ground truth for revision {revision}.")
+    gt = truth(sc)
+    m = S.load(gt["revision"])
+    try:
+        r = compare(sc, _rd(_an(m, gt["packs"], gt["scope"]), m))
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"The independent scan needs the source data: {e}")
+    return r
 
 
 @app.get("/findings/{fid}")

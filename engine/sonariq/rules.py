@@ -22,6 +22,8 @@ PACK_GROUPS: dict[str, dict[str, Any]] = {
     "hvac": {"label": "HVAC", "packs": ["hvac"], "sources": "SOLAS II-2/9.7", "discipline": "hvac", "short": "HV"},
     "structure": {"label": "Structure · OCX", "packs": ["structure"], "sources": "stub", "discipline": "structure",
                   "short": "ST"},
+    "sts": {"label": "Structure & systems", "packs": ["structure_systems", "data_quality"],
+            "sources": "IACS UR W11 / S6, SOLAS II-2/4.2.2.5.1, data quality", "discipline": "structure", "short": "SS"},
 }
 DEFAULT_GROUPS = ["fls", "acc", "dnv"]
 
@@ -33,6 +35,8 @@ DISCIPLINES = {
     "architecture": "Architecture",
     "systems": "Systems",
 }
+SOURCES = {"SOLAS II-2": "SOLAS/FSS", "FSS Code": "SOLAS/FSS", "IACS UR W11": "IACS", "IACS UR S6": "IACS", "DNV": "Class",
+           "SonarIQ data quality": "Data quality", "PVAG 2013 draft": "Accessibility", "ADA 2010": "Accessibility"}
 
 
 class Rule(BaseModel):
@@ -54,6 +58,9 @@ class Rule(BaseModel):
     cannot_verify_when: str | None = None
     applicability: dict[str, Any] = {}
     status: str = "verify"
+    verified_against_official_text: bool = False
+    runs: bool = True                    # False: a draft that is shown but never sets a verdict
+    not_run_reason: str | None = None
 
     @property
     def ref(self) -> str:

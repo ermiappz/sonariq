@@ -11,7 +11,7 @@ export const PEOPLE = [
   { id: "al", name: "Aino Laine", role: "Interiors engineer", initials: "AL" },
 ];
 export const DISC: Record<string, [string, string]> = {
-  fls: ["FIRE", "#e27dff"], acc: ["INT", "#b98cff"], dnv: ["HULL", "#5c9dff"], hvac: ["HVAC", "#3fd0e6"],
+  fls: ["FIRE", "#e27dff"], acc: ["INT", "#b98cff"], dnv: ["HULL", "#5c9dff"], hvac: ["HVAC", "#3fd0e6"], sts: ["HULL", "#5c9dff"],
 };
 const COLS: [Task["column"], string][] = [["backlog", "Backlog"], ["doing", "Doing"], ["done", "Done"]];
 

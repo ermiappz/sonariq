@@ -56,3 +56,21 @@ Proof: `tests/test_pipeline.py` (every finding of Rev B, every product GlobalId 
 - glTF/GLB upload is not converted yet (IFC only); the RCRV glTF is a built-in source.
 - Overview = biggest size-per-triangle parts, not exterior-visibility sampling.
 - One RCRV sample out of 12 returns no hit in the pick test (a very small part); never a wrong element.
+
+## Proof of accuracy (step 3)
+
+- **Readiness** (`engine/sonariq/readiness.py`, `GET /readiness`): inventory (spaces, doors ± fire rating, stairs,
+  plates ± thickness / material, stiffeners, pipes ± system / material, SWBS coverage, units) and per pack Ready /
+  Partial (n) / Not possible with a one-line reason. Shown before Analyse and kept in every run; the latest per revision
+  is saved to `data/readiness/readiness_<rev>.json`. Rules of a Not possible pack, and drafts, are not run and appear as
+  Cannot verify with the reason.
+- **Structure & systems pack** (`rules/seed_rules.yaml` R-STR-01/02, R-SYS-01, R-DQ-01..03) on the RCRV's own data
+  (`engine/sonariq/rcrv_model.py` reads the pipeline's metadata index): 36,826 checks in 1.4 s. R-STR-02 (UR S6) is a
+  draft that does not run: its table is not in the repo. Every new rule says `verified_against_official_text: false`.
+- **Provenance**: `measured.provenance` / `required.provenance` = `{kind: model | derived | public | estimated | user |
+  confirmed, file, element, source_id, pset, prop, raw, inputs, source}`; chips on every card, click for the raw source.
+- **Ground truth**: `tests/ground_truth/{deck5_revA, deck5_revB, rcrv_structure}.yaml`, `scripts/independent_scan.py`
+  (no engine imports), `tests/test_ground_truth.py`, `GET /accuracy?revision=` → the Studio banner.
+  Rev B: 6/6 found, 0 false alarms, 3/3 expected passes, scan agrees on R-FLS-01. RCRV: 96/96, 0, 3/3, scan agrees on all
+  5 running rules (counts including passes and Cannot verify).
+- **Whole-ship runs** (> 2,000 checks) store passes as compact rows: 70 MB → 4.2 MB for the RCRV.
