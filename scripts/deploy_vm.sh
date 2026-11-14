@@ -68,6 +68,9 @@ NODE_BIN="$(readlink -f "$(command -v node || true)" || true)"
 [ -x "$NODE_BIN" ] || { echo "Node.js not found: install Node 18+ (the 3D converter needs it)"; exit 1; }
 echo "==> node $("$NODE_BIN" --version) at $NODE_BIN"
 
+echo "==> converter packages (scripts/node)"
+(cd "$DEPLOY/scripts/node" && PATH="$(dirname "$NODE_BIN"):$PATH" npm ci --silent --no-audit --no-fund)
+
 echo "==> pre-convert bundled models (cached by content hash)"
 (cd "$DEPLOY" && SONARIQ_NODE_BIN="$NODE_BIN" PYTHONPATH=engine:. PYTHONUTF8=1 .venv/bin/python scripts/preconvert.py)
 

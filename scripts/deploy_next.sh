@@ -16,6 +16,7 @@ mkdir -p "$NEXT/data"
 for d in data/cache data/rcrv; do [ -L "$NEXT/$d" ] || { rm -rf "${NEXT:?}/$d"; ln -s "$REPO/$d" "$NEXT/$d"; }; done
 [ -e "$REPO/.env" ] && ln -sfn "$REPO/.env" "$NEXT/.env"
 (cd "$NEXT" && uv sync -q --python 3.11)
+(cd "$NEXT/scripts/node" && npm ci --silent --no-audit --no-fund)
 (cd "$NEXT/portal" && npm ci --silent --no-audit --no-fund && VITE_BASE=/next/ VITE_SQ_KEY="$SQ_PORTAL_KEY" npx vite build --logLevel error --outDir dist-next)
 sudo mkdir -p /srv/sonariq/next && sudo rsync -a --delete "$NEXT/portal/dist-next/" /srv/sonariq/next/ && sudo chmod -R a+rX /srv/sonariq/next
 cat > "$HOME/.config/systemd/user/sonariq-next.service" <<EOF

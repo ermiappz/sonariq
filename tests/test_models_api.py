@@ -69,3 +69,12 @@ def test_converter_missing_is_readable_and_prepare_without_convert(client, monke
     st = _wait(client, client.post("/models/prepare", json={"revision": "B"}).json()["id"])
     assert st["state"] == "error" and st["message"] == build.MISSING
     monkeypatch.setattr(build, "_NODE", {})   # the next test resolves the real node again
+
+
+def test_converter_without_packages_is_not_ok(client, monkeypatch, tmp_path):
+    from sonariq.pipeline import build
+    monkeypatch.setattr(build, "_NODE", {})
+    monkeypatch.setattr(build, "PACK", tmp_path / "pack_tiles.mjs")   # a folder without node_modules
+    h = client.get("/health").json()["converter"]
+    assert h["state"] == "missing" and "npm ci" in h["message"]
+    monkeypatch.setattr(build, "_NODE", {})

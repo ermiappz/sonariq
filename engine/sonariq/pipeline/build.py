@@ -22,6 +22,8 @@ PACK = ROOT / "scripts" / "node" / "pack_tiles.mjs"
 RCRV = ROOT / "data" / "rcrv"
 MISSING = ("The 3D converter is not available on this server: Node.js was not found. The findings still work; "
            "an administrator can install Node.js 18 or newer, or set SONARIQ_NODE_BIN, and restart the engine.")
+PACKAGES = ("The 3D converter is not ready on this server: its packages are not installed. The findings still work; an "
+            "administrator can run `npm ci` in scripts/node and restart the engine.")
 _NODE: dict = {}
 
 
@@ -35,8 +37,17 @@ def converter() -> dict:
                 v = subprocess.run([b, "--version"], capture_output=True, text=True, timeout=10).stdout.strip() or None
             except (OSError, subprocess.SubprocessError):
                 v = None
-        _NODE.update({"state": "ok", "bin": b, "version": v} if v else {"state": "missing", "bin": b, "message": MISSING})
-        logging.getLogger("sonariq").warning("3D converter: %s", f"node {v} at {b}" if v else f"missing ({b or 'not on PATH'})")
+        if not v:
+            _NODE.update({"state": "missing", "bin": b, "message": MISSING})
+        else:   # Node alone is not enough: the packer needs its npm packages (scripts/node, gitignored)
+            try:
+                ok = subprocess.run([b, "--input-type=module", "-e", "await import('meshoptimizer')"], cwd=PACK.parent,
+                                    capture_output=True, timeout=20).returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                ok = False
+            _NODE.update({"state": "ok", "bin": b, "version": v} if ok else
+                         {"state": "missing", "bin": b, "version": v, "message": PACKAGES})
+        logging.getLogger("sonariq").warning("3D converter: %s", f"node {v} at {b}, {_NODE['state']}" if v else f"missing ({b or 'not on PATH'})")
     return dict(_NODE)
 
 
@@ -46,7 +57,7 @@ def build(source: str | Path, out: Path, progress=lambda f, msg="": None) -> dic
     out.mkdir(parents=True, exist_ok=True)
     node = converter()
     if node["state"] != "ok":
-        raise RuntimeError(MISSING)
+        raise RuntimeError(node["message"])
     progress(0.01, "Reading the model")
     if str(source) == "rcrv":
         from .rcrv_source import RcrvSource
