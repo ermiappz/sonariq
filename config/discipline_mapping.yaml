@@ -1,0 +1,35 @@
+# Discipline of each element for the viewer (colour, show/hide, solo) and the readiness report.
+# Order of evidence: the IFC class first (by_class); for classes that say nothing (proxy, unmapped) the rules below,
+# first match wins, regex on name / layer / system / SWBS group. Anything left is "other" and counted in meta.json.
+disciplines: [structure, architecture, hvac, piping, electrical, fire, equipment, other, spaces]
+
+by_class:
+  structure: [IfcPlate, IfcMember, IfcBeam, IfcColumn, IfcSlab, IfcFooting]
+  architecture: [IfcWall, IfcWallStandardCase, IfcDoor, IfcWindow, IfcStair, IfcStairFlight, IfcRailing, IfcCovering,
+                 IfcFurnishingElement, IfcRamp, IfcRampFlight, IfcCurtainWall, IfcRoof]
+  hvac: [IfcDuctSegment, IfcDuctFitting, IfcDamper, IfcAirTerminal, IfcFan]
+  piping: [IfcPipeSegment, IfcPipeFitting, IfcValve, IfcPump, IfcTank, IfcSanitaryTerminal]
+  electrical: [IfcCableCarrierSegment, IfcCableCarrierFitting, IfcCableSegment, IfcLightFixture, IfcElectricDistributionBoard]
+  fire: [IfcFireSuppressionTerminal, IfcAlarm]
+  spaces: [IfcSpace, IfcZone]
+
+rules:   # for IfcBuildingElementProxy, unmapped objects and anything the class map does not name
+  - {discipline: fire, name: "FIRE|SPRINKLER|EXTINGUISH|HYDRANT|FOAM|CO2 |SMOKE DET|FDNS"}
+  - {discipline: hvac, name: "HVAC|DUCT|LOUVER|DEMISTER|DAMPER|\\bFAN\\b|AHU"}
+  - {discipline: hvac, layer: "HVAC|DUCT|VENT"}
+  - {discipline: piping, name: "PIPE|VALVE|FLANGE|ELBOW|\\bTEE\\b|REDUCER|STRAINER|PUMP|TANK|DEWATERING"}
+  - {discipline: piping, layer: "WATER|DRAIN|SEWAGE|BILGE|BALLAST|FUEL|\\bOIL\\b|COOLING|HYDRAULIC|EXHAUST|STEAM|PIPE"}
+  - {discipline: electrical, name: "CABLE|LIGHT|SWITCHBOARD|ELECTRIC|PANEL|SOCKET|ANTENNA|RADOME|TRANSDUCER|WIREWAY"}
+  - {discipline: electrical, layer: "ELECT|LIGHT|CABLE"}
+  - {discipline: structure, name: "^Plate$|STIFFENER|BRACKET|FACEPLATE|GIRDER|FRAME|FOUNDATION|PADEYE|DECK SOCKET"}
+  - {discipline: architecture, name: "DOOR|WINDOW|STAIR|LADDER|RAIL|INSULATION|FURNITURE|GRATING|BULKHEAD|LINING"}
+  - {discipline: equipment, name: "EQUIPMENT|GENERATOR|ENGINE|MOTOR|WINCH|CRANE|DAVIT|THRUSTER|Z-DRIVE|A-FRAME|MOUNT"}
+  # SWBS group (first digit) when nothing else matched: 1 hull structure, 2 propulsion, 3 electric, 4 command,
+  # 5 auxiliary (51 HVAC, 52-55 piping systems), 6 outfit, 7 armament/mission
+  - {discipline: structure, swbs: "^1"}
+  - {discipline: equipment, swbs: "^2|^7"}
+  - {discipline: electrical, swbs: "^3|^4"}
+  - {discipline: hvac, swbs: "^51"}
+  - {discipline: piping, swbs: "^5[2-5]"}
+  - {discipline: architecture, swbs: "^6"}
+  - {discipline: equipment, cls: "IfcBuildingElementProxy"}

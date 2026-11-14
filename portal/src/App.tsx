@@ -64,7 +64,6 @@ function Workspace() {
   // The portal never analyses on its own: it shows the newest stored run (or the pinned one) and polls every 2 s.
   const [runs, setRuns] = useState<RunMeta[] | null>(null);
   const [latest, setLatest] = useState<RunMeta | null>(null);
-  const [busy, setBusy] = useState(false);
   useEffect(() => {
     let alive = true, last = "";
     const tick = async () => {
@@ -101,11 +100,6 @@ function Workspace() {
       setTimeout(() => setToast(""), 5000);
     } catch (e) { setError(String(e)); }
     setAsk(null); setScreen("inbox");
-  };
-  const analyseNow = async (r: string) => {
-    setBusy(true); setPinned(null);
-    try { await api.analyse(r, ["fls", "acc", "dnv"]); } catch (e) { setError(String(e)); }
-    setBusy(false);
   };
 
   const openFinding = (c: Check) => { setOpen(c.id ?? c.check_key); setScreenState("thread"); history.replaceState(null, "", "#thread/" + (c.id ?? c.check_key)); };

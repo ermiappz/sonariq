@@ -27,7 +27,8 @@ import time as _time  # noqa: E402
 from collections import defaultdict, deque  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 
-_LIMITS = {"/chat": 20, "/chat/confirm": 20, "/analyse": 30, "/upload": 10, "/simulate": 10}   # requests per minute per IP
+_LIMITS = {"/chat": 20, "/chat/confirm": 20, "/analyse": 30, "/upload": 10, "/simulate": 10, "/models": 10,
+           "/models/prepare": 30}   # requests per minute per IP
 _HITS: dict = defaultdict(deque)
 
 
@@ -44,6 +45,8 @@ async def _rate_limit(request: Request, call_next):
                                 status_code=429, headers={"Retry-After": "30"})
         q.append(now)
     return await call_next(request)
+from .models_api import router as _models_router  # noqa: E402
+app.include_router(_models_router)
 S = Session("A")
 # Hosted on the VM (behind Caddy + basic auth): clients may only open files inside data/ (uploads included).
 HOSTED = _os.getenv("SONARIQ_HOSTED", "0").lower() in ("1", "true", "on", "yes")

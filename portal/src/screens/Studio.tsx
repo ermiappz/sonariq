@@ -1,10 +1,9 @@
 // Web Studio ("Review in the browser"): open a demo model or upload an IFC, Analyse with scope + disciplines like the
 // FreeCAD panel, and inspect findings next to the 3D. The viewer always loads the exact file of the run shown
-// (GET /runs/<id>/ifc); every verdict and number comes from the engine.
+// (the engine converts that file once to web tiles: POST /models/prepare); every verdict and number comes from the engine.
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as OBC from "@thatopen/components";
-import * as THREE from "three";
-import { api, apiFetch, API, BASE, HDR, ORDER, WORD, useIncorrect, type Check, type Run, type RunMeta } from "../api";
+import { api, apiFetch, ORDER, WORD, useIncorrect, type Check, type Run, type RunMeta } from "../api";
+import ShipView, { type ModelSrc, type View } from "../components/ShipView";
 import { Pill } from "../components/ui";
 import { DISC } from "./Board";
 import { valueLine } from "./Inbox";
@@ -24,241 +23,11 @@ const DISCS: { code: string; pack: string | null; color: string; sets: string }[
   { code: "ELEC", pack: null, color: "#82dd8a", sets: "Coming" },
   { code: "MACH", pack: null, color: "#a3a3ff", sets: "Coming" },
 ];
-const STATUS_HEX: Record<string, number> = { fail: 0xd55e00, warn: 0xe69f00, unk: 0xc9cdd4, pass: 0x009e73, dor: 0x959aa4 };
 const MAX_MB = 60;
 
-type Target = { kind: "demo"; rev: string; name: string } | { kind: "upload"; path: string | null; rev: string | null; name: string };
+type Target = { kind: "demo"; rev: string; name: string } | { kind: "upload"; path: string | null; rev: string | null; name: string }
+  | { kind: "rcrv"; name: string };
 type Shown = { meta: RunMeta & { bounds?: number[] | null; edited?: boolean }; run: Run };
-
-// ---------------------------------------------------------------------------------------------- overlay spec
-// Same rule as the FreeCAD panel: positions from the engine's evidence box, labels = engine values as returned.
-type Line = { a: [number, number]; b: [number, number]; text: string; dashed: boolean };
-const fmtV = (v: any) => (v?.unit === "mm" && typeof v.value === "number" ? `${v.value.toLocaleString("en-US")} mm` : `${v?.value} ${v?.unit ?? ""}`.trim());
-export function overlaySpec(c: Check): { z: number; lines: Line[]; title: string; bbox: number[] } | null {
-  const ev = c.evidence, ms = c.measured, rq = c.required;
-  if (!ev?.bbox || ev.z == null || ms?.value == null || rq?.value == null) return null;
-  const [x0, y0, x1, y1] = ev.bbox, longY = y1 - y0 >= x1 - x0, off = 0.6, lines: Line[] = [];
-  let title: string;
-  if (c.rule === "R-FLS-02" && (c as any).extra?.dead_end) {
-    if (longY) { lines.push({ a: [x1 + off, y0], b: [x1 + off, y1], text: `depth ${fmtV(ms)}`, dashed: false }); lines.push({ a: [x0, y1 + off], b: [x1, y1 + off], text: `width ${fmtV(rq)} = allowed depth`, dashed: true }); }
-    else { lines.push({ a: [x0, y1 + off], b: [x1, y1 + off], text: `depth ${fmtV(ms)}`, dashed: false }); lines.push({ a: [x1 + off, y0], b: [x1 + off, y1], text: `width ${fmtV(rq)} = allowed depth`, dashed: true }); }
-    title = `Dead end ${fmtV(ms)} > width ${fmtV(rq)}`;
-  } else if (["R-FLS-03", "R-FLS-04", "R-FLS-09", "R-ACC-01"].includes(c.rule) && ms.unit === "mm") {
-    const req = (rq.value as number) / 1000;
-    if (longY) { const cy = y1 + off, cx = (x0 + x1) / 2; lines.push({ a: [x0, cy], b: [x1, cy], text: `measured ${fmtV(ms)}`, dashed: false }); lines.push({ a: [cx - req / 2, cy + off], b: [cx + req / 2, cy + off], text: `required ${fmtV(rq)}`, dashed: true }); }
-    else { const cx = x1 + off, cy = (y0 + y1) / 2; lines.push({ a: [cx, y0], b: [cx, y1], text: `measured ${fmtV(ms)}`, dashed: false }); lines.push({ a: [cx + off, cy - req / 2], b: [cx + off, cy + req / 2], text: `required ${fmtV(rq)}`, dashed: true }); }
-    title = `${c.element?.name ?? c.id} · ${fmtV(ms)} measured / ${fmtV(rq)} required`;
-  } else return null;
-  return { z: ev.z + 0.15, lines, title, bbox: ev.bbox };
-}
-
-// ---------------------------------------------------------------------------------------------- 3D
-type Label = { text: string; x: number; y: number; dashed: boolean; visible: boolean };
-type View = { focus: (c: Check) => boolean; isolate: (c: Check) => void; showAll: () => void; zoom: () => void; resetView: () => void;
-  paint: (cs: Check[]) => void; setBounds: (b?: number[] | null) => void };
-
-// Look: dark background, every element translucent grey ("x-ray"), isometric camera from front-left-above fitted with
-// a small margin. The model loads as soon as it is opened; after Analyse the same viewer stays (camera unchanged) and
-// only elements with findings get their status colour.
-const ISO: [number, number] = [0.45, 0.9];   // camera-controls azimuth, polar (rad)
-function Viewer3D({ url, bounds, findings, onReady, apiRef }: { url: string | null; bounds?: number[] | null; findings: Check[] | null; onReady: (s: string) => void; apiRef: React.MutableRefObject<View | null> }) {
-  const host = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [err, setErr] = useState("");
-  const [labels, setLabels] = useState<Label[]>([]);
-  const [legend, setLegend] = useState<string | null>(null);
-  useEffect(() => {
-    if (!host.current || !url) { setState("idle"); return; }
-    let disposed = false, timer = 0;
-    const components = new OBC.Components();
-    const world = components.get(OBC.Worlds).create<OBC.SimpleScene, OBC.SimpleCamera, OBC.SimpleRenderer>();
-    world.scene = new OBC.SimpleScene(components);
-    world.renderer = new OBC.SimpleRenderer(components, host.current);
-    world.camera = new OBC.SimpleCamera(components);
-    components.init();
-    world.scene.setup();
-    (world.scene.three as THREE.Scene).background = new THREE.Color("#17191c");
-    const loader = components.get(OBC.IfcLoader);
-    let group: any = null, modelBox = new THREE.Box3();
-    let off = new THREE.Vector3();
-    let extras: THREE.Object3D[] = [];
-    let labelPts: { text: string; v: THREE.Vector3; dashed: boolean }[] = [];
-    let painted: THREE.Object3D[] = [];
-    let focusBox: THREE.Box3 | null = null;
-    const T = (x: number, y: number, z: number) => new THREE.Vector3(x + off.x, z + off.y, -y + off.z);
-    const mats = () => { const out: THREE.Material[] = []; group?.items.forEach((f: any) => { const m = f.mesh.material; (Array.isArray(m) ? m : [m]).forEach((mm: THREE.Material) => out.push(mm)); }); return out; };
-    // x-ray: translucent grey; while a finding is focused the rest fades further
-    // x-ray: faint grey faces + crisp edges, so walls, doors and stairs read as a drawing instead of stacked glass.
-    // While a finding is focused the rest fades further; isolate hides it.
-    let edges: THREE.LineSegments[] = [];
-    const edgesOf = (mesh: any, color: number, opacity: number, depthTest = true) => {
-      const base = new THREE.EdgesGeometry(mesh.geometry, 25);
-      const src = base.attributes.position.array as Float32Array;
-      const n = mesh.isInstancedMesh ? mesh.count : 1;
-      const out = new Float32Array(src.length * n);
-      const m = new THREE.Matrix4(), v = new THREE.Vector3();
-      mesh.updateMatrixWorld(true);
-      for (let i = 0; i < n; i++) {
-        if (mesh.isInstancedMesh) mesh.getMatrixAt(i, m); else m.identity();
-        m.premultiply(mesh.matrixWorld);
-        for (let k = 0; k < src.length; k += 3) { v.set(src[k], src[k + 1], src[k + 2]).applyMatrix4(m); out[i * src.length + k] = v.x; out[i * src.length + k + 1] = v.y; out[i * src.length + k + 2] = v.z; }
-      }
-      base.dispose();
-      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(out, 3));
-      const ln = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest }));
-      if (!depthTest) ln.renderOrder = 12;
-      return ln;
-    };
-    const buildEdges = () => {
-      let verts = 0;
-      group?.items.forEach((f: any) => { verts += (f.mesh.geometry.attributes.position?.count ?? 0) * (f.mesh.count ?? 1); });
-      if (verts > 3_000_000) return;   // very large models: faces only
-      group?.items.forEach((f: any) => { const e = edgesOf(f.mesh, 0x8d99a8, 0.5); world.scene.three.add(e); edges.push(e); });
-    };
-    const ghost = (on: boolean) => {
-      mats().forEach((m: any) => { m.color?.set?.(0x8b95a1); m.transparent = true; m.opacity = on ? 0.05 : 0.1; m.depthWrite = false; m.needsUpdate = true; });
-      edges.forEach((e) => { (e.material as THREE.LineBasicMaterial).opacity = on ? 0.22 : 0.5; e.visible = true; });
-    };
-    const cloneIn = (guid: string | undefined, color: number, intensity: number, into: THREE.Object3D[], box?: THREE.Box3) => {
-      const eid = guid ? group.globalToExpressIDs.get(guid) : undefined;
-      if (eid === undefined) return false;
-      const fmap = group.getFragmentMap([eid]);
-      for (const fid of Object.keys(fmap)) {
-        const frag = group.items.find((f: any) => f.id === fid);
-        if (!frag) continue;
-        const cl = frag.clone(fmap[fid]);
-        cl.mesh.material = [new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: intensity })];
-        group.add(cl.mesh); into.push(cl.mesh);
-        // outline drawn on top (no depth test), so the element stays visible through walls in the x-ray
-        if (box) { const o = edgesOf(cl.mesh, color === STATUS_HEX.unk ? 0xffffff : 0xffd2b8, 0.95, false); world.scene.three.add(o); into.push(o); }
-        if (box) { cl.mesh.updateMatrixWorld(true); box.union(new THREE.Box3().setFromObject(cl.mesh)); }
-      }
-      return true;
-    };
-    const paint = (cs: Check[]) => {
-      painted.forEach((o) => { o.parent?.remove(o); (o as any).geometry?.dispose?.(); }); painted = [];
-      if (!group) return;
-      for (const c of cs) cloneIn(c.element?.guid, STATUS_HEX[c.status] ?? 0xe392c8, 0.2, painted);
-      painted.forEach((o) => { o.visible = !focusBox && !extras.length; });
-    };
-    const home = async (smooth: boolean) => {
-      if (modelBox.isEmpty()) return;
-      // isometric from front-left-above; fitToSphere keeps the angle (fitToBox would snap to the nearest axis)
-      const sph = modelBox.getBoundingSphere(new THREE.Sphere()); sph.radius *= 0.75;
-      await world.camera.controls.rotateTo(ISO[0], ISO[1], false);
-      await world.camera.controls.fitToSphere(sph, smooth);
-    };
-    const visibility = (on: boolean) => group?.items.forEach((f: any) => f.setVisibility(on));
-    const clear = () => {
-      extras.forEach((o) => { o.parent?.remove(o); (o as any).geometry?.dispose?.(); });
-      extras = []; labelPts = []; focusBox = null; setLegend(null); setLabels([]);
-      visibility(true); ghost(false); painted.forEach((o) => { o.visible = true; });
-    };
-    const update = () => {
-      if (disposed || !host.current) return;
-      const cam = world.camera.three as THREE.Camera; cam.updateMatrixWorld();
-      const w = host.current.clientWidth, h = host.current.clientHeight;
-      setLabels(labelPts.map(({ text, v, dashed }) => { const p = v.clone().project(cam); return { text, dashed, x: (p.x + 1) / 2 * w, y: (1 - p.y) / 2 * h, visible: p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2 }; }));
-    };
-    // zoom to a finding: keep the isometric angle (fitToBox would snap to a flat axis view), centre the element and
-    // leave room around it so the neighbouring rooms and corridors give context
-    const fit = (b: THREE.Box3) => {
-      const sph = b.getBoundingSphere(new THREE.Sphere());
-      sph.radius = Math.max(sph.radius * 2.2, 7);
-      world.camera.controls.rotateTo(ISO[0], ISO[1], true);
-      world.camera.controls.fitToSphere(sph, true);
-    };
-    const focus = (c: Check) => {
-      clear();
-      if (!group) return false;
-      const color = STATUS_HEX[c.status] ?? 0xe392c8;
-      const box = new THREE.Box3();
-      painted.forEach((o) => { o.visible = false; });
-      const eid = cloneIn(c.element?.guid, color, 0.35, extras, box) ? 1 : undefined;
-      // the engine's evidence box, outlined in the status colour (spaces have no solid to colour)
-      const ev = c.evidence;
-      if (ev?.bbox && ev.z != null) {
-        const [x0, y0, x1, y1] = ev.bbox, z = ev.z + 0.05;
-        const ring = [T(x0, y0, z), T(x1, y0, z), T(x1, y1, z), T(x0, y1, z), T(x0, y0, z)];
-        const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ring), new THREE.LineBasicMaterial({ color, depthTest: false }));
-        ln.renderOrder = 10; world.scene.three.add(ln); extras.push(ln);
-        const fill = new THREE.Mesh(new THREE.PlaneGeometry(Math.abs(x1 - x0), Math.abs(y1 - y0)), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthTest: false }));
-        fill.rotation.x = -Math.PI / 2; fill.position.copy(T((x0 + x1) / 2, (y0 + y1) / 2, z)); fill.renderOrder = 9;
-        world.scene.three.add(fill); extras.push(fill);
-        if (box.isEmpty()) box.setFromPoints(ring);
-      }
-      // dimension overlay (engine numbers only)
-      const spec = overlaySpec(c);
-      if (spec) {
-        for (const l of spec.lines) {
-          const a = T(l.a[0], l.a[1], spec.z), b = T(l.b[0], l.b[1], spec.z);
-          const mat = l.dashed ? new THREE.LineDashedMaterial({ color, dashSize: 0.25, gapSize: 0.15, depthTest: false }) : new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false });
-          const g = new THREE.BufferGeometry().setFromPoints([a, b]);
-          const line = new THREE.Line(g, mat); if (l.dashed) line.computeLineDistances(); line.renderOrder = 11;
-          world.scene.three.add(line); extras.push(line);
-          labelPts.push({ text: l.text, v: a.clone().add(b).multiplyScalar(0.5).add(new THREE.Vector3(0, 0.3, 0)), dashed: l.dashed });
-        }
-        setLegend(spec.title);
-      }
-      ghost(true);
-      focusBox = box.isEmpty() ? null : box;
-      if (focusBox) fit(focusBox);
-      update();
-      return eid !== undefined || !!ev?.bbox;
-    };
-    apiRef.current = {
-      focus,
-      isolate: (c: Check) => { focus(c); visibility(false); edges.forEach((e) => { e.visible = false; }); },
-      showAll: () => { clear(); home(true); },
-      zoom: () => { if (focusBox) fit(focusBox); },
-      resetView: () => { clear(); home(true); },
-      paint,
-      setBounds: (b) => { if (b && !modelBox.isEmpty()) off = new THREE.Vector3(modelBox.min.x - b[0], modelBox.min.y - b[2], modelBox.min.z + b[4]); },
-    };
-    (async () => {
-      setState("loading"); setErr("");
-      try {
-        loader.settings.autoSetWasm = false;
-        loader.settings.wasm = { path: BASE + "wasm/", absolute: true };
-        loader.settings.webIfc.COORDINATE_TO_ORIGIN = false;
-        await loader.setup();
-        const r = await fetch(url, { headers: HDR });
-        if (!r.ok) throw new Error(r.status === 409 ? "This run includes edits made in chat; the file on disk is the version before them." : `${r.status} ${await r.text()}`);
-        const buf = new Uint8Array(await r.arrayBuffer());
-        group = await loader.load(buf);
-        if (disposed) return;
-        world.scene.three.add(group);
-        modelBox = new THREE.Box3().setFromObject(group);
-        if (bounds) off = new THREE.Vector3(modelBox.min.x - bounds[0], modelBox.min.y - bounds[2], modelBox.min.z + bounds[4]);
-        buildEdges();
-        ghost(false);
-        await home(false);
-        world.camera.controls.addEventListener("update", update);
-        timer = window.setInterval(update, 200);
-        setState("ready"); onReady("ready");
-      } catch (e) { if (!disposed) { setErr(String((e as Error).message ?? e)); setState("error"); onReady("error"); } }
-    })();
-    return () => { disposed = true; apiRef.current = null; window.clearInterval(timer); components.dispose(); };
-  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
-  const fkey = (findings ?? []).map((c) => c.check_key + c.status).join("|");
-  useEffect(() => { if (state === "ready") apiRef.current?.setBounds(bounds); }, [state, bounds?.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (state === "ready") apiRef.current?.paint(findings ?? []); }, [state, fkey]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <div className="viewer studio-3d" ref={host}>
-      {state === "idle" && <div className="studio-empty">Open a model and press Analyse. The 3D shows the exact file of the run.</div>}
-      {state === "ready" && <button className="sq-btn is-sm studio-resetview" onClick={() => apiRef.current?.resetView()}>Reset view</button>}
-      {state === "loading" && <div className="sq-muted" style={{ position: "absolute", left: 16, top: 12 }}>Loading the file of this run…</div>}
-      {state === "error" && <div className="sq-banner" style={{ position: "absolute", left: 16, top: 12, right: 16 }}>3D preview not available for this run: {err} The findings list still works.</div>}
-      {labels.filter((l) => l.visible).map((l, i) => (
-        <span key={i} className={`studio-dim${l.dashed ? " is-req" : ""}`} style={{ left: l.x, top: l.y }}>{l.text}</span>
-      ))}
-      {legend && (
-        <div className="studio-legend"><b>{legend}</b><br />Measured by rule engine · check on drawing<br />
-          <span className="mono">━━ measured &nbsp; ╍╍ required / allowed</span></div>
-      )}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------------------------- Studio
 export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMeta & { bounds?: number[] | null; edited?: boolean }) | null; run: Run | null; onOpenFinding: (c: Check) => void }) {
@@ -279,19 +48,19 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   useEffect(() => { if (shown) setSetup(false); }, [shown?.meta.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const packs = DISCS.filter((d) => d.pack && discs.includes(d.code)).map((d) => d.pack!) as string[];
-  // the viewer loads the model as soon as it is opened; after Analyse it keeps that file (same camera) when the run
-  // read the same file unedited, otherwise it loads exactly the run's file
-  const targetUrl = target ? (target.kind === "demo" ? `${API}/model-file?revision=${encodeURIComponent(target.rev)}`
-    : target.path ? `${API}/model-file?path=${encodeURIComponent(target.path)}` : target.rev ? `${API}/model-file?revision=${encodeURIComponent(target.rev)}` : null) : null;
-  const runUrl = shown ? `${API}/runs/${encodeURIComponent(shown.meta.id)}/ifc` : null;
-  const [viewSrc, setViewSrc] = useState<{ url: string | null; file: string | null }>({ url: null, file: null });
+  // the viewer shows the model as soon as it is opened; after Analyse it keeps that file (same camera) when the run
+  // read the same file unedited, otherwise it shows exactly the run's file
+  const targetSrc: ModelSrc = target ? (target.kind === "rcrv" ? { source: "rcrv" } : target.kind === "demo" ? { revision: target.rev }
+    : target.path ? { path: target.path } : target.rev ? { revision: target.rev } : null) : null;
+  const runSrc: ModelSrc = shown ? { run: shown.meta.id } : null;
+  const [viewSrc, setViewSrc] = useState<{ src: ModelSrc; file: string | null }>({ src: null, file: null });
+  const tkey = JSON.stringify(targetSrc), rkey = JSON.stringify(runSrc);
   useEffect(() => {
-    if (target) { if (targetUrl !== viewSrc.url) setViewSrc({ url: targetUrl, file: target.name }); return; }
-    if (!shown) { setViewSrc({ url: null, file: null }); return; }
-    if (viewSrc.url && viewSrc.file === shown.meta.file && !shown.meta.edited) return;
-    setViewSrc({ url: runUrl, file: shown.meta.file });
-  }, [targetUrl, runUrl]); // eslint-disable-line react-hooks/exhaustive-deps
-  const ifcUrl = viewSrc.url;
+    if (target) { if (tkey !== JSON.stringify(viewSrc.src)) setViewSrc({ src: targetSrc, file: target.name }); return; }
+    if (!shown) { setViewSrc({ src: null, file: null }); return; }
+    if (viewSrc.src && viewSrc.file === shown.meta.file && !shown.meta.edited) return;
+    setViewSrc({ src: runSrc, file: shown.meta.file });
+  }, [tkey, rkey]); // eslint-disable-line react-hooks/exhaustive-deps
   const painted = useMemo(() => (shown && !target ? shown.run.checks.filter((c) => ["fail", "warn", "unk"].includes(c.status) && !incorrect[c.check_key]) : null), [shown, target, incorrect]);
   const cards = useMemo(() => {
     if (!shown) return [];
@@ -319,7 +88,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   };
   const analyse = async () => {
     const t = target ?? (shown ? { kind: "demo", rev: shown.meta.revision, name: shown.meta.file } as Target : null);
-    if (!t || !packs.length) return;
+    if (!t || !packs.length || t.kind === "rcrv") return;
     setBusy(true); setMsg(""); setSel(null); view.current?.showAll();
     try {
       const body = t.kind === "demo" ? { revision: t.rev, scope, packs } : { revision: t.path ? null : t.rev, path: t.path, scope, packs };
@@ -342,7 +111,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   return (
     <div className="studio">
       <div className="studio-left">
-        <Viewer3D url={ifcUrl} bounds={shown && !target ? shown.meta.bounds : null} findings={painted} onReady={() => {}} apiRef={view} />
+        <ShipView src={viewSrc.src} findings={painted} apiRef={view} />
       </div>
       <aside className="studio-panel">
         <header className="studio-head">
@@ -371,6 +140,9 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
                   <span className="mono">{d.file}</span><span className="sq-faint">{d.note}</span>
                 </button>
               ))}
+              <button className={`studio-model${target?.kind === "rcrv" ? " is-on" : ""}`} onClick={() => { setTarget({ kind: "rcrv", name: "RCRV whole ship" }); setMsg("RCRV opens as the whole ship; its rule checks arrive with the structure & systems pack."); }}>
+                <span className="mono">RCRV whole ship</span><span className="sq-faint">research vessel · 90,331 parts</span>
+              </button>
               <button className="studio-model" onClick={() => fileIn.current?.click()}><span>Upload IFC…</span><span className="sq-faint">IFC4 · up to {MAX_MB} MB</span></button>
               <input ref={fileIn} type="file" accept=".ifc" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
             </div>

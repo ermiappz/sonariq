@@ -3,7 +3,7 @@ export PYTHONPATH := engine:.
 # UTF-8 file I/O on every OS and locale
 export PYTHONUTF8 := 1
 
-.PHONY: setup deck test bench dev api api-sim mcp portal rcrv qa eval eval-quick sim-precompute rag
+.PHONY: setup deck test bench dev api api-sim mcp portal rcrv qa eval eval-quick sim-precompute rag e2e
 
 setup:
 	uv sync --python 3.11
@@ -56,3 +56,6 @@ fc-golden:   # panel v2 golden path in real FreeCAD (xvfb); engine on SONARIQ_EN
 
 rag:   # rebuild the local RAG index from data/rag/src (public sources only)
 	$(PY) -m sonariq.rag build
+
+e2e:   # browser checks: throwaway engine 8797 + vite 5197, headless Chromium (software GL)
+	cd portal && ./e2e/run.sh

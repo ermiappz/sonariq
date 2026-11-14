@@ -1,0 +1,190 @@
+"""Model pipeline API (spec A1, DECISIONS M1-M4): store the original untouched, convert once in the background to web
+tiles, cache by content hash, serve tiles with long cache headers. The engine's analysis never reads tiles.
+
+  POST /models?name=<file>      body = IFC (IFC2x3 / IFC4 / IFC4x3) bytes -> {id, state}
+  POST /models/prepare          {revision | path | run | source: "rcrv"}  -> {id, state}  (a file the engine already has)
+  GET  /models/{id}             -> status: state queued|running|ready|error, progress 0-1, message, summary
+  GET  /models/{id}/files/<p>   index.json | elements.json | meta.json | colors.bin | tiles/<name>.glb
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import shutil
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+from .session import DATA
+
+MODELS = DATA / "models"
+RCRV = DATA / "rcrv"
+router = APIRouter()
+_POOL = ThreadPoolExecutor(max_workers=1)        # one conversion at a time: RCRV peaks at several GB
+_LOCK = threading.Lock()
+_ACTIVE: set[str] = set()                        # ids queued or converting in this process
+_FILE = re.compile(r"^(index\.json|elements\.json|meta\.json|colors\.bin|tiles/[A-Za-z0-9_.-]+\.glb)$")
+_ID = re.compile(r"^(rcrv|[0-9a-f]{16})$")
+
+
+def _status_path(mid: str) -> Path:
+    return MODELS / mid / "status.json"
+
+
+def status(mid: str) -> dict:
+    p = _status_path(mid)
+    return json.loads(p.read_text()) if p.exists() else {"id": mid, "state": "missing"}
+
+
+def _write_status(mid: str, **kw) -> None:
+    d = status(mid) if _status_path(mid).exists() else {"id": mid}
+    d.update(kw)
+    p = _status_path(mid)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(d))
+    tmp.replace(p)
+
+
+def _run(mid: str, source: str) -> None:
+    from .pipeline.build import build
+    out = MODELS / mid / "web"
+    try:
+        _write_status(mid, state="running", progress=0.0, message="Preparing a fast web version")
+        shutil.rmtree(out, ignore_errors=True)
+        ix = build(source, out, progress=lambda f, m="": _write_status(mid, progress=round(f, 3),
+                                                                      message=f"Preparing a fast web version · {m}"))
+        summary = {k: ix[k] for k in ("elements", "tris", "bytes", "kind", "schema", "disciplines", "other", "unmapped",
+                                      "integrity", "seconds", "max_quantization_dev_mm", "box")}
+        _write_status(mid, state="ready", progress=1.0, message="Ready", summary=summary)
+    except Exception as e:  # noqa: BLE001  (shown to the user; the original file stays untouched)
+        _write_status(mid, state="error", message=f"Could not prepare the web version: {str(e)[:300]}")
+    finally:
+        _ACTIVE.discard(mid)
+
+
+def ensure(mid: str, source: str) -> dict:
+    """Start a conversion unless it is ready or already queued. Cache = the content hash in the id."""
+    with _LOCK:
+        st = status(mid)
+        if st["state"] == "ready" or mid in _ACTIVE:   # a "running" left by a restarted engine is started again
+            return st
+        _ACTIVE.add(mid)
+        _write_status(mid, state="queued", progress=0.0, message="Preparing a fast web version")
+        _POOL.submit(_run, mid, source)
+        return status(mid)
+
+
+def _store(data: bytes, name: str) -> str:
+    mid = hashlib.sha256(data).hexdigest()[:16]
+    d = MODELS / mid
+    d.mkdir(parents=True, exist_ok=True)
+    orig = d / ("original" + (Path(name).suffix.lower() or ".ifc"))
+    if not orig.exists():
+        tmp = orig.with_suffix(".part")
+        tmp.write_bytes(data)
+        tmp.replace(orig)            # the original is written once and never changed
+        (d / "name.txt").write_text(Path(name).name[:120])
+    return mid
+
+
+def prepare_file(p: Path) -> dict:
+    mid = _store(p.read_bytes(), p.name)
+    return ensure(mid, str(MODELS / mid / ("original" + p.suffix.lower())))
+
+
+@router.post("/models")
+async def upload_model(request: Request, name: str = "model.ifc"):
+    body = await request.body()
+    import os
+    limit_mb = int(os.getenv("SONARIQ_UPLOAD_MB", "400"))
+    if len(body) > limit_mb * 1024 * 1024:
+        raise HTTPException(413, f"File larger than {limit_mb} MB.")
+    if not body.startswith(b"ISO-10303-21"):
+        raise HTTPException(422, "Not an IFC (STEP) file. glTF/GLB upload is not supported yet (docs/PROGRESS.md).")
+    m = re.search(rb"FILE_SCHEMA\s*\(\s*\(\s*'([A-Za-z0-9_]+)'", body[:4096])
+    if m and not m.group(1).upper().startswith((b"IFC2X3", b"IFC4")):
+        raise HTTPException(422, f"Schema {m.group(1).decode()} is not supported; IFC2x3, IFC4 and IFC4x3 are.")
+    mid = _store(body, name)
+    return {**ensure(mid, str(MODELS / mid / "original.ifc")), "id": mid}
+
+
+class PrepareReq(BaseModel):
+    revision: str | None = None
+    path: str | None = None
+    run: str | None = None
+    source: str | None = None
+
+
+@router.post("/models/prepare")
+def prepare(req: PrepareReq):
+    from . import api
+    if req.source == "rcrv":
+        if not (RCRV / "gltf").exists() or not (RCRV / "properties.sqlite").exists():
+            raise HTTPException(404, "The RCRV model is not on this engine (data/rcrv is not in git; see README).")
+        return {**ensure("rcrv", "rcrv"), "id": "rcrv"}
+    if req.run:
+        d = api._load_run(req.run)
+        p = api._run_file(d)
+    elif req.revision:
+        p = api.REVISIONS.get(req.revision)
+    else:
+        p = Path(api._check_path(req.path)) if req.path else None
+    if p is None or not api._owned(p):
+        raise HTTPException(404, "no such model on the engine")
+    st = prepare_file(p)
+    return st
+
+
+@router.get("/models/{mid}")
+def model_status(mid: str):
+    if not _ID.match(mid):
+        raise HTTPException(404, "no such model")
+    st = status(mid)
+    if st["state"] == "missing":
+        raise HTTPException(404, "no such model")
+    return st
+
+
+_META: dict[str, list] = {}
+
+
+def _meta(mid: str) -> list:
+    if mid not in _META:
+        p = MODELS / mid / "web" / "meta.json"
+        if not p.exists():
+            raise HTTPException(404, "no such model")
+        if len(_META) > 4:
+            _META.pop(next(iter(_META)))
+        _META[mid] = json.loads(p.read_text())
+    return _META[mid]
+
+
+@router.get("/models/{mid}/elements/{index}")
+def model_element(mid: str, index: int):
+    """Properties card: one element's metadata (meta.json is tens of MB on a whole ship, so it stays on the server)."""
+    if not _ID.match(mid):
+        raise HTTPException(404, "no such model")
+    meta = _meta(mid)
+    if not 0 <= index < len(meta):
+        raise HTTPException(404, "no such element")
+    return meta[index]
+
+
+@router.get("/models/{mid}/files/{path:path}")
+def model_file(mid: str, path: str):
+    if not _ID.match(mid) or not _FILE.match(path):
+        raise HTTPException(404, "no such file")
+    p = MODELS / mid / "web" / path
+    if not p.exists():
+        raise HTTPException(404, "no such file")
+    # content-hash ids never change; the rcrv id is rebuilt in place, so it revalidates
+    cache = "public, max-age=31536000, immutable" if mid != "rcrv" else "public, max-age=300"
+    media = "model/gltf-binary" if path.endswith(".glb") else ("application/json" if path.endswith(".json")
+                                                               else "application/octet-stream")
+    return FileResponse(p, media_type=media, headers={"Cache-Control": cache})
