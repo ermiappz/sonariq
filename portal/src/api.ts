@@ -1,22 +1,31 @@
 // Thin client for the SonarIQ engine (vite proxies /api -> http://127.0.0.1:8765). The UI never computes a verdict.
 export type Status = "fail" | "warn" | "unk" | "pass" | "dor" | "na" | "acc";
-export interface Val { value: number | string | boolean | null; unit: string; op?: string; alt?: { value: number; unit: string } }
+export interface Provenance { kind: "model" | "derived" | "public" | "estimated" | "user" | "confirmed"; file?: string | null; element?: string | null;
+  source_id?: string | null; pset?: string; prop?: string; raw?: unknown; inputs?: string[]; source?: string; by?: string; date?: string;
+  verified_against_official_text?: boolean }
+export interface Val { value: number | string | boolean | null; unit: string; op?: string; alt?: { value: number; unit: string }; provenance?: Provenance }
+export interface Readiness { revision: string; inventory: Record<string, any>; packs: Record<string, { state: "ready" | "partial" | "not_possible"; reason: string; n?: number; group: string; group_label: string }> }
 export interface Check {
   id: string | null; check_key: string; rule: string; title: string; source: string; clause: string; ref: string;
   clause_text: string; reading: string; rule_status: string; to_verify: boolean; pack: string; group: string;
   discipline: string; discipline_label: string; status: Status; status_word: string; glyph: string;
   element: { guid: string; name: string; ifc_class: string } | null;
-  location: { deck: string | null; frame: string | null; side: string | null; label: string };
+  location: { deck: string | null; frame: string | null; side: string | null; label: string; swbs?: string };
   required: Val | null; measured: Val | null; margin: Val | null; summary: string;
   formula: { text: string; worked: string; inputs: { name: string; deck: string; value: number; weight: number; source: string }[] } | null;
   method: string; missing: string[]; revision: string; decision?: Decision;
   evidence?: { guids: string[]; bbox: number[] | null; z: number | null };
+  verified_against_official_text?: boolean; source_group?: string; extra?: Record<string, any>;
 }
 export interface Decision { finding: string; kind: string; reason: string; by: string; to: string; time: string; revision: string; approved: boolean }
 export interface Run {
-  revision: string; total_checks: number; duration_s: number; counts: Record<string, number>;
+  revision: string; scope?: string; total_checks: number; duration_s: number; counts: Record<string, number>;
   by_group: Record<string, { label: string; checks: number; counts: Record<string, number>; pack_status: string; short: string }>;
   findings: Check[]; checks: Check[]; not_applicable: { rule: string; title: string; ref: string; reason: string }[];
+  compact?: boolean; passes?: [string, string | null, string | null, string | null, string, string | null][];
+  by_rule?: Record<string, { title: string; source_group: string; ref: string; group: string; counts: Record<string, number> }>;
+  not_run?: { rule: string; title: string; ref: string; reason: string; kind: string; group: string }[];
+  readiness?: Readiness | null; rules_verified_against_official_text?: { verified: number; total: number };
 }
 
 // The portal is served at / (live) or /next/ (staging); the API sits next to it. The demo key lets the browser reach
@@ -57,7 +66,28 @@ export const api = {
   runs: () => j<{ runs: RunMeta[] }>("/runs"),
   runGet: (id: string) => j<RunMeta & { run: Run }>(`/runs/${encodeURIComponent(id)}`),
   runDiff: (a: string, b: string) => j<RunDiff>(`/runs/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+  // model revisions (B11): Export saves; a saved revision never changes except its label
+  revisions: () => j<{ models: RevModel[] }>("/revisions"),
+  revExport: (run_id: string, format: "bcf" | "report" | "csv") =>
+    j<Revision & { download: string }>("/revisions/export", { method: "POST", body: JSON.stringify({ run_id, format }) }),
+  revGet: (id: number) => j<Revision & { data: RunMeta & { run: Run; snapshot?: { marks: { incorrect: Record<string, Incorrect> } } } }>(`/revisions/${id}`),
+  revLabel: (id: number, label: string) => j<Revision>(`/revisions/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
+  revCompare: (a: number, b: number) => j<RevCompare>(`/revisions/compare?a=${a}&b=${b}`),
 };
+
+/** Download an engine file with the API key header (a plain link would miss it on the hosted portal). */
+export async function download(path: string, name: string) {
+  const r = await apiFetch(path);
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await r.blob()); a.download = name; a.click();
+}
+
+export interface Revision { id: number; model_id: number; seq: number; letter: string; label: string; state: "draft" | "saved"; run_id: string;
+  file: string | null; file_sha: string | null; counts: Record<string, number> | null; created: string; saved_at: string | null }
+export interface RevModel { id: number; name: string; created: string; revisions: Revision[] }
+export interface RevCompare { a: Revision; b: Revision; new_findings: DiffRow[]; cleared: DiffRow[]; still_open: DiffRow[]; changed: DiffRow[];
+  fallback_matches: number; counts_delta: Record<string, number>; added_checks: number; removed_checks: number }
 
 export interface Report { id: string; run_id: string; time: string; file: string; revision: string; counts: Record<string, number>;
   total_checks: number; open_findings: number }
@@ -66,10 +96,11 @@ export interface Task { column: "backlog" | "doing" | "done"; assignee: string |
 
 // ---- Stored runs (every Analyse, from the panel or the portal, is kept; never overwritten)
 export interface RunMeta { id: string; seq: number; time: string; file: string; revision: string; scope: string; packs: string[];
-  counts: Record<string, number>; total_checks: number; source: string; scope_note?: string | null }
-export interface DiffRow { id: string | null; check_key: string; rule: string; title: string; status: string; before: string | null; location: string; element: string | null }
+  counts: Record<string, number>; total_checks: number; source: string; scope_note?: string | null; draft?: Revision }
+export interface DiffRow { id: string | null; check_key: string; rule: string; title: string; status: string; before: string | null; location: string; element: string | null;
+  match: "id" | "fallback" | "new" | "removed" }
 export interface RunDiff { a: RunMeta; b: RunMeta; counts_delta: Record<string, number>; new_findings: DiffRow[]; cleared: DiffRow[];
-  changed: DiffRow[]; added_checks: number; removed_checks: number }
+  still_open: DiffRow[]; changed: DiffRow[]; fallback_matches: number; added_checks: number; removed_checks: number }
 
 export const WORD: Record<Status, string> = { fail: "Fail", warn: "Warning", unk: "Cannot verify", pass: "Pass", dor: "Dormant", na: "Not applicable", acc: "Accepted with reason" };
 export const ORDER: Status[] = ["fail", "warn", "unk", "pass", "dor"];

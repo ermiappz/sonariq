@@ -36,6 +36,12 @@ class Session:
 
     # ------------------------------------------------------------ model
     def load(self, revision: str, path: str | None = None) -> Model:
+        if revision == "RCRV" and not path:          # the whole ship, from the pipeline's metadata index
+            from .rcrv_model import WEB, load_rcrv
+            key = f"RCRV|{(WEB / 'meta.json').stat().st_mtime if (WEB / 'meta.json').exists() else 0}"
+            if key not in self._cache:
+                self._cache[key] = load_rcrv()
+            return self._cache[key]                  # read-only: chat edits do not apply to the RCRV
         p = Path(path) if path else REVISIONS.get(revision)
         if p is None or not p.exists():
             raise FileNotFoundError(f"No IFC for revision {revision} ({p})")

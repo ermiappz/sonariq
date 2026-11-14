@@ -1,10 +1,16 @@
 // Web Studio ("Review in the browser"): open a demo model or upload an IFC, Analyse with scope + disciplines like the
 // FreeCAD panel, and inspect findings next to the 3D. The viewer always loads the exact file of the run shown
-// (GET /runs/<id>/ifc); every verdict and number comes from the engine.
+// (the engine converts that file once to web tiles: POST /models/prepare); every verdict and number comes from the engine.
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as OBC from "@thatopen/components";
-import * as THREE from "three";
-import { api, apiFetch, API, BASE, HDR, ORDER, WORD, useIncorrect, type Check, type Run, type RunMeta } from "../api";
+import { api, apiFetch, download, WORD, useIncorrect, type Check, type Incorrect, type RevModel, type Revision, type Run, type RunMeta } from "../api";
+import RevisionTimeline from "../components/RevisionTimeline";
+import DemoRun, { type DemoStep } from "../components/DemoRun";
+import ShipView, { type ModelSrc, type View } from "../components/ShipView";
+import { AccuracyBanner, NotRun, ReadinessCard, SourceChips } from "../components/Evidence";
+import FindingsList from "../components/FindingsList";
+import TraceMatrix from "../components/TraceMatrix";
+import ViewPane from "../components/ViewPane";
+import type { ShipViewer } from "../viewer/ShipViewer";
 import { Pill } from "../components/ui";
 import { DISC } from "./Board";
 import { valueLine } from "./Inbox";
@@ -14,256 +20,31 @@ const DEMOS = [
   { rev: "B", file: "deck5_revB.ifc", note: "OR-117 · 4 cabins added" },
   { rev: "Bfix2", file: "deck5_revB_fix2.ifc", note: "fix 2 · one berth each" },
 ];
-const DISCS: { code: string; pack: string | null; color: string; sets: string }[] = [
-  { code: "FIRE", pack: "fls", color: "#e27dff", sets: "SOLAS II-2 ✓ · FSS Code ✓" },
-  { code: "HULL", pack: "dnv", color: "#5c9dff", sets: "DNV Pt.3 · To verify" },
-  { code: "INT", pack: "acc", color: "#b98cff", sets: "Accessibility (PVAG/ADA) ✓" },
-  { code: "HVAC", pack: "hvac", color: "#3fd0e6", sets: "SOLAS II-2/9.7 dampers ✓" },
-  { code: "GA", pack: null, color: "#c3c9d4", sets: "Coming" },
-  { code: "PIPE", pack: null, color: "#c4e35c", sets: "Coming" },
-  { code: "ELEC", pack: null, color: "#82dd8a", sets: "Coming" },
-  { code: "MACH", pack: null, color: "#a3a3ff", sets: "Coming" },
+const DISCS: { code: string; packs: string[]; color: string; sets: string }[] = [
+  { code: "FIRE", packs: ["fls"], color: "#e27dff", sets: "SOLAS II-2 ✓ · FSS Code ✓" },
+  { code: "HULL", packs: ["dnv", "sts"], color: "#5c9dff", sets: "DNV Pt.3 · IACS UR W11 / S6 · data quality · To verify" },
+  { code: "INT", packs: ["acc"], color: "#b98cff", sets: "Accessibility (PVAG/ADA) ✓" },
+  { code: "HVAC", packs: ["hvac"], color: "#3fd0e6", sets: "SOLAS II-2/9.7 dampers ✓" },
+  { code: "GA", packs: [], color: "#c3c9d4", sets: "Coming" },
+  { code: "PIPE", packs: ["sts"], color: "#c4e35c", sets: "SOLAS II-2/4.2.2.5.1 oil fuel pipes · To verify" },
+  { code: "ELEC", packs: [], color: "#82dd8a", sets: "Coming" },
+  { code: "MACH", packs: [], color: "#a3a3ff", sets: "Coming" },
 ];
-const STATUS_HEX: Record<string, number> = { fail: 0xd55e00, warn: 0xe69f00, unk: 0xc9cdd4, pass: 0x009e73, dor: 0x959aa4 };
 const MAX_MB = 60;
 
-type Target = { kind: "demo"; rev: string; name: string } | { kind: "upload"; path: string | null; rev: string | null; name: string };
+type Target = { kind: "demo"; rev: string; name: string } | { kind: "upload"; path: string | null; rev: string | null; name: string }
+  | { kind: "rcrv"; name: string };
 type Shown = { meta: RunMeta & { bounds?: number[] | null; edited?: boolean }; run: Run };
-
-// ---------------------------------------------------------------------------------------------- overlay spec
-// Same rule as the FreeCAD panel: positions from the engine's evidence box, labels = engine values as returned.
-type Line = { a: [number, number]; b: [number, number]; text: string; dashed: boolean };
-const fmtV = (v: any) => (v?.unit === "mm" && typeof v.value === "number" ? `${v.value.toLocaleString("en-US")} mm` : `${v?.value} ${v?.unit ?? ""}`.trim());
-export function overlaySpec(c: Check): { z: number; lines: Line[]; title: string; bbox: number[] } | null {
-  const ev = c.evidence, ms = c.measured, rq = c.required;
-  if (!ev?.bbox || ev.z == null || ms?.value == null || rq?.value == null) return null;
-  const [x0, y0, x1, y1] = ev.bbox, longY = y1 - y0 >= x1 - x0, off = 0.6, lines: Line[] = [];
-  let title: string;
-  if (c.rule === "R-FLS-02" && (c as any).extra?.dead_end) {
-    if (longY) { lines.push({ a: [x1 + off, y0], b: [x1 + off, y1], text: `depth ${fmtV(ms)}`, dashed: false }); lines.push({ a: [x0, y1 + off], b: [x1, y1 + off], text: `width ${fmtV(rq)} = allowed depth`, dashed: true }); }
-    else { lines.push({ a: [x0, y1 + off], b: [x1, y1 + off], text: `depth ${fmtV(ms)}`, dashed: false }); lines.push({ a: [x1 + off, y0], b: [x1 + off, y1], text: `width ${fmtV(rq)} = allowed depth`, dashed: true }); }
-    title = `Dead end ${fmtV(ms)} > width ${fmtV(rq)}`;
-  } else if (["R-FLS-03", "R-FLS-04", "R-FLS-09", "R-ACC-01"].includes(c.rule) && ms.unit === "mm") {
-    const req = (rq.value as number) / 1000;
-    if (longY) { const cy = y1 + off, cx = (x0 + x1) / 2; lines.push({ a: [x0, cy], b: [x1, cy], text: `measured ${fmtV(ms)}`, dashed: false }); lines.push({ a: [cx - req / 2, cy + off], b: [cx + req / 2, cy + off], text: `required ${fmtV(rq)}`, dashed: true }); }
-    else { const cx = x1 + off, cy = (y0 + y1) / 2; lines.push({ a: [cx, y0], b: [cx, y1], text: `measured ${fmtV(ms)}`, dashed: false }); lines.push({ a: [cx + off, cy - req / 2], b: [cx + off, cy + req / 2], text: `required ${fmtV(rq)}`, dashed: true }); }
-    title = `${c.element?.name ?? c.id} · ${fmtV(ms)} measured / ${fmtV(rq)} required`;
-  } else return null;
-  return { z: ev.z + 0.15, lines, title, bbox: ev.bbox };
-}
-
-// ---------------------------------------------------------------------------------------------- 3D
-type Label = { text: string; x: number; y: number; dashed: boolean; visible: boolean };
-type View = { focus: (c: Check) => boolean; isolate: (c: Check) => void; showAll: () => void; zoom: () => void; resetView: () => void;
-  paint: (cs: Check[]) => void; setBounds: (b?: number[] | null) => void };
-
-// Look: dark background, every element translucent grey ("x-ray"), isometric camera from front-left-above fitted with
-// a small margin. The model loads as soon as it is opened; after Analyse the same viewer stays (camera unchanged) and
-// only elements with findings get their status colour.
-const ISO: [number, number] = [0.45, 0.9];   // camera-controls azimuth, polar (rad)
-function Viewer3D({ url, bounds, findings, onReady, apiRef }: { url: string | null; bounds?: number[] | null; findings: Check[] | null; onReady: (s: string) => void; apiRef: React.MutableRefObject<View | null> }) {
-  const host = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [err, setErr] = useState("");
-  const [labels, setLabels] = useState<Label[]>([]);
-  const [legend, setLegend] = useState<string | null>(null);
-  useEffect(() => {
-    if (!host.current || !url) { setState("idle"); return; }
-    let disposed = false, timer = 0;
-    const components = new OBC.Components();
-    const world = components.get(OBC.Worlds).create<OBC.SimpleScene, OBC.SimpleCamera, OBC.SimpleRenderer>();
-    world.scene = new OBC.SimpleScene(components);
-    world.renderer = new OBC.SimpleRenderer(components, host.current);
-    world.camera = new OBC.SimpleCamera(components);
-    components.init();
-    world.scene.setup();
-    (world.scene.three as THREE.Scene).background = new THREE.Color("#17191c");
-    const loader = components.get(OBC.IfcLoader);
-    let group: any = null, modelBox = new THREE.Box3();
-    let off = new THREE.Vector3();
-    let extras: THREE.Object3D[] = [];
-    let labelPts: { text: string; v: THREE.Vector3; dashed: boolean }[] = [];
-    let painted: THREE.Object3D[] = [];
-    let focusBox: THREE.Box3 | null = null;
-    const T = (x: number, y: number, z: number) => new THREE.Vector3(x + off.x, z + off.y, -y + off.z);
-    const mats = () => { const out: THREE.Material[] = []; group?.items.forEach((f: any) => { const m = f.mesh.material; (Array.isArray(m) ? m : [m]).forEach((mm: THREE.Material) => out.push(mm)); }); return out; };
-    // x-ray: translucent grey; while a finding is focused the rest fades further
-    // x-ray: faint grey faces + crisp edges, so walls, doors and stairs read as a drawing instead of stacked glass.
-    // While a finding is focused the rest fades further; isolate hides it.
-    let edges: THREE.LineSegments[] = [];
-    const edgesOf = (mesh: any, color: number, opacity: number, depthTest = true) => {
-      const base = new THREE.EdgesGeometry(mesh.geometry, 25);
-      const src = base.attributes.position.array as Float32Array;
-      const n = mesh.isInstancedMesh ? mesh.count : 1;
-      const out = new Float32Array(src.length * n);
-      const m = new THREE.Matrix4(), v = new THREE.Vector3();
-      mesh.updateMatrixWorld(true);
-      for (let i = 0; i < n; i++) {
-        if (mesh.isInstancedMesh) mesh.getMatrixAt(i, m); else m.identity();
-        m.premultiply(mesh.matrixWorld);
-        for (let k = 0; k < src.length; k += 3) { v.set(src[k], src[k + 1], src[k + 2]).applyMatrix4(m); out[i * src.length + k] = v.x; out[i * src.length + k + 1] = v.y; out[i * src.length + k + 2] = v.z; }
-      }
-      base.dispose();
-      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(out, 3));
-      const ln = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest }));
-      if (!depthTest) ln.renderOrder = 12;
-      return ln;
-    };
-    const buildEdges = () => {
-      let verts = 0;
-      group?.items.forEach((f: any) => { verts += (f.mesh.geometry.attributes.position?.count ?? 0) * (f.mesh.count ?? 1); });
-      if (verts > 3_000_000) return;   // very large models: faces only
-      group?.items.forEach((f: any) => { const e = edgesOf(f.mesh, 0x8d99a8, 0.5); world.scene.three.add(e); edges.push(e); });
-    };
-    const ghost = (on: boolean) => {
-      mats().forEach((m: any) => { m.color?.set?.(0x8b95a1); m.transparent = true; m.opacity = on ? 0.05 : 0.1; m.depthWrite = false; m.needsUpdate = true; });
-      edges.forEach((e) => { (e.material as THREE.LineBasicMaterial).opacity = on ? 0.22 : 0.5; e.visible = true; });
-    };
-    const cloneIn = (guid: string | undefined, color: number, intensity: number, into: THREE.Object3D[], box?: THREE.Box3) => {
-      const eid = guid ? group.globalToExpressIDs.get(guid) : undefined;
-      if (eid === undefined) return false;
-      const fmap = group.getFragmentMap([eid]);
-      for (const fid of Object.keys(fmap)) {
-        const frag = group.items.find((f: any) => f.id === fid);
-        if (!frag) continue;
-        const cl = frag.clone(fmap[fid]);
-        cl.mesh.material = [new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: intensity })];
-        group.add(cl.mesh); into.push(cl.mesh);
-        // outline drawn on top (no depth test), so the element stays visible through walls in the x-ray
-        if (box) { const o = edgesOf(cl.mesh, color === STATUS_HEX.unk ? 0xffffff : 0xffd2b8, 0.95, false); world.scene.three.add(o); into.push(o); }
-        if (box) { cl.mesh.updateMatrixWorld(true); box.union(new THREE.Box3().setFromObject(cl.mesh)); }
-      }
-      return true;
-    };
-    const paint = (cs: Check[]) => {
-      painted.forEach((o) => { o.parent?.remove(o); (o as any).geometry?.dispose?.(); }); painted = [];
-      if (!group) return;
-      for (const c of cs) cloneIn(c.element?.guid, STATUS_HEX[c.status] ?? 0xe392c8, 0.2, painted);
-      painted.forEach((o) => { o.visible = !focusBox && !extras.length; });
-    };
-    const home = async (smooth: boolean) => {
-      if (modelBox.isEmpty()) return;
-      // isometric from front-left-above; fitToSphere keeps the angle (fitToBox would snap to the nearest axis)
-      const sph = modelBox.getBoundingSphere(new THREE.Sphere()); sph.radius *= 0.75;
-      await world.camera.controls.rotateTo(ISO[0], ISO[1], false);
-      await world.camera.controls.fitToSphere(sph, smooth);
-    };
-    const visibility = (on: boolean) => group?.items.forEach((f: any) => f.setVisibility(on));
-    const clear = () => {
-      extras.forEach((o) => { o.parent?.remove(o); (o as any).geometry?.dispose?.(); });
-      extras = []; labelPts = []; focusBox = null; setLegend(null); setLabels([]);
-      visibility(true); ghost(false); painted.forEach((o) => { o.visible = true; });
-    };
-    const update = () => {
-      if (disposed || !host.current) return;
-      const cam = world.camera.three as THREE.Camera; cam.updateMatrixWorld();
-      const w = host.current.clientWidth, h = host.current.clientHeight;
-      setLabels(labelPts.map(({ text, v, dashed }) => { const p = v.clone().project(cam); return { text, dashed, x: (p.x + 1) / 2 * w, y: (1 - p.y) / 2 * h, visible: p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2 }; }));
-    };
-    // zoom to a finding: keep the isometric angle (fitToBox would snap to a flat axis view), centre the element and
-    // leave room around it so the neighbouring rooms and corridors give context
-    const fit = (b: THREE.Box3) => {
-      const sph = b.getBoundingSphere(new THREE.Sphere());
-      sph.radius = Math.max(sph.radius * 2.2, 7);
-      world.camera.controls.rotateTo(ISO[0], ISO[1], true);
-      world.camera.controls.fitToSphere(sph, true);
-    };
-    const focus = (c: Check) => {
-      clear();
-      if (!group) return false;
-      const color = STATUS_HEX[c.status] ?? 0xe392c8;
-      const box = new THREE.Box3();
-      painted.forEach((o) => { o.visible = false; });
-      const eid = cloneIn(c.element?.guid, color, 0.35, extras, box) ? 1 : undefined;
-      // the engine's evidence box, outlined in the status colour (spaces have no solid to colour)
-      const ev = c.evidence;
-      if (ev?.bbox && ev.z != null) {
-        const [x0, y0, x1, y1] = ev.bbox, z = ev.z + 0.05;
-        const ring = [T(x0, y0, z), T(x1, y0, z), T(x1, y1, z), T(x0, y1, z), T(x0, y0, z)];
-        const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ring), new THREE.LineBasicMaterial({ color, depthTest: false }));
-        ln.renderOrder = 10; world.scene.three.add(ln); extras.push(ln);
-        const fill = new THREE.Mesh(new THREE.PlaneGeometry(Math.abs(x1 - x0), Math.abs(y1 - y0)), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthTest: false }));
-        fill.rotation.x = -Math.PI / 2; fill.position.copy(T((x0 + x1) / 2, (y0 + y1) / 2, z)); fill.renderOrder = 9;
-        world.scene.three.add(fill); extras.push(fill);
-        if (box.isEmpty()) box.setFromPoints(ring);
-      }
-      // dimension overlay (engine numbers only)
-      const spec = overlaySpec(c);
-      if (spec) {
-        for (const l of spec.lines) {
-          const a = T(l.a[0], l.a[1], spec.z), b = T(l.b[0], l.b[1], spec.z);
-          const mat = l.dashed ? new THREE.LineDashedMaterial({ color, dashSize: 0.25, gapSize: 0.15, depthTest: false }) : new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false });
-          const g = new THREE.BufferGeometry().setFromPoints([a, b]);
-          const line = new THREE.Line(g, mat); if (l.dashed) line.computeLineDistances(); line.renderOrder = 11;
-          world.scene.three.add(line); extras.push(line);
-          labelPts.push({ text: l.text, v: a.clone().add(b).multiplyScalar(0.5).add(new THREE.Vector3(0, 0.3, 0)), dashed: l.dashed });
-        }
-        setLegend(spec.title);
-      }
-      ghost(true);
-      focusBox = box.isEmpty() ? null : box;
-      if (focusBox) fit(focusBox);
-      update();
-      return eid !== undefined || !!ev?.bbox;
-    };
-    apiRef.current = {
-      focus,
-      isolate: (c: Check) => { focus(c); visibility(false); edges.forEach((e) => { e.visible = false; }); },
-      showAll: () => { clear(); home(true); },
-      zoom: () => { if (focusBox) fit(focusBox); },
-      resetView: () => { clear(); home(true); },
-      paint,
-      setBounds: (b) => { if (b && !modelBox.isEmpty()) off = new THREE.Vector3(modelBox.min.x - b[0], modelBox.min.y - b[2], modelBox.min.z + b[4]); },
-    };
-    (async () => {
-      setState("loading"); setErr("");
-      try {
-        loader.settings.autoSetWasm = false;
-        loader.settings.wasm = { path: BASE + "wasm/", absolute: true };
-        loader.settings.webIfc.COORDINATE_TO_ORIGIN = false;
-        await loader.setup();
-        const r = await fetch(url, { headers: HDR });
-        if (!r.ok) throw new Error(r.status === 409 ? "This run includes edits made in chat; the file on disk is the version before them." : `${r.status} ${await r.text()}`);
-        const buf = new Uint8Array(await r.arrayBuffer());
-        group = await loader.load(buf);
-        if (disposed) return;
-        world.scene.three.add(group);
-        modelBox = new THREE.Box3().setFromObject(group);
-        if (bounds) off = new THREE.Vector3(modelBox.min.x - bounds[0], modelBox.min.y - bounds[2], modelBox.min.z + bounds[4]);
-        buildEdges();
-        ghost(false);
-        await home(false);
-        world.camera.controls.addEventListener("update", update);
-        timer = window.setInterval(update, 200);
-        setState("ready"); onReady("ready");
-      } catch (e) { if (!disposed) { setErr(String((e as Error).message ?? e)); setState("error"); onReady("error"); } }
-    })();
-    return () => { disposed = true; apiRef.current = null; window.clearInterval(timer); components.dispose(); };
-  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
-  const fkey = (findings ?? []).map((c) => c.check_key + c.status).join("|");
-  useEffect(() => { if (state === "ready") apiRef.current?.setBounds(bounds); }, [state, bounds?.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (state === "ready") apiRef.current?.paint(findings ?? []); }, [state, fkey]); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <div className="viewer studio-3d" ref={host}>
-      {state === "idle" && <div className="studio-empty">Open a model and press Analyse. The 3D shows the exact file of the run.</div>}
-      {state === "ready" && <button className="sq-btn is-sm studio-resetview" onClick={() => apiRef.current?.resetView()}>Reset view</button>}
-      {state === "loading" && <div className="sq-muted" style={{ position: "absolute", left: 16, top: 12 }}>Loading the file of this run…</div>}
-      {state === "error" && <div className="sq-banner" style={{ position: "absolute", left: 16, top: 12, right: 16 }}>3D preview not available for this run: {err} The findings list still works.</div>}
-      {labels.filter((l) => l.visible).map((l, i) => (
-        <span key={i} className={`studio-dim${l.dashed ? " is-req" : ""}`} style={{ left: l.x, top: l.y }}>{l.text}</span>
-      ))}
-      {legend && (
-        <div className="studio-legend"><b>{legend}</b><br />Measured by rule engine · check on drawing<br />
-          <span className="mono">━━ measured &nbsp; ╍╍ required / allowed</span></div>
-      )}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------------------------- Studio
 export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMeta & { bounds?: number[] | null; edited?: boolean }) | null; run: Run | null; onOpenFinding: (c: Check) => void }) {
   const [local, setLocal] = useState<Shown | null>(null);
-  const shown: Shown | null = local && (!latest || latest.seq <= local.meta.seq) ? local : latest && run ? { meta: latest, run } : null;
+  // a saved revision opened from the timeline: shown read-only with the marks it was saved with
+  const [past, setPast] = useState<{ rev: Revision; shown: Shown; marks: Record<string, Incorrect> } | null>(null);
+  const live: Shown | null = local && (!latest || latest.seq <= local.meta.seq) ? local : latest && run ? { meta: latest, run } : null;
+  const shown = past ? past.shown : live;
+  const [into, setInto] = useState("new");        // upload: "new" model or the id of the model it is a revision of
+  const [revModels, setRevModels] = useState<RevModel[]>([]);
   const [target, setTarget] = useState<Target | null>(null);
   const [scope, setScope] = useState<"deck:5" | "whole">("deck:5");
   const [discs, setDiscs] = useState<string[]>(["FIRE", "HULL", "INT"]);
@@ -273,31 +54,32 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   const [sel, setSel] = useState<string | null>(null);
   const [why, setWhy] = useState<{ key: string; text: string } | null>(null);
   const [setup, setSetup] = useState(true);
-  const [incorrect, reloadInc] = useIncorrect();
+  const [listMode, setListMode] = useState<"list" | "matrix">("list");
+  const [tab, setTab] = useState<"findings" | "view" | "revisions">("findings");
+  const [viewer, setViewer] = useState<{ v: ShipViewer | null; id: string | null }>({ v: null, id: null });
+  const [liveMarks, reloadInc] = useIncorrect();
+  const incorrect = past ? past.marks : liveMarks;
   const view = useRef<View | null>(null);
+  const [demo, setDemo] = useState(false);
+  const [cmpPick, setCmpPick] = useState<number[] | undefined>(undefined);
   const fileIn = useRef<HTMLInputElement>(null);
   useEffect(() => { if (shown) setSetup(false); }, [shown?.meta.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const packs = DISCS.filter((d) => d.pack && discs.includes(d.code)).map((d) => d.pack!) as string[];
-  // the viewer loads the model as soon as it is opened; after Analyse it keeps that file (same camera) when the run
-  // read the same file unedited, otherwise it loads exactly the run's file
-  const targetUrl = target ? (target.kind === "demo" ? `${API}/model-file?revision=${encodeURIComponent(target.rev)}`
-    : target.path ? `${API}/model-file?path=${encodeURIComponent(target.path)}` : target.rev ? `${API}/model-file?revision=${encodeURIComponent(target.rev)}` : null) : null;
-  const runUrl = shown ? `${API}/runs/${encodeURIComponent(shown.meta.id)}/ifc` : null;
-  const [viewSrc, setViewSrc] = useState<{ url: string | null; file: string | null }>({ url: null, file: null });
+  const packs = [...new Set(DISCS.filter((d) => discs.includes(d.code)).flatMap((d) => d.packs))];
+  // the viewer shows the model as soon as it is opened; after Analyse it keeps that file (same camera) when the run
+  // read the same file unedited, otherwise it shows exactly the run's file
+  const targetSrc: ModelSrc = target ? (target.kind === "rcrv" ? { source: "rcrv" } : target.kind === "demo" ? { revision: target.rev }
+    : target.path ? { path: target.path } : target.rev ? { revision: target.rev } : null) : null;
+  const runSrc: ModelSrc = shown ? { run: shown.meta.id } : null;
+  const [viewSrc, setViewSrc] = useState<{ src: ModelSrc; file: string | null }>({ src: null, file: null });
+  const tkey = JSON.stringify(targetSrc), rkey = JSON.stringify(runSrc);
   useEffect(() => {
-    if (target) { if (targetUrl !== viewSrc.url) setViewSrc({ url: targetUrl, file: target.name }); return; }
-    if (!shown) { setViewSrc({ url: null, file: null }); return; }
-    if (viewSrc.url && viewSrc.file === shown.meta.file && !shown.meta.edited) return;
-    setViewSrc({ url: runUrl, file: shown.meta.file });
-  }, [targetUrl, runUrl]); // eslint-disable-line react-hooks/exhaustive-deps
-  const ifcUrl = viewSrc.url;
+    if (target) { if (tkey !== JSON.stringify(viewSrc.src)) setViewSrc({ src: targetSrc, file: target.name }); return; }
+    if (!shown) { setViewSrc({ src: null, file: null }); return; }
+    if (viewSrc.src && viewSrc.file === shown.meta.file && !shown.meta.edited) return;
+    setViewSrc({ src: runSrc, file: shown.meta.file });
+  }, [tkey, rkey]); // eslint-disable-line react-hooks/exhaustive-deps
   const painted = useMemo(() => (shown && !target ? shown.run.checks.filter((c) => ["fail", "warn", "unk"].includes(c.status) && !incorrect[c.check_key]) : null), [shown, target, incorrect]);
-  const cards = useMemo(() => {
-    if (!shown) return [];
-    const rows = shown.run.checks.filter((c) => (status ? c.status === status : ["fail", "warn", "unk"].includes(c.status)));
-    return rows.sort((a, b) => Number(!!incorrect[a.check_key]) - Number(!!incorrect[b.check_key]) || ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || (a.id ?? "").localeCompare(b.id ?? ""));
-  }, [shown, status, incorrect]);
 
   const upload = async (f: File) => {
     setMsg("");
@@ -312,21 +94,24 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
       const r = await apiFetch(`/upload?name=${encodeURIComponent(f.name)}`, { method: "POST", body: f, headers: { "Content-Type": "application/octet-stream" } });
       const j = await r.json();
       if (!r.ok) throw new Error(j.detail ?? r.statusText);
-      setTarget({ kind: "upload", path: j.path, rev: j.revision, name: f.name }); setSetup(true);
+      setTarget({ kind: "upload", path: j.path, rev: j.revision, name: f.name }); setSetup(true); setPast(null); setInto("new");
+      api.revisions().then((m) => setRevModels(m.models)).catch(() => {});
       setMsg(j.known ? `${f.name} is the demo file Rev ${j.revision}.` : `${f.name} uploaded. Press Analyse.`);
     } catch (e) { setMsg(`Upload failed: ${(e as Error).message}`); }
     setBusy(false);
   };
-  const analyse = async () => {
-    const t = target ?? (shown ? { kind: "demo", rev: shown.meta.revision, name: shown.meta.file } as Target : null);
+  const analyse = async (given?: Target) => {
+    const t = given ?? target ?? (shown ? { kind: "demo", rev: shown.meta.revision, name: shown.meta.file } as Target : null);
     if (!t || !packs.length) return;
     setBusy(true); setMsg(""); setSel(null); view.current?.showAll();
     try {
-      const body = t.kind === "demo" ? { revision: t.rev, scope, packs } : { revision: t.path ? null : t.rev, path: t.path, scope, packs };
+      const body = t.kind === "rcrv" ? { revision: "RCRV", scope: "whole", packs }
+        : t.kind === "demo" ? { revision: t.rev, scope, packs } : { revision: t.path ? null : t.rev, path: t.path, scope, packs,
+          ...(into === "new" ? { new_model: t.name.replace(/\.ifc$/i, "") } : { model_id: Number(into) }) };
       const r = await apiFetch("/analyse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail ?? r.statusText);
-      setLocal({ meta: { ...d.run_meta }, run: d }); setTarget(null); setStatus(null);
+      setLocal({ meta: { ...d.run_meta }, run: d }); setTarget(null); setStatus(null); setPast(null);
     } catch (e) { setMsg(`Analyse failed: ${(e as Error).message}`); }
     setBusy(false);
   };
@@ -338,28 +123,154 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   };
   const undo = async (key: string) => { await api.undoIncorrect(key); reloadInc(); };
   const label = target ? target.name : shown ? shown.meta.file : null;
+  // Export = save (B11): the engine freezes this run's revision, then the file comes from that saved revision
+  const exportAs = async (fmt: "bcf" | "csv") => {
+    if (!shown) return;
+    try {
+      const r = await api.revExport(shown.meta.id, fmt);
+      await download(r.download, `sonariq_${r.label.replace(/[^A-Za-z0-9_-]+/g, "_")}.${fmt === "bcf" ? "bcfzip" : "csv"}`);
+      setMsg(`${fmt.toUpperCase()} exported · saved as ${r.label} (frozen; the next Analyse starts a new draft).`);
+    } catch (e) { setMsg(`Export failed: ${(e as Error).message}`); }
+  };
+  const openPast = async (r: Revision) => {
+    try {
+      const d = await api.revGet(r.id);
+      setPast({ rev: r, shown: { meta: d.data, run: d.data.run }, marks: d.data.snapshot?.marks.incorrect ?? {} });
+      setTarget(null); setSel(null); setTab("findings"); setMsg("");
+    } catch (e) { setMsg(`Could not open ${r.label}: ${(e as Error).message}`); }
+  };
+
+  // ------------------------------------------------------------------ demo run-through (spec B8)
+  const now = useRef({ shown, viewer, target });
+  now.current = { shown, viewer, target };
+  const until = async (ok: () => boolean, what: string, ms = 600000) => {
+    const t0 = Date.now();
+    while (!ok()) { if (Date.now() - t0 > ms) throw new Error(`timed out waiting for ${what}`); await new Promise((r) => setTimeout(r, 250)); }
+  };
+  const DEMO_MODEL = "Deck 5 demo";
+  const demoFinding = () => now.current.shown?.run.checks.find((c) => c.id === "F-07") ?? null;
+  const demoSteps: DemoStep[] = [
+    { title: "1 · Data readiness",
+      text: "Before any rule runs, SonarIQ reads what the model actually contains (spaces, doors, fire ratings, systems). Rules the data cannot support are listed as not run, never guessed.",
+      run: () => { setPast(null); setTab("findings"); setSetup(true); setMsg(""); setTarget({ kind: "demo", rev: "B", name: "deck5_revB.ifc" }); } },
+    { title: "2 · The whole model in 3D",
+      text: "The exact file is converted once on the engine into compressed web tiles and streamed. Every part keeps its IFC GlobalId, so a click maps to the engine's element.",
+      run: async () => { await until(() => now.current.viewer.v?.stats.firstFrame != null, "the 3D model"); now.current.viewer.v?.view("iso"); } },
+    { title: "3 · Analyse, with the accuracy banner",
+      text: "The deterministic rule engine runs. The banner compares the result with hand-checked findings and an independent scan: what was found, false alarms, expected passes.",
+      run: async () => {
+        // the compare step needs a saved Rev A of the demo model: save one first if there is none (said in step 7)
+        const m = (await api.revisions()).models.find((x) => x.name === DEMO_MODEL);
+        if (!m?.revisions.some((r) => r.state === "saved" && r.file === "deck5_revA.ifc")) {
+          const r = await apiFetch("/analyse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: "A", scope: "deck:5", packs }) });
+          const d = await r.json(); if (!r.ok) throw new Error(d.detail ?? r.statusText);
+          await api.revExport(d.run_meta.id, "bcf");
+        }
+        setTarget({ kind: "demo", rev: "B", name: "deck5_revB.ifc" });
+        await new Promise((r) => setTimeout(r, 50));
+        await analyse({ kind: "demo", rev: "B", name: "deck5_revB.ifc" });
+        await until(() => !!demoFinding(), "the analysis");
+        await until(() => !/Checking/.test(document.querySelector(".acc-banner")?.textContent ?? "Checking"), "the accuracy banner", 120000);
+        document.querySelector(".acc-banner")?.scrollIntoView({ block: "nearest" });
+      } },
+    { title: "4 · One finding, with its callout",
+      text: "F-07: the stair is narrower than the FSS Code formula needs. The callout shows what the model has, what it must be with the formula filled in from the model, the clause, and where each value comes from.",
+      run: async () => { const c = demoFinding(); if (!c) throw new Error("F-07 not in this run"); pick(c); await new Promise((r) => setTimeout(r, 1500)); } },
+    { title: "5 · Section at the finding",
+      text: "One click cuts a deck plan through the finding and turns the camera to face it. Cut faces are capped, so walls and stairs read as solid.",
+      run: async () => { const c = demoFinding(); if (c && !(await view.current?.sectionAt(c))) throw new Error("no position for the cut"); } },
+    { title: "6 · X-ray, one system solo",
+      text: "X-ray with one system soloed and everything else as faint context. Deck 5 has no pipes, so this solos the HVAC ducts; on the RCRV whole ship the same button solos piping.",
+      run: () => {
+        const v = now.current.viewer.v; if (!v) return;
+        view.current?.showAll(); setSel(null); v.setCuts([]);
+        // piping when the model has pipes (the group can exist with no parts), else HVAC
+        const g = v.index.groups, pipe = g.indexOf("piping"), k = pipe >= 0 && v.disc.includes(pipe) ? pipe : g.indexOf("hvac");
+        v.setMode("xray"); if (k >= 0) v.setSolo(k); setTab("view");
+      } },
+    { title: "7 · Revisions and compare",
+      text: "Export saves a run as a frozen revision. Comparing Rev A with this analysis of Rev B: the new cabins add three findings, matched by element ID. (If the demo model had no saved Rev A, step 3 saved one.)",
+      run: async () => {
+        const v = now.current.viewer.v; if (v) { v.setSolo(null); v.setMode("edges"); }
+        const m = (await api.revisions()).models.find((x) => x.name === DEMO_MODEL);
+        const a = [...(m?.revisions ?? [])].reverse().find((r) => r.state === "saved" && r.file === "deck5_revA.ifc");
+        const b = m?.revisions.find((r) => r.run_id === now.current.shown?.meta.id);
+        if (!a || !b) throw new Error("no Rev A / Rev B pair to compare");
+        setCmpPick([a.id, b.id]); setTab("revisions");
+      } },
+    { title: "8 · BCF export",
+      text: "Findings go to the CAD tool as BCF (the FreeCAD panel reads them back on the right parts). Exporting saves this run as a revision; findings marked incorrect are left out.",
+      run: async () => { setTab("findings"); await exportAs("bcf"); } },
+  ];
+
+  const renderCard = (c: Check) => {
+                const [tag, color] = DISC[c.group] ?? ["··", "var(--fg-3)"];
+                const inc = incorrect[c.check_key];
+                const on = sel === c.check_key;
+                return (
+                  <div key={c.check_key} className={`studio-card${on ? " is-on" : ""}${inc ? " is-incorrect" : ""}${c.status === "unk" ? " is-dashed" : ""}`}
+                       style={{ borderLeftColor: inc ? "var(--line-2)" : color }} onClick={() => pick(c)}>
+                    <div className="flex items-center gap-2"><b className="mono" style={{ color, fontSize: 11 }}>{tag}</b><Pill s={c.status} /><span className="mono sq-faint" style={{ fontSize: 12 }}>{c.id}</span>
+                      {c.to_verify && <span style={{ color: "var(--st-warn)", fontSize: 11 }}>To verify</span>}</div>
+                    <div style={{ fontWeight: 600 }}>{c.title}</div>
+                    <div className="mono sq-faint" style={{ fontSize: 11 }}>{[c.element?.name && !c.location.label.includes(c.element.name) ? c.element.name : "", c.location.label, `${c.source.startsWith("SOLAS") ? "SOLAS" : c.source} ${c.clause}`].filter(Boolean).join(" · ")}</div>
+                    <div className="mono" style={{ fontSize: 11 }}>{valueLine(c)}</div>
+                    <SourceChips c={c} />
+                    {inc && <div className="inc-why flex items-center gap-2"><span style={{ flex: 1 }}>Marked incorrect · {inc.reason} · not exported</span>
+                      {!past && <button className="studio-link" onClick={(e) => { e.stopPropagation(); undo(c.check_key); }}>Undo</button>}</div>}
+                    {on && (
+                      <div className="flex gap-1" style={{ flexWrap: "wrap", marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
+                        <button className="sq-btn is-sm is-primary" onClick={() => view.current?.zoom()}>Zoom to</button>
+                        <button className="sq-btn is-sm" onClick={() => view.current?.isolate(c)}>Isolate</button>
+                        <button className="sq-btn is-sm" onClick={() => view.current?.sectionAt(c)} title="Cut through this finding and face the cut">Section at finding</button>
+                        <button className="sq-btn is-sm" onClick={() => { view.current?.showAll(); setSel(null); }}>Show all</button>
+                        {!inc && !past && <button className="sq-btn is-sm studio-warn" onClick={() => setWhy({ key: c.check_key, text: "" })}>Incorrect finding</button>}
+                        <button className="sq-btn is-sm" onClick={() => onOpenFinding(c)}>Thread →</button>
+                      </div>
+                    )}
+                    {on && why?.key === c.check_key && (
+                      <form className="flex gap-1" style={{ marginTop: 4 }} onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); mark(c, why.text); }}>
+                        <input className="sq-input studio-why" autoFocus maxLength={140} placeholder="Why is this finding wrong?" value={why.text} onChange={(e) => setWhy({ key: c.check_key, text: e.target.value })} />
+                        <button className="sq-btn is-sm studio-warn" disabled={!why.text.trim()}>Mark incorrect</button>
+                      </form>
+                    )}
+                  </div>
+                );
+  };
 
   return (
     <div className="studio">
       <div className="studio-left">
-        <Viewer3D url={ifcUrl} bounds={shown && !target ? shown.meta.bounds : null} findings={painted} onReady={() => {}} apiRef={view} />
+        <ShipView src={viewSrc.src} findings={painted} apiRef={view} onViewer={(v, id) => setViewer({ v, id })} onPick={pick} onOpenEvidence={onOpenFinding} />
+        {demo && <DemoRun steps={demoSteps} onStop={() => setDemo(false)} />}
       </div>
       <aside className="studio-panel">
         <header className="studio-head">
           <span className="studio-title"><b>Studio</b>
-            <span className="mono sq-muted studio-file" title={label ?? ""}>{label ? label.replace(/\.ifc$/i, "") : "No model open"}{shown && !target ? ` · Rev ${shown.meta.revision}` : target ? " · not analysed yet" : ""}</span></span>
+            <span className="mono sq-muted studio-file" title={label ?? ""}>{label ? label.replace(/\.ifc$/i, "") : "No model open"}{past ? ` · ${past.rev.label} · read-only` : shown && !target ? ` · Rev ${shown.meta.revision}` : target ? " · not analysed yet" : ""}</span></span>
           <span style={{ flex: 1 }} />
+          {past ? <button className="sq-btn" onClick={() => setPast(null)}>Back to current</button> : <>
           <button className="sq-btn" onClick={() => setSetup(!setup)}>{setup ? "Close" : "Open model"}</button>
-          <button className="sq-btn is-primary" disabled={busy || (!target && !shown) || !packs.length} title={!target && !shown ? "Open an IFC model to analyse" : ""} onClick={analyse}>{busy ? "Analysing…" : "Analyse"}</button>
-          {shown && !target && <button className="sq-btn" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}
+          <button className="sq-btn is-primary" disabled={busy || (!target && !shown) || !packs.length} title={!target && !shown ? "Open an IFC model to analyse" : ""} onClick={() => analyse()}>{busy ? "Analysing…" : "Analyse"}</button>
+          {shown && !target && <button className="sq-btn" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}</>}
+          <button className="sq-btn" aria-pressed={demo} aria-label="Demo run-through" onClick={() => setDemo(!demo)} title="Demo run-through: a guided tour that plays by itself (Space / → next, Esc stops)">{demo ? "Stop" : "▶ Demo"}</button>
         </header>
+        <div className="sq-seg studio-tabs" role="tablist" aria-label="Panel">
+          {(["findings", "view", "revisions"] as const).map((k) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>{k === "findings" ? "Findings" : k === "view" ? "View" : "Revisions"}</button>)}
+        </div>
+        {tab === "view" ? <ViewPane v={viewer.v} modelId={viewer.id} /> : tab === "revisions" ? <RevisionTimeline current={shown?.meta.id ?? null} onOpen={openPast} pick={cmpPick} /> : <>
+        {past && <div className="sq-banner studio-past"><span style={{ flex: 1 }}><b>{past.rev.label}</b> · saved {past.rev.saved_at?.replace("T", " ").slice(0, 16)} · read-only: verdicts and marks as they were saved.</span>
+          <button className="sq-btn is-sm" onClick={() => setPast(null)}>Back to current</button></div>}
         {shown && !target && <div className="sq-faint" style={{ fontSize: 12, textAlign: "right", padding: "0 12px 6px" }}>All findings are exported except those marked incorrect.</div>}
         {msg && <div className="sq-banner" style={{ margin: "0 12px 8px" }}>{msg}</div>}
         {!setup && shown && (
           <div className="studio-sum">
-            <span style={{ flex: 1 }}>{scope === "whole" ? "Whole model" : "Deck 5"} · {discs.filter((d) => DISCS.find((x) => x.code === d)?.pack).join(" ")}<br />
+            <span style={{ flex: 1 }}>{shown.run.scope === "whole" ? "Whole model" : "Deck 5"} · {discs.filter((d) => DISCS.find((x) => x.code === d)?.packs.length).join(" ")}<br />
               <span className="mono sq-faint" style={{ fontSize: 12 }}>Rev {shown.meta.revision} · {shown.run.total_checks} checks · {shown.meta.time.slice(11, 16)}{shown.meta.scope_note ? " · whole model" : ""}</span></span>
-            <button className="sq-btn is-sm" onClick={() => setSetup(true)}>Edit</button>
+            <a className="sq-btn is-sm" href={`#print/${encodeURIComponent(shown.meta.id)}`} target="_blank" rel="noreferrer">Report</a>
+            <button className="sq-btn is-sm" onClick={() => exportAs("csv")}>CSV</button>
+            <button className="sq-btn is-sm" onClick={() => exportAs("bcf")}>BCF</button>
+            {!past && <button className="sq-btn is-sm" onClick={() => setSetup(true)}>Edit</button>}
           </div>
         )}
         {setup && (
@@ -371,9 +282,20 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
                   <span className="mono">{d.file}</span><span className="sq-faint">{d.note}</span>
                 </button>
               ))}
+              <button className={`studio-model${target?.kind === "rcrv" ? " is-on" : ""}`} onClick={() => { setTarget({ kind: "rcrv", name: "RCRV whole ship" }); setMsg(""); setDiscs((d) => (d.includes("HULL") ? d : [...d, "HULL"])); }}>
+                <span className="mono">RCRV whole ship</span><span className="sq-faint">research vessel · 90,331 parts</span>
+              </button>
               <button className="studio-model" onClick={() => fileIn.current?.click()}><span>Upload IFC…</span><span className="sq-faint">IFC4 · up to {MAX_MB} MB</span></button>
               <input ref={fileIn} type="file" accept=".ifc" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
             </div>
+            {target?.kind === "upload" && (
+              <label className="flex flex-col gap-1" style={{ marginTop: 10 }}><span className="sq-label">Save as</span>
+                <select className="sq-input" value={into} onChange={(e) => setInto(e.target.value)}>
+                  <option value="new">New model</option>
+                  {revModels.map((m) => <option key={m.id} value={String(m.id)}>New revision of {m.name}</option>)}
+                </select></label>
+            )}
+            {target && <div style={{ marginTop: 10 }}><ReadinessCard src={target.kind === "rcrv" ? { revision: "RCRV" } : target.kind === "demo" ? { revision: target.rev } : target.path ? { path: target.path } : { revision: target.rev ?? "A" }} /></div>}
             <div className="sq-label" style={{ marginTop: 10 }}>Scope</div>
             <div className="sq-seg">{([["deck:5", "Deck 5"], ["whole", "Whole model"]] as const).map(([k, l]) => <button key={k} className={scope === k ? "is-on" : ""} onClick={() => setScope(k)}>{l}</button>)}</div>
             <div className="sq-label" style={{ marginTop: 10 }}>Disciplines</div>
@@ -387,7 +309,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
             <div className="sq-card studio-sets">
               <div className="sq-faint" style={{ fontSize: 12 }}>Rule sets selected automatically</div>
               {DISCS.filter((d) => discs.includes(d.code)).map((d) => (
-                <div key={d.code} className="flex gap-2" style={{ fontSize: 12 }}><b className="mono" style={{ color: d.color, width: 40 }}>{d.code}</b><span className={d.pack ? "" : "sq-faint"}>{d.sets}</span></div>
+                <div key={d.code} className="flex gap-2" style={{ fontSize: 12 }}><b className="mono" style={{ color: d.color, width: 40 }}>{d.code}</b><span className={d.packs.length ? "" : "sq-faint"}>{d.sets}</span></div>
               ))}
               {!packs.length && <div className="sq-muted" style={{ fontSize: 12 }}>Pick a discipline with rule sets.</div>}
             </div>
@@ -395,6 +317,9 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
         )}
         {shown && !target && (
           <>
+            <AccuracyBanner revision={shown.meta.revision} verified={shown.run.rules_verified_against_official_text} />
+            {shown.run.readiness && <details className="ready-details"><summary>Data readiness</summary><ReadinessCard src={null} given={shown.run.readiness} /></details>}
+            <NotRun rows={shown.run.not_run ?? []} />
             <div className="flex gap-1 studio-chips">
               {(["fail", "warn", "unk", "pass", "dor"] as const).map((s) => (
                 <button key={s} className={`ib-chip${status === s ? " is-on" : ""}`} onClick={() => setStatus(status === s ? null : s)}>
@@ -402,43 +327,15 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
                 </button>
               ))}
             </div>
-            <div className="studio-cards">
-              {cards.map((c) => {
-                const [tag, color] = DISC[c.group] ?? ["··", "var(--fg-3)"];
-                const inc = incorrect[c.check_key];
-                const on = sel === c.check_key;
-                return (
-                  <div key={c.check_key} className={`studio-card${on ? " is-on" : ""}${inc ? " is-incorrect" : ""}${c.status === "unk" ? " is-dashed" : ""}`}
-                       style={{ borderLeftColor: inc ? "var(--line-2)" : color }} onClick={() => pick(c)}>
-                    <div className="flex items-center gap-2"><b className="mono" style={{ color, fontSize: 11 }}>{tag}</b><Pill s={c.status} /><span className="mono sq-faint" style={{ fontSize: 12 }}>{c.id}</span>
-                      {c.to_verify && <span style={{ color: "var(--st-warn)", fontSize: 11 }}>To verify</span>}</div>
-                    <div style={{ fontWeight: 600 }}>{c.title}</div>
-                    <div className="mono sq-faint" style={{ fontSize: 11 }}>{[c.element?.name && !c.location.label.includes(c.element.name) ? c.element.name : "", c.location.label, `${c.source.startsWith("SOLAS") ? "SOLAS" : c.source} ${c.clause}`].filter(Boolean).join(" · ")}</div>
-                    <div className="mono" style={{ fontSize: 11 }}>{valueLine(c)}</div>
-                    {inc && <div className="inc-why flex items-center gap-2"><span style={{ flex: 1 }}>Marked incorrect · {inc.reason} · not exported</span>
-                      <button className="studio-link" onClick={(e) => { e.stopPropagation(); undo(c.check_key); }}>Undo</button></div>}
-                    {on && (
-                      <div className="flex gap-1" style={{ flexWrap: "wrap", marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
-                        <button className="sq-btn is-sm is-primary" onClick={() => view.current?.zoom()}>Zoom to</button>
-                        <button className="sq-btn is-sm" onClick={() => view.current?.isolate(c)}>Isolate</button>
-                        <button className="sq-btn is-sm" onClick={() => { view.current?.showAll(); setSel(null); }}>Show all</button>
-                        {!inc && <button className="sq-btn is-sm studio-warn" onClick={() => setWhy({ key: c.check_key, text: "" })}>Incorrect finding</button>}
-                        <button className="sq-btn is-sm" onClick={() => onOpenFinding(c)}>Thread →</button>
-                      </div>
-                    )}
-                    {on && why?.key === c.check_key && (
-                      <form className="flex gap-1" style={{ marginTop: 4 }} onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); mark(c, why.text); }}>
-                        <input className="sq-input studio-why" autoFocus maxLength={140} placeholder="Why is this finding wrong?" value={why.text} onChange={(e) => setWhy({ key: c.check_key, text: e.target.value })} />
-                        <button className="sq-btn is-sm studio-warn" disabled={!why.text.trim()}>Mark incorrect</button>
-                      </form>
-                    )}
-                  </div>
-                );
-              })}
-              {cards.length === 0 && <p className="sq-muted" style={{ padding: 12 }}>No findings with this status.</p>}
+            <div className="sq-seg studio-mode" role="tablist" aria-label="Findings view">
+              {(["list", "matrix"] as const).map((k) => <button key={k} role="tab" aria-selected={listMode === k} className={listMode === k ? "is-on" : ""} onClick={() => setListMode(k)}>{k === "list" ? "List" : "Traceability"}</button>)}
             </div>
+            {listMode === "list"
+              ? <FindingsList run={shown.run} status={status} selected={sel} onPick={pick} renderCard={renderCard} incorrect={incorrect} />
+              : <TraceMatrix run={shown.run} selected={sel} onPick={pick} />}
           </>
         )}
+        </>}
       </aside>
     </div>
   );

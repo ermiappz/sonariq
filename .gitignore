@@ -39,3 +39,9 @@ data/tasks.json
 data/incorrect.json
 data/out/
 *.bcfzip
+# web tiles and stored originals (rebuilt from the source files)
+data/models/
+data/readiness/
+data/revisions.sqlite
+data/revisions/
+data/open/

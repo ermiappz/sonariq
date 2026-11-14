@@ -13,6 +13,7 @@ import Revisions from "./screens/Revisions";
 import Board from "./screens/Board";
 import Home from "./screens/Home";
 import { Pill } from "./components/ui";
+import PrintReport from "./screens/PrintReport";
 
 type Screen = "simulate" | "projects" | "inbox" | "board" | "thread" | "model" | "rules" | "mapping" | "benchmark" | "revisions" | "settings";
 const USER = { name: "Mikko Saari", role: "Fire & life safety lead", initials: "MS" }; // sample person from the design
@@ -27,6 +28,7 @@ export default function App() {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
+  if (location.hash.startsWith("#print/")) return <PrintReport id={decodeURIComponent(location.hash.slice(7))} />;
   if (home) return <Home onLogin={() => { location.hash = "#inbox"; setHome(false); }} />;
   return <Workspace />;
 }
@@ -64,7 +66,6 @@ function Workspace() {
   // The portal never analyses on its own: it shows the newest stored run (or the pinned one) and polls every 2 s.
   const [runs, setRuns] = useState<RunMeta[] | null>(null);
   const [latest, setLatest] = useState<RunMeta | null>(null);
-  const [busy, setBusy] = useState(false);
   useEffect(() => {
     let alive = true, last = "";
     const tick = async () => {
@@ -97,15 +98,11 @@ function Workspace() {
     try {
       const rep = await api.report(ask.id);
       setReports((rs) => rs.some((x) => x.id === rep.id) ? rs : [...rs, rep]);
-      setToast(rep.existing ? `Report ${rep.id} already exists for this run` : `Report ${rep.id} created`);
+      const rv = (rep as { saved_revision?: { label: string } }).saved_revision;
+      setToast((rep.existing ? `Report ${rep.id} already exists for this run` : `Report ${rep.id} created`) + (rv ? ` · saved as ${rv.label}` : ""));
       setTimeout(() => setToast(""), 5000);
     } catch (e) { setError(String(e)); }
     setAsk(null); setScreen("inbox");
-  };
-  const analyseNow = async (r: string) => {
-    setBusy(true); setPinned(null);
-    try { await api.analyse(r, ["fls", "acc", "dnv"]); } catch (e) { setError(String(e)); }
-    setBusy(false);
   };
 
   const openFinding = (c: Check) => { setOpen(c.id ?? c.check_key); setScreenState("thread"); history.replaceState(null, "", "#thread/" + (c.id ?? c.check_key)); };
@@ -143,7 +140,7 @@ function Workspace() {
           <span style={{ flex: 1 }} />
           <span className="sq-faint">Units</span>
           <div className="sq-seg">{(["mm", "in"] as const).map((u) => <button key={u} className={units === u ? "is-on" : ""} onClick={() => setUnits(u)}>{u}</button>)}</div>
-          <button className="sq-btn is-sm" title="Light / dark" onClick={() => setLight(!light)}>◐</button>
+          <button className="sq-btn is-sm" title="Light / dark" aria-label="Light / dark theme" aria-pressed={light} onClick={() => setLight(!light)}>◐</button>
           <span className="tb-user"><b className="tb-av">{USER.initials}</b><span><span>{USER.name}</span><span className="sq-faint">{USER.role}</span></span></span>
         </header>
         <main className="page">

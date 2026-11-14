@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TB
   subgraph Clients
-    W[Web portal + Studio<br/>React, That Open Components]
+    W[Web portal + Studio<br/>React, three.js tile viewer]
     F[FreeCAD add-on<br/>PySide panel, Coin3D overlays]
     M[MCP server<br/>stdio, for AI assistants]
   end
@@ -18,6 +18,8 @@ flowchart TB
     BCF[bcf.py]
     LLM[llm.py<br/>gateway + number guard]
     RAG[rag.py<br/>public rule texts]
+    PIPE[pipeline/<br/>IFC → Meshopt glTF tiles,<br/>elements, frame grid]
+    REV[revisions<br/>frozen snapshots, compare]
   end
   SIM[engine/sim<br/>JuPedSim, cache by model hash]
   W & F & M --> API
@@ -25,6 +27,8 @@ flowchart TB
   S --> ED --> RE
   API --> BCF
   API --> SIM
+  API --> PIPE
+  API --> REV
   RE -->|facts| LLM
   RAG --> LLM
   LLM -->|text with engine numbers only| API
@@ -73,3 +77,13 @@ Labelled on every screen as a Deck 5 sub-model for design insight, not a full-sh
 - `make fc-golden` — FreeCAD headless golden path (open, analyse, colours, overlays, isolate, incorrect, BCF, fix 2).
 - `make eval` — planted-violation benchmark (12/12 caught, 0 false alarms), simulation sanity, AI phrasing and
   number-guard evals; appended to `docs/EVAL.md`.
+
+## Whole-ship viewer
+
+`engine/sonariq/pipeline` converts the exact file of a run once (keyed by its sha-256) into Meshopt glTF tiles per
+deck × discipline × level of detail, plus `elements.json` (index → IFC GlobalId) and a metadata index for the
+properties card. `portal/src/viewer/ShipViewer.ts` streams the tiles in plain three.js: one draw call per tile, element
+state (colour, hidden, ghosted) in one texture, GPU picking by element index, section cuts with stencil caps, and a
+1-pixel depth pass for callout occlusion. Findings reach the 3D only as engine JSON (element GlobalIds + evidence
+boxes); the callout card (`viewer/callout.ts`) prints only numbers that JSON contains. Details: `docs/VIEWER.md`;
+decisions M1–M14 in `docs/DECISIONS.md`; speed in `docs/PERFORMANCE.md`.

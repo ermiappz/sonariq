@@ -1,0 +1,16 @@
+# Deck 5 Rev A (compliant baseline): the findings the design contract expects (design/handoff.md), checked by hand
+# against the model: FD-5-165P is A-0 in the A-60 MVZ 4/5 bulkhead; D-5-171-S has no FireRating; COR-5-152-S is
+# 900 mm wide against the 915 mm (36 in) PVAG guideline.
+scenario: deck5_revA
+revision: A
+packs: [fls, acc, dnv]
+scope: "deck:5"
+expected_findings:
+  - {id: F-01, rule: R-FLS-01, status: fail, element: '3QbrbyQ4bITxRQ$S2A0R5M', name: FD-5-165P, value: "A-0 in A-60"}
+  - {id: U-01, rule: R-FLS-01, status: unk, element: '0IItU3WRTI9hSBxE3CMDPK', name: D-5-171-S, value: "FireRating missing"}
+  - {id: W-01, rule: R-ACC-01, status: warn, element: '2y9ZtcBKjQFBti02X9WcIg', name: COR-5-152-S, value: "900 mm < 915 mm"}
+expected_passes:
+  - {rule: R-FLS-01, element: '1Q9JXkjmbUweqRO16JoB$m', name: FD-5-165S, why: "A-60 door in the A-60 bulkhead"}
+  - {rule: R-FLS-03, element: '2P97g3lBjP7h6yTv9OwOUE', name: Stair 3B, why: "1,350 mm against 1,300 mm before OR-117"}
+  - {rule: R-FLS-03, element: '2vRS1v3LrI$gnpAgAwU5an', name: Stair 3A, why: "1,400 mm against 1,210 mm"}
+  - {rule: R-FLS-04, element: '2tN08FhY5G8hO_7LqQ9t5z', name: COR-5-148-P, why: "1,200 mm against 900 mm"}

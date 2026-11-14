@@ -271,3 +271,122 @@ rules:
     severity: fail
     applicability: {}
     status: verify
+
+  # ------------------------------------------------------------ structure & systems (B3, DECISIONS M10)
+  # Written for production data such as the RCRV ShipConstructor model. No official text of these sources is in the
+  # repo, so every one carries verified_against_official_text: false and To verify.
+  - id: R-STR-01
+    finding_no: 20
+    pack: structure_systems
+    discipline: structure
+    title: Hull steel not a recognised structural grade
+    unk_title: Structural part has no material in the model
+    source: IACS UR W11
+    clause: "W11 (normal and higher strength hull structural steel)"
+    clause_text: "Grades of hull structural steel: normal strength A, B, D, E; higher strength AH, DH, EH, FH 32 / 36 / 40."
+    reading: "A carbon-steel plate or stiffener names one of the W11 grades in its material (CS ABS <grade>). Pipe or general steel specs (ASTM A106, API 5L) on a hull part are flagged for review. Aluminium and stainless parts are outside W11 and get no check."
+    applies_to: "IfcPlate / IfcMember with a carbon-steel material"
+    inputs: [ShipConstructor StockMaterialName]
+    check: steel_grade_allowed
+    params: {classes: [IfcPlate, IfcMember], grades: [A, B, D, E, AH32, AH36, AH40, DH32, DH36, DH40, EH32, EH36, EH40, FH32, FH36, FH40]}
+    severity: warning
+    cannot_verify_when: "no material on the part"
+    applicability: {}
+    status: verify
+    verified_against_official_text: false
+
+  - id: R-STR-02
+    finding_no: 21
+    pack: structure_systems
+    discipline: structure
+    title: Steel grade not suitable for the plate thickness
+    source: IACS UR S6
+    clause: "S6 (use of steel grades for various hull members, ships of 90 m and above)"
+    clause_text: "Steel grade per structural member category and thickness (UR S6 tables)."
+    reading: "Draft: the S6 tables are not in the repo, and S6 is written for ships of 90 m and above. Nothing is checked until the table is added and verified."
+    applies_to: "hull plates by member category and thickness"
+    inputs: [ShipConstructor StockMaterialName, ShipConstructor StockThickness, member category]
+    check: placeholder
+    params: {}
+    severity: warning
+    applicability: {}
+    status: draft
+    runs: false
+    not_run_reason: "Draft: the IACS UR S6 grade/thickness table is not in SonarIQ yet, so no value is invented; S6 also applies to ships of 90 m and above."
+    verified_against_official_text: false
+
+  - id: R-SYS-01
+    finding_no: 22
+    pack: structure_systems
+    discipline: systems
+    title: Oil fuel pipe not of steel
+    unk_title: Oil fuel pipe has no material in the model
+    source: SOLAS II-2
+    clause: II-2/4.2.2.5.1
+    clause_text: "Oil fuel pipes and their valves and fittings shall be of steel or other approved material."
+    reading: "Pipes of the fuel oil systems (system name FUEL OIL / FO OVERFLOW) are steel (carbon or stainless). Any other material needs approval evidence, so it is a warning, not a fail."
+    applies_to: "IfcPipeSegment of a fuel oil system"
+    inputs: [DWG block attribute system, DWG block attribute material]
+    check: fuel_pipe_material
+    params:
+      systems: "FUEL OIL|FO OVERFLOW"
+      steel: "A106|A105|A234|A53\\b|A312|A182|A403|A216|A351|CARBON STEEL|STAINLESS|^STEEL|GR-A STEEL|316|304"
+    severity: warning
+    cannot_verify_when: "no material attribute on the pipe part"
+    applicability: {}
+    status: verify
+    verified_against_official_text: false
+
+  - id: R-DQ-01
+    finding_no: 23
+    pack: data_quality
+    discipline: structure
+    title: Plate without material or thickness
+    source: SonarIQ data quality
+    clause: "DQ-01"
+    clause_text: "Rules on plates need the plate's material and thickness from the model."
+    reading: "Every IfcPlate states a material (StockMaterialName) and a thickness (StockThickness)."
+    applies_to: "IfcPlate"
+    inputs: [ShipConstructor StockMaterialName, ShipConstructor StockThickness]
+    check: dq_plate_data
+    params: {}
+    severity: warning
+    applicability: {}
+    status: verified
+    verified_against_official_text: false
+
+  - id: R-DQ-02
+    finding_no: 24
+    pack: data_quality
+    discipline: structure
+    title: Plate material is not a material name
+    source: SonarIQ data quality
+    clause: "DQ-02"
+    clause_text: "A plate's material names what it is made of."
+    reading: "Material values that are a test standard (ASTM E-84), 'AIR', or a vibration pad are flagged for the modeller."
+    applies_to: "IfcPlate with a material"
+    inputs: [ShipConstructor StockMaterialName]
+    check: dq_plate_material_name
+    params: {not_materials: "^AIR\\b|ASTM E-?84|FABREEKA|DIM PAD"}
+    severity: warning
+    applicability: {}
+    status: verified
+    verified_against_official_text: false
+
+  - id: R-DQ-03
+    finding_no: 25
+    pack: data_quality
+    discipline: structure
+    title: Error value in the source properties
+    source: SonarIQ data quality
+    clause: "DQ-03"
+    clause_text: "Source properties hold values, not error markers."
+    reading: "A ShipConstructor property whose value is Error or --- is flagged. '<None>' means 'not set' and is not."
+    applies_to: "any element with ShipConstructor properties"
+    inputs: [ShipConstructor properties]
+    check: dq_error_values
+    params: {markers: ["Error", "---"]}
+    severity: warning
+    applicability: {}
+    status: verified
+    verified_against_official_text: false

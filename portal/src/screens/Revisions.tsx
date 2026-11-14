@@ -79,6 +79,7 @@ function Diff({ d }: { d: RunDiff }) {
         <Stat label="Verdicts changed" value={changed} sub={`of ${d.b.total_checks} checks`} />
         <Stat label="New or worse" value={d.new_findings.length} sub="findings that appeared" />
         <Stat label="Cleared" value={d.cleared.length} sub="findings that went away" />
+        <Stat label="Still open" value={d.still_open.length} sub={d.fallback_matches ? `${d.fallback_matches} to confirm` : "matched by element ID"} />
         <Stat label="Checks" value={`${d.added_checks ? "+" + d.added_checks : 0} / −${d.removed_checks}`} sub="added / removed by the change" />
       </div>
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
@@ -94,7 +95,7 @@ function Diff({ d }: { d: RunDiff }) {
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: number | string; sub: string }) {
+export function Stat({ label, value, sub }: { label: string; value: number | string; sub: string }) {
   return (
     <div className="sq-card" style={{ padding: 12 }}>
       <div className="sq-label">{label}</div>
@@ -104,14 +105,15 @@ function Stat({ label, value, sub }: { label: string; value: number | string; su
   );
 }
 
-function Row({ r, inc }: { r: DiffRow; inc: Record<string, Incorrect> }) {
+export function Row({ r, inc }: { r: DiffRow; inc: Record<string, Incorrect> }) {
   const pill = (s: string | null) => (s && ["fail", "warn", "unk", "pass", "dor", "na"].includes(s) ? <Pill s={s as any} /> : <span className="sq-faint">{s ?? "new check"}</span>);
   const i = inc[r.check_key];
   return (
     <div className={`rev-row${i ? " is-incorrect" : ""}`}>
       <span className="mono" style={{ width: 70 }}>{r.id ?? r.rule}</span>
       <span style={{ flex: 1, minWidth: 0 }}>{r.title}<div className="mono sq-faint" style={{ fontSize: 12 }}>{r.location}{r.element ? ` · ${r.element}` : ""}</div>
-        {i && <div className="inc-why">Marked incorrect · {i.reason}</div>}</span>
+        {i && <div className="inc-why">Marked incorrect · {i.reason}</div>}
+        {r.match === "fallback" && <div className="rev-confirm">Matched by rule + element name, not by element ID · please confirm</div>}</span>
       <span className="flex items-center gap-2">{pill(r.before)} → {pill(r.status)}</span>
     </div>
   );

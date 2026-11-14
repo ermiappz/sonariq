@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -517,6 +518,126 @@ def placeholder(rule: Rule, model: Model, ctx: dict) -> list[CheckResult]:
     return []
 
 
+# ---------------------------------------------------------------- structure & systems (production data, B3 / M10)
+def _src(e: Element) -> dict:
+    return e.psets.get("SonarIQ_Source", {})
+
+
+def _loc_x(model: Model, e: Element) -> dict:
+    """Location for models without a frame grid (DECISIONS M6): deck, metres from the aft end, side."""
+    sq = e.sq
+    x = sq.get("x_from_aft_m")
+    lab = f"Deck {sq.get('deck', '?')} · x {x:.1f} m from aft · {sq.get('side', '?')}" if x is not None else None
+    loc = location(model, e, lab)
+    if _src(e).get("swbs"):
+        loc["swbs"] = _src(e)["swbs"]
+    return loc
+
+
+def _model_prov(model: Model, e: Element, prop: str, raw) -> dict:
+    s = _src(e)
+    return {"kind": "model", "file": s.get("source_file") or Path(model.path or "").name, "element": e.guid,
+            "source_id": s.get("source_id"), "pset": "ShipConstructor" if prop.startswith("Stock") else "DWG block attributes",
+            "prop": prop, "raw": raw}
+
+
+def _rule_prov(rule: Rule) -> dict:
+    return {"kind": "public", "source": f"{rule.source} {rule.clause}",
+            "verified_against_official_text": rule.verified_against_official_text}
+
+
+def steel_grade_allowed(rule: Rule, model: Model, ctx: dict) -> list[CheckResult]:
+    """Hull structural steel grade must be one IACS UR W11 names. Steel only: aluminium and stainless are W11's
+    out of scope and get no check (counted in readiness)."""
+    allowed = set(rule.params["grades"])
+    out = []
+    for e in model.by_class(*rule.params.get("classes", ["IfcPlate", "IfcMember"])):
+        mat = _src(e).get("material")
+        kw = dict(required={"value": "W11 grade", "unit": "", "op": "in", "provenance": _rule_prov(rule)},
+                  location=_loc_x(model, e),
+                  method="Material = ShipConstructor StockMaterialName. 'CS ABS <grade>' names the grade; other carbon "
+                         "steels (pipe or plate specs) are not hull structural grades.")
+        if mat is None:
+            out.append(_res(rule, model, e, None, missing=["ShipConstructor StockMaterialName"], summary="material missing", **kw))
+            continue
+        if not mat.upper().startswith(("CS ", "ASTM A", "STEEL", "GR-A")):
+            continue                                   # not carbon steel: outside W11
+        grade = mat[7:].strip() if mat.upper().startswith("CS ABS ") else None
+        ok = grade in allowed
+        out.append(_res(rule, model, e, ok, measured={"value": mat, "unit": "", "provenance": _model_prov(model, e, "StockMaterialName", mat)},
+                        summary=f"{mat} · {'W11 grade ' + grade if ok else 'not a W11 hull steel grade'}", **kw))
+    return out
+
+
+def fuel_pipe_material(rule: Rule, model: Model, ctx: dict) -> list[CheckResult]:
+    """Oil fuel pipes: steel or other approved material. Steel -> pass; anything else needs approval evidence -> the
+    rule's severity (warning); no material value -> Cannot verify."""
+    systems = re.compile(rule.params["systems"], re.I)
+    steel = re.compile(rule.params["steel"], re.I)
+    out = []
+    for e in model.by_class("IfcPipeSegment"):
+        s = _src(e)
+        if not systems.search(s.get("system") or ""):
+            continue
+        mat = s.get("material")
+        kw = dict(required={"value": "steel or approved material", "unit": "", "op": "is", "provenance": _rule_prov(rule)},
+                  location=_loc_x(model, e), extra={"system": s.get("system")},
+                  method="System = first DWG block attribute; material = the attribute that names a material "
+                         "(insulation specs such as ASTM F683 excluded).")
+        if not mat:
+            out.append(_res(rule, model, e, None, missing=["pipe material attribute"], summary=f"{s.get('system')} · material missing", **kw))
+            continue
+        ok = bool(steel.search(mat))
+        out.append(_res(rule, model, e, ok, measured={"value": mat, "unit": "", "provenance": _model_prov(model, e, "material attribute", mat)},
+                        summary=f"{s.get('system')} · {mat}{'' if ok else ' · approval evidence needed'}", **kw))
+    return out
+
+
+def dq_plate_data(rule: Rule, model: Model, ctx: dict) -> list[CheckResult]:
+    """Data quality: every plate states its material and thickness (what grade rules need)."""
+    out = []
+    for e in model.by_class("IfcPlate"):
+        s = _src(e)
+        miss = [k for k, lab in (("material", "material"), ("thickness_mm", "thickness")) if s.get(k) is None]
+        out.append(_res(rule, model, e, not miss, location=_loc_x(model, e),
+                        required={"value": "material and thickness", "unit": "", "op": "present", "provenance": _rule_prov(rule)},
+                        measured={"value": "complete" if not miss else "missing " + " and ".join(miss), "unit": "",
+                                  "provenance": _model_prov(model, e, "StockMaterialName / StockThickness", {k: s.get(k) for k in ("material", "thickness_raw")})},
+                        summary=f"{s.get('material', '—')} · {s.get('thickness_raw', '—')}", missing=miss))
+    return out
+
+
+def dq_plate_material_name(rule: Rule, model: Model, ctx: dict) -> list[CheckResult]:
+    """Data quality: a plate whose material is not a material (a test standard, 'AIR', a vibration pad)."""
+    bad = re.compile(rule.params["not_materials"], re.I)
+    out = []
+    for e in model.by_class("IfcPlate"):
+        mat = _src(e).get("material")
+        if mat is None:
+            continue
+        out.append(_res(rule, model, e, not bad.search(mat), location=_loc_x(model, e),
+                        required={"value": "a material name", "unit": "", "op": "is", "provenance": _rule_prov(rule)},
+                        measured={"value": mat, "unit": "", "provenance": _model_prov(model, e, "StockMaterialName", mat)},
+                        summary=mat))
+    return out
+
+
+def dq_error_values(rule: Rule, model: Model, ctx: dict) -> list[CheckResult]:
+    """Data quality: source properties that hold an error marker (rule params: Error, ---). '<None>' is
+    ShipConstructor's 'not set' and is not flagged."""
+    markers = set(rule.params["markers"])
+    out = []
+    for e in model.elements.values():
+        bad = [v for v in _src(e).get("error_values") or [] if v in markers]
+        if not bad:
+            continue
+        out.append(_res(rule, model, e, False, location=_loc_x(model, e),
+                        required={"value": "no error values", "unit": "", "op": "is", "provenance": _rule_prov(rule)},
+                        measured={"value": ", ".join(bad), "unit": "", "provenance": _model_prov(model, e, "ShipConstructor properties", bad)},
+                        summary=f"source properties hold {', '.join(bad)}"))
+    return out
+
+
 CHECKS: dict[str, Callable[[Rule, Model, dict], list[CheckResult]]] = {
     "door_fire_class": door_fire_class,
     "window_fire_class": window_fire_class,
@@ -532,4 +653,9 @@ CHECKS: dict[str, Callable[[Rule, Model, dict], list[CheckResult]]] = {
     "duct_damper": duct_damper,
     "plate_thickness": plate_thickness,
     "placeholder": placeholder,
+    "steel_grade_allowed": steel_grade_allowed,
+    "fuel_pipe_material": fuel_pipe_material,
+    "dq_plate_data": dq_plate_data,
+    "dq_plate_material_name": dq_plate_material_name,
+    "dq_error_values": dq_error_values,
 }

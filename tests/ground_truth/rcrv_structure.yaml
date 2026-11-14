@@ -1,0 +1,120 @@
+# RCRV structure & systems: expected findings, hand-checked by value (14 Nov 2026).
+# Each entry: element GlobalId (from the Navisworks dbid as scripts/rcrv_to_ifc.py makes it), rule, status, and the
+# value that makes it a finding, so a reviewer can check it without running anything. Listed by the independent scan
+# (scripts/independent_scan.py), reviewed by category:
+#   R-STR-01  ASTM A106 (pipe steel) x4, API 5L X-52 (line pipe) x3 on stiffeners: not W11 hull grades -> review
+#   R-SYS-01  fuel oil system parts of ductile iron, bronze, aluminium, ASTM B210 (aluminium tube) -> approval evidence
+#   R-DQ-02   plates whose material is 'AIR AIR', a test standard (ASTM E-84) or a vibration pad (Fabreeka)
+#   R-DQ-03   ShipConstructor properties holding 'Error' or '---' (raised manholes)
+# Cannot verify: counted, not listed (fuel oil parts without a material attribute).
+scenario: rcrv_structure
+revision: RCRV
+packs: [sts]
+scope: whole
+expected_findings:
+  - {rule: R-STR-01, status: warn, element: '0ptqOfna9VWeUv7D2QCZD9', source_id: 6698, value: "ASTM A106"}
+  - {rule: R-STR-01, status: warn, element: '3SNaN5YqjOTwoMsCYhVHnF', source_id: 6701, value: "ASTM A106"}
+  - {rule: R-STR-01, status: warn, element: '1XtoyDJkvNwxMCWTgv$Lvc', source_id: 6703, value: "ASTM A106"}
+  - {rule: R-STR-01, status: warn, element: '1ZLcBvkSLOWBO_SeOay5fm', source_id: 6704, value: "ASTM A106"}
+  - {rule: R-STR-01, status: warn, element: '2yLQbUcVjM1Pw9YNWnN6zu', source_id: 21651, value: "CS API 5L X-52"}
+  - {rule: R-STR-01, status: warn, element: '2dmWlxyYvVNBiywaL63wbA', source_id: 21652, value: "CS API 5L X-52"}
+  - {rule: R-STR-01, status: warn, element: '1dHqpIbIrUdeeZOv5Y0yEQ', source_id: 21653, value: "CS API 5L X-52"}
+  - {rule: R-SYS-01, status: warn, element: '3MRx0itsPPSQ2CbhhkxzuW', source_id: 1521679, value: "FO OVERFLOW AND VENT SYSTEM | ALUMINUM"}
+  - {rule: R-SYS-01, status: warn, element: '07PEdEg85VnBCBTCglf6UN', source_id: 1521697, value: "FO OVERFLOW AND VENT SYSTEM | ALUMINUM"}
+  - {rule: R-SYS-01, status: warn, element: '0ga1ApyN1O_hqtnZIs94td', source_id: 1521715, value: "FO OVERFLOW AND VENT SYSTEM | ALUMINUM"}
+  - {rule: R-SYS-01, status: warn, element: '1n0m5tBRzOg9NogqDmMrHP', source_id: 1521733, value: "FO OVERFLOW AND VENT SYSTEM | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '2ysub$7oPSNg4vBLfDOKYE', source_id: 1521753, value: "FO OVERFLOW AND VENT SYSTEM | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '0l0hPX61XMi85H7bGa28Nh', source_id: 1521773, value: "FO OVERFLOW AND VENT SYSTEM | ALUMINUM"}
+  - {rule: R-SYS-01, status: warn, element: '141KL2pEfLgR5b9EhQ617d', source_id: 1521811, value: "FO OVERFLOW AND VENT SYSTEM | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '033m1NOFrJSurpa1EG2HbC', source_id: 1742598, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '2I_x0ePoXSG8e8zA33ISeU', source_id: 1742761, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '04fmvu39zIDuFX$X0kMiZM', source_id: 1743215, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '3Q79TIzkDIpujYYxlLl0Jn', source_id: 1743339, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '0UPHeIRejIcQA3N_PGMHUe', source_id: 1743463, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '0iQrXtMq5KEhzoMdDqJ2l7', source_id: 1743587, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '0d0slWBOrLbBn$_ekV9iyY', source_id: 1743711, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '1Ssw1kN1jLbxbAaFfrhxMK', source_id: 1743835, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '1Jj6CxvGHKWf4vRwF$pDD4', source_id: 1745407, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '1EXF9PsEbSIwgvwvMjmzhc', source_id: 1745438, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '1X7qlDUgTHNPFow$HgdnuA', source_id: 1746166, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '0C9GBIabrM0gn1kqsJb0Te', source_id: 1746217, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '2Dj8dhr8DIt9v0aXIabG32', source_id: 1746750, value: "FUEL OIL - 541 | BRONZE"}
+  - {rule: R-SYS-01, status: warn, element: '36EvNQiE5R8Q9YR7UPFkmW', source_id: 1778328, value: "FUEL OIL - 541 | DUCTILE IRON"}
+  - {rule: R-SYS-01, status: warn, element: '0j$aTut0vOgf7AaRvkgOsi', source_id: 1800331, value: "FUEL OIL - 541 | ASTM A-105"}
+  - {rule: R-SYS-01, status: warn, element: '3wLPNgojXMzA9omo8gKqGQ', source_id: 1801439, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '3R29eyxA9MCgluQALOvYmu', source_id: 1801459, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '1z556NwYvNeRVxVdiu4wO2', source_id: 1801521, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '1gSHfJ8w5Kvh_3VTK8MyHJ', source_id: 1801561, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '2cgwhgktLJtRx3yw$eU4_U', source_id: 1801702, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '10MEypNzjPbArp8OKWolal', source_id: 1801939, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '294EB9pX9L_Bvtogys2X8L', source_id: 1801982, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '1XZY7icZPSpuRMfJQLvXnx', source_id: 1802781, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '2MlmGSU_HHh9kPeScJQx5e', source_id: 1802959, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '37v6YKJWPHs8g4rya3D2KA', source_id: 1802979, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '1Uhn3ZcZ9U48RcMaMSOVlH', source_id: 1802999, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '1Ync8tEZjRYfOXQCfbVMUI', source_id: 1803042, value: "FUEL OIL - 541 | ALUMINUM"}
+  - {rule: R-SYS-01, status: warn, element: '0GygO_0GDK7xDJ9KFroD2g', source_id: 1803083, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '2PBol_oiPNs8Za_sU9FtQm', source_id: 1804402, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '0Intvb8CPGABzwNH5BmqX1', source_id: 1804424, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '0qs3mIHxjMKxGfoZz55x_9', source_id: 1804444, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '3v5zON_SXI99_KUXMlbwN_', source_id: 1804549, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '2yhabDApjQswy6JEQY_PqK', source_id: 1804569, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-SYS-01, status: warn, element: '0IPIO0pAHHD8oDenPfG0Vq', source_id: 1804609, value: "FUEL OIL - 541 | ASTM B210"}
+  - {rule: R-DQ-02, status: warn, element: '3rdNYS1GjNuRNhIytaBpim', source_id: 831, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '1wb7Bldx1QOwVhAsv_3rup', source_id: 1002, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '3SGltaGd9QYw1koYf9cOWI', source_id: 1003, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '281fOfCf5OvPRWVvfvaDC3', source_id: 1962, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '0Cqf5v261J7wNBkVyEeQsT', source_id: 2353, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '1TBwARv1vI9RvHqcEE6Lh9', source_id: 5428, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '3QmvqraFvV3x46ocSwQjcu', source_id: 5429, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '1sEiYfEbDNPAhnBgps1576', source_id: 5430, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '3q5fWQnOvTUwcSKrF56Ui9', source_id: 5431, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '15$c65hNrJ$OszHZnEYHfU', source_id: 5432, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '192lxauxzTR898YABkWxdz', source_id: 5433, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '2lSr5AnZPHq819odZ30Bir', source_id: 5434, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '3seSFsQpnL5BShMRMC9zIf', source_id: 5449, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '2RCSyCR5jNx9pOvFXXHJyc', source_id: 5571, value: "FABREEKA DIM PAD 3/8\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '1$B2LkanfH2ej8m1Zz$dsx', source_id: 6613, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '26faPRRrTSmReKtG4AXi60', source_id: 6614, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '2IElr$Mp9Nru6MZTXhG5R1', source_id: 6761, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '2UXKHZSnzONw5wuFm$B7R6', source_id: 7900, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '17XNHxs$1O6BLD1_tDfK0Y', source_id: 8116, value: "FABREEKA DIM PAD 5/8\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '2AABR2MyHLOOtGkULWk$hZ', source_id: 8117, value: "FABREEKA DIM PAD 5/8\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '3zJOTyIujLG89UoWYDM5zJ', source_id: 8118, value: "FABREEKA DIM PAD 5/8\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '16FVjunCTS2xy03jUY1hmP', source_id: 8119, value: "FABREEKA DIM PAD 5/8\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '1mIkmJ7yfV$g2sX$8$N3S8', source_id: 11194, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '1QMPd4VsDPmBiYW5vQv6Gw', source_id: 11195, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '3ZDlDhJnvHXAAAVKHRWG2K', source_id: 11196, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '3UgV4igvDQjg6PXNeQ4rSs', source_id: 11197, value: "FABREEKA DIM PAD 1/2\" DIM PAD"}
+  - {rule: R-DQ-02, status: warn, element: '1mnwG1JBjPzA1rP4vHUfP4', source_id: 11490, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '0$3QWuxa5M19H9qSmNLOyB', source_id: 11611, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '0sgGpcbtPKkfBiz8zEdiRO', source_id: 12928, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '2s7TzkTj9RIev$dsqGFJWV', source_id: 13804, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '1uW4qQ92zPMQcvhcbaoiWU', source_id: 18244, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '2nfZ3$uyHH9ApsLoQSjskE', source_id: 18427, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '18AlfXySPOkAPWRLP0e6oY', source_id: 18428, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '0UU5IXZ3LTQf0tCIAc0acP', source_id: 23036, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '0FRr1e87DLiBkLBdlPrGqE', source_id: 24071, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '2FIm54eirUEPYaTLt7J6mX', source_id: 25317, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '1XHSZQZq1SVu9po1d0yy_o', source_id: 26522, value: "AIR AIR"}
+  - {rule: R-DQ-02, status: warn, element: '3YS5HfFEDUcQLaf0HJO0Db', source_id: 34100, value: "ASTM E-84"}
+  - {rule: R-DQ-02, status: warn, element: '3hKqw113DNShKbnetAh9HM', source_id: 42376, value: "ASTM E-84"}
+  - {rule: R-DQ-02, status: warn, element: '0d0Xu33NjUZxmyRWHajoDE', source_id: 42379, value: "ASTM E-84"}
+  - {rule: R-DQ-02, status: warn, element: '1M16JY9yXVVPHu7AliYDAP', source_id: 42462, value: "ASTM E-84"}
+  - {rule: R-DQ-02, status: warn, element: '0U$O2k7K5Mihn_Ytuz3_9V', source_id: 42463, value: "ASTM E-84"}
+  - {rule: R-DQ-02, status: warn, element: '3veye9r19UshN8EYTVD2Yz', source_id: 42519, value: "ASTM E-84"}
+  - {rule: R-DQ-02, status: warn, element: '1vUGb3EYbJ88M31Y1b5BB_', source_id: 42525, value: "ASTM E-84"}
+  - {rule: R-DQ-03, status: warn, element: '1zSWZbtDrRpANhlbd_atFR', source_id: 14652, value: "Error"}
+  - {rule: R-DQ-03, status: warn, element: '2EM7_R9QfIrQW6qJO6JypO', source_id: 14655, value: "Error"}
+  - {rule: R-DQ-03, status: warn, element: '0KqZt9r4jQRu9pSjXnL6$I', source_id: 14658, value: "---"}
+  - {rule: R-DQ-03, status: warn, element: '0tkkoOlGrVMhRx0njRRE5B', source_id: 14664, value: "---"}
+expected_counts:   # per rule and status, including passes and Cannot verify
+  R-DQ-01: {'pass': 9716}
+  R-DQ-02: {'pass': 9672, 'warn': 44}
+  R-DQ-03: {'warn': 4}
+  R-STR-01: {'pass': 14975, 'warn': 7}
+  R-SYS-01: {'pass': 2118, 'unk': 232, 'warn': 41}
+expected_passes:   # parts checked by hand that must pass
+  - {rule: R-STR-01, element: '0LByUE39LUxgRzlHLCm4GP', source_id: 5, why: "plate 21 044C, ShipConstructor StockMaterialName CS ABS A (5/8 in Grade A steel)"}
+  - {rule: R-DQ-01, element: '0LByUE39LUxgRzlHLCm4GP', source_id: 5, why: "same plate states material and StockThickness"}
+  - {rule: R-SYS-01, element: '2f7dlPjN1TzwznoICZFIc6', source_id: 1745211, why: "FO-V-085, 1-1/2 in 3-way ball valve, FUEL OIL - 541, CARBON STEEL"}

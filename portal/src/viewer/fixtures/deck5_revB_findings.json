@@ -1,0 +1,767 @@
+[
+ {
+  "id": "W-01",
+  "check_key": "R-ACC-01|2y9ZtcBKjQFBti02X9WcIg",
+  "rule": "R-ACC-01",
+  "title": "Corridor below width guideline",
+  "source": "PVAG",
+  "clause": "2013 draft",
+  "ref": "PVAG 2013 draft",
+  "rule_status": "verified",
+  "verified_against_official_text": false,
+  "source_group": "PVAG",
+  "to_verify": false,
+  "pack": "accessibility",
+  "group": "acc",
+  "discipline": "accessibility",
+  "discipline_label": "Accessibility",
+  "status": "warn",
+  "status_word": "Warning",
+  "glyph": "!",
+  "element": {
+   "guid": "2y9ZtcBKjQFBti02X9WcIg",
+   "name": "COR-5-152-S",
+   "ifc_class": "IfcSpace"
+  },
+  "location": {
+   "deck": "5",
+   "frame": "152",
+   "side": "S",
+   "label": "Deck 5 \u00b7 Fr 152 \u00b7 S"
+  },
+  "required": {
+   "value": 915,
+   "unit": "mm",
+   "op": ">=",
+   "alt": {
+    "value": 36,
+    "unit": "in"
+   },
+   "provenance": {
+    "kind": "public",
+    "source": "PVAG 2013 draft",
+    "verified_against_official_text": false
+   }
+  },
+  "measured": {
+   "value": 850,
+   "unit": "mm",
+   "provenance": {
+    "kind": "derived",
+    "file": "deck5_revB.ifc",
+    "element": "2y9ZtcBKjQFBti02X9WcIg",
+    "prop": "short side of the corridor space footprint",
+    "inputs": [
+     "2y9ZtcBKjQFBti02X9WcIg"
+    ]
+   }
+  },
+  "margin": {
+   "value": -65,
+   "unit": "mm"
+  },
+  "summary": "clear width 850 mm, guideline 915 mm (36 in)",
+  "formula": null,
+  "method": "Clear width = short side of the corridor space footprint (IfcSpace), wall face to wall face as modelled.",
+  "missing": [],
+  "depends_on": [
+   "2y9ZtcBKjQFBti02X9WcIg"
+  ],
+  "revision": "B",
+  "extra": {},
+  "engine": "Rule engine",
+  "evidence": {
+   "guids": [
+    "2y9ZtcBKjQFBti02X9WcIg"
+   ],
+   "related": [
+    "2y9ZtcBKjQFBti02X9WcIg"
+   ],
+   "bbox": [
+    120.0,
+    -7.05,
+    124.0,
+    -6.2
+   ],
+   "z": 14.5
+  }
+ },
+ {
+  "id": "U-01",
+  "check_key": "R-FLS-01|0IItU3WRTI9hSBxE3CMDPK",
+  "rule": "R-FLS-01",
+  "title": "Door has no fire class in the model",
+  "source": "SOLAS II-2",
+  "clause": "II-2/9.2.2.1.1",
+  "ref": "SOLAS II-2/9.2.2.1.1",
+  "rule_status": "verified",
+  "verified_against_official_text": false,
+  "source_group": "SOLAS/FSS",
+  "to_verify": false,
+  "pack": "fire",
+  "group": "fls",
+  "discipline": "fire_life_safety",
+  "discipline_label": "Fire & life safety",
+  "status": "unk",
+  "status_word": "Cannot verify",
+  "glyph": "?",
+  "element": {
+   "guid": "0IItU3WRTI9hSBxE3CMDPK",
+   "name": "D-5-171-S",
+   "ifc_class": "IfcDoor"
+  },
+  "location": {
+   "deck": "5",
+   "frame": "171",
+   "side": "S",
+   "label": "Deck 5 \u00b7 Fr 171 \u00b7 S"
+  },
+  "required": {
+   "value": "A-0",
+   "unit": "class",
+   "op": ">=",
+   "provenance": {
+    "kind": "model",
+    "file": "deck5_revB.ifc",
+    "element": "0IItU3WRTI9hSBxE3CMDPK",
+    "prop": "host wall Pset_WallCommon.FireRating"
+   }
+  },
+  "measured": {
+   "value": null,
+   "unit": "class",
+   "provenance": {
+    "kind": "model",
+    "file": "deck5_revB.ifc",
+    "element": "0IItU3WRTI9hSBxE3CMDPK",
+    "prop": "Pset_DoorCommon.FireRating"
+   }
+  },
+  "margin": null,
+  "summary": "stair enclosure A-0 \u00b7 door fire class missing",
+  "formula": null,
+  "method": "Door FireRating (Pset_DoorCommon) compared with the FireRating of its host wall WA0-STAIR3A-S (Pset_WallCommon), found through IfcRelFillsElement / IfcRelVoidsElement. Order A-60 > A-30 > A-15 > A-0 > B-15 > B-0.",
+  "missing": [
+   "Pset_DoorCommon.FireRating"
+  ],
+  "depends_on": [
+   "0IItU3WRTI9hSBxE3CMDPK",
+   "3jitZHaTvLbv0vyr9ZeTn1"
+  ],
+  "revision": "B",
+  "extra": {
+   "host": "WA0-STAIR3A-S",
+   "where": "stair enclosure"
+  },
+  "engine": "Rule engine",
+  "evidence": {
+   "guids": [
+    "0IItU3WRTI9hSBxE3CMDPK"
+   ],
+   "related": [
+    "0IItU3WRTI9hSBxE3CMDPK",
+    "3jitZHaTvLbv0vyr9ZeTn1"
+   ],
+   "bbox": [
+    136.35,
+    -6.26,
+    137.25,
+    -6.14
+   ],
+   "z": 14.5
+  }
+ },
+ {
+  "id": "F-01",
+  "check_key": "R-FLS-01|3QbrbyQ4bITxRQ$S2A0R5M",
+  "rule": "R-FLS-01",
+  "title": "Fire door class below bulkhead class",
+  "source": "SOLAS II-2",
+  "clause": "II-2/9.2.2.1.1",
+  "ref": "SOLAS II-2/9.2.2.1.1",
+  "rule_status": "verified",
+  "verified_against_official_text": false,
+  "source_group": "SOLAS/FSS",
+  "to_verify": false,
+  "pack": "fire",
+  "group": "fls",
+  "discipline": "fire_life_safety",
+  "discipline_label": "Fire & life safety",
+  "status": "fail",
+  "status_word": "Fail",
+  "glyph": "\u2715",
+  "element": {
+   "guid": "3QbrbyQ4bITxRQ$S2A0R5M",
+   "name": "FD-5-165P",
+   "ifc_class": "IfcDoor"
+  },
+  "location": {
+   "deck": "5",
+   "frame": "165",
+   "side": "P",
+   "label": "Deck 5 \u00b7 Fr 165 \u00b7 P"
+  },
+  "required": {
+   "value": "A-60",
+   "unit": "class",
+   "op": ">=",
+   "provenance": {
+    "kind": "model",
+    "file": "deck5_revB.ifc",
+    "element": "3QbrbyQ4bITxRQ$S2A0R5M",
+    "prop": "host wall Pset_WallCommon.FireRating"
+   }
+  },
+  "measured": {
+   "value": "A-0",
+   "unit": "class",
+   "provenance": {
+    "kind": "model",
+    "file": "deck5_revB.ifc",
+    "element": "3QbrbyQ4bITxRQ$S2A0R5M",
+    "prop": "Pset_DoorCommon.FireRating"
+   }
+  },
+  "margin": null,
+  "summary": "MVZ 4/5 bulkhead \u00b7 fitted A-0, required A-60",
+  "formula": null,
+  "method": "Door FireRating (Pset_DoorCommon) compared with the FireRating of its host wall BHD-5-165 (Pset_WallCommon), found through IfcRelFillsElement / IfcRelVoidsElement. Order A-60 > A-30 > A-15 > A-0 > B-15 > B-0.",
+  "missing": [],
+  "depends_on": [
+   "2YTqdUOFPHAe7xJ3_JgQY8",
+   "3QbrbyQ4bITxRQ$S2A0R5M"
+  ],
+  "revision": "B",
+  "extra": {
+   "host": "BHD-5-165",
+   "where": "MVZ 4/5 bulkhead"
+  },
+  "engine": "Rule engine",
+  "evidence": {
+   "guids": [
+    "3QbrbyQ4bITxRQ$S2A0R5M"
+   ],
+   "related": [
+    "3QbrbyQ4bITxRQ$S2A0R5M",
+    "2YTqdUOFPHAe7xJ3_JgQY8"
+   ],
+   "bbox": [
+    131.94,
+    6.25,
+    132.06,
+    7.45
+   ],
+   "z": 14.5
+  }
+ },
+ {
+  "id": "F-08",
+  "check_key": "R-FLS-02|2tN08FhY5G8hO_7LqQ9t5z",
+  "rule": "R-FLS-02",
+  "title": "Dead-end corridor deeper than wide",
+  "source": "SOLAS II-2",
+  "clause": "II-2/13.3.1.2",
+  "ref": "SOLAS II-2/13.3.1.2",
+  "rule_status": "verify",
+  "verified_against_official_text": false,
+  "source_group": "SOLAS/FSS",
+  "to_verify": true,
+  "pack": "escape",
+  "group": "fls",
+  "discipline": "fire_life_safety",
+  "discipline_label": "Fire & life safety",
+  "status": "fail",
+  "status_word": "Fail",
+  "glyph": "\u2715",
+  "element": {
+   "guid": "2tN08FhY5G8hO_7LqQ9t5z",
+   "name": "COR-5-148-P",
+   "ifc_class": "IfcSpace"
+  },
+  "location": {
+   "deck": "5",
+   "frame": "146-150",
+   "side": "P",
+   "label": "Deck 5 \u00b7 Fr 146\u2013150 \u00b7 P"
+  },
+  "required": {
+   "value": 1.2,
+   "unit": "m",
+   "op": "<=",
+   "label": "depth \u2264 width",
+   "provenance": {
+    "kind": "derived",
+    "file": "deck5_revB.ifc",
+    "element": "2tN08FhY5G8hO_7LqQ9t5z",
+    "prop": "corridor clear width",
+    "inputs": [
+     "2tN08FhY5G8hO_7LqQ9t5z",
+     "3f6NHrcyjSq8XnO1RfJIvL"
+    ]
+   }
+  },
+  "measured": {
+   "value": 4.2,
+   "unit": "m",
+   "provenance": {
+    "kind": "derived",
+    "file": "deck5_revB.ifc",
+    "element": "2tN08FhY5G8hO_7LqQ9t5z",
+    "prop": "corridor depth from the space footprint and the corridor graph",
+    "inputs": [
+     "2tN08FhY5G8hO_7LqQ9t5z",
+     "3f6NHrcyjSq8XnO1RfJIvL"
+    ]
+   }
+  },
+  "margin": {
+   "value": -3.0,
+   "unit": "m"
+  },
+  "summary": "dead end \u00b7 depth 4.2 m > width 1.2 m",
+  "formula": null,
+  "method": "Corridor adjacency graph from space footprints (shared edge \u2265 0.5 m). A dead end is a corridor with escape in one direction only: at most one corridor neighbour, no stair, and no SonarIQ_Ship.escape_continues. Depth = long side, width = short side of the footprint.",
+  "missing": [],
+  "depends_on": [
+   "2tN08FhY5G8hO_7LqQ9t5z",
+   "3f6NHrcyjSq8XnO1RfJIvL"
+  ],
+  "revision": "B",
+  "extra": {
+   "dead_end": true,
+   "depth_m": 4.2,
+   "width_m": 1.2
+  },
+  "engine": "Rule engine",
+  "evidence": {
+   "guids": [
+    "2tN08FhY5G8hO_7LqQ9t5z"
+   ],
+   "related": [
+    "3f6NHrcyjSq8XnO1RfJIvL",
+    "2tN08FhY5G8hO_7LqQ9t5z"
+   ],
+   "bbox": [
+    116.8,
+    2.0,
+    118.0,
+    6.2
+   ],
+   "z": 14.5
+  }
+ },
+ {
+  "id": "F-07",
+  "check_key": "R-FLS-03|2P97g3lBjP7h6yTv9OwOUE",
+  "rule": "R-FLS-03",
+  "title": "Stair narrower than the people it serves need",
+  "source": "FSS Code",
+  "clause": "Ch.13 \u00a72.1.2",
+  "ref": "FSS Code Ch.13 \u00a72.1.2",
+  "rule_status": "verified",
+  "verified_against_official_text": false,
+  "source_group": "SOLAS/FSS",
+  "to_verify": false,
+  "pack": "escape",
+  "group": "fls",
+  "discipline": "fire_life_safety",
+  "discipline_label": "Fire & life safety",
+  "status": "fail",
+  "status_word": "Fail",
+  "glyph": "\u2715",
+  "element": {
+   "guid": "2P97g3lBjP7h6yTv9OwOUE",
+   "name": "Stair 3B",
+   "ifc_class": "IfcStair"
+  },
+  "location": {
+   "deck": "5",
+   "frame": "160-164",
+   "side": "C",
+   "label": "Stair 3B \u00b7 Decks 4\u20137"
+  },
+  "required": {
+   "value": 1380,
+   "unit": "mm",
+   "op": ">=",
+   "provenance": {
+    "kind": "derived",
+    "file": "deck5_revB.ifc",
+    "element": "2P97g3lBjP7h6yTv9OwOUE",
+    "prop": "FSS formula from persons per deck",
+    "inputs": [
+     "0$H5gwCdbMyxeEHiayaRUK",
+     "02IhLI$pDJ5hrn2UTmOtRq",
+     "05Tt0p8vTHL9HUbNiOEHvu",
+     "0686SvdUzRMf0regoxXeHe",
+     "0AE$orJU1HwO3ZPKGNavxO",
+     "0K1k4rYRfRGh8Z6a2BifOh",
+     "0M9DE$iqHNK9ggHlpSLFPS",
+     "0Ow39A9rvNgP43epYC2brV",
+     "0PZgR2CK9Lxgb7qkf$UYKP",
+     "0idCnT20XJmefXl6xMWNhA",
+     "0ifxE69l5MtBeAWEpGedrt",
+     "0j4_wWkGnHGvjbzwEbFvlu"
+    ]
+   }
+  },
+  "measured": {
+   "value": 1350,
+   "unit": "mm",
+   "provenance": {
+    "kind": "model",
+    "file": "deck5_revB.ifc",
+    "element": "2P97g3lBjP7h6yTv9OwOUE",
+    "prop": "IfcStairFlight clear width (geometry)"
+   }
+  },
+  "margin": {
+   "value": -30,
+   "unit": "mm"
+  },
+  "summary": "required 1,380 mm, measured 1,350 mm",
+  "formula": {
+   "text": "W = (N\u2081 + N\u2082 + 0.5 N\u2083 + 0.25 N\u2084) \u00d7 10 mm",
+   "inputs": [
+    {
+     "deck": "5",
+     "value": 68,
+     "source": "model",
+     "source_guids": [
+      "2untRt$$PSG9flGwB9xJGn",
+      "0AE$orJU1HwO3ZPKGNavxO",
+      "0$H5gwCdbMyxeEHiayaRUK",
+      "2h1Xo$EzLMrem6U4xUtEJX",
+      "0Ow39A9rvNgP43epYC2brV",
+      "0idCnT20XJmefXl6xMWNhA",
+      "2mb95if6fUwPX1kZftVMie",
+      "1orByBQJbMGvXUbvS73B7H",
+      "0j4_wWkGnHGvjbzwEbFvlu",
+      "2RGPhlqS5VTfih4nCtNU5U",
+      "366T989BzUpOPqaKVBpITv",
+      "3fndt7UvvK$hIyJ9$nZb5b",
+      "23ppNtYJzRUAWZ9$EZ9xqV",
+      "1sG5lDcCnGR8l5hKfLfK7y",
+      "3cpOS7vh1S$B8f$xzZX7Ff",
+      "3exffxPdjHTv2FRNDtReKX",
+      "1hJzY3GWzTmwMfBUhc1mLM",
+      "0mATDD1mvHtxOd3ThXA7tc",
+      "0686SvdUzRMf0regoxXeHe",
+      "0vsE7CLADQjeY8Wuo1Fo4W",
+      "0q243I3zzHo8FK4reDPhfB",
+      "05Tt0p8vTHL9HUbNiOEHvu",
+      "1tDsS7TKfJuBY2cZtWuzpG",
+      "1I45Pv4MrQtA8dLvVRY8Wg",
+      "0M9DE$iqHNK9ggHlpSLFPS",
+      "0ifxE69l5MtBeAWEpGedrt",
+      "2YPanSt_fToA6SOtZ_NL7a",
+      "02IhLI$pDJ5hrn2UTmOtRq",
+      "2jjVznXzHIgBOnbUBIEdZn",
+      "37kVxU8MHITPBzLfKPBqVf",
+      "2doLFozijUZBHv502O8eMr",
+      "0PZgR2CK9Lxgb7qkf$UYKP",
+      "1akN0Zy4XORwnqPwyqZ4au",
+      "0K1k4rYRfRGh8Z6a2BifOh"
+     ],
+     "note": "34 cabins in MVZ 4, berths counted",
+     "name": "N1",
+     "weight": 1.0,
+     "weighted": 68.0
+    },
+    {
+     "deck": "6",
+     "value": 44,
+     "source": "persons_by_deck",
+     "name": "N2",
+     "weight": 1.0,
+     "weighted": 44.0
+    },
+    {
+     "deck": "4",
+     "value": 40,
+     "source": "persons_by_deck",
+     "name": "N3",
+     "weight": 0.5,
+     "weighted": 20.0
+    },
+    {
+     "deck": "7",
+     "value": 24,
+     "source": "persons_by_deck",
+     "name": "N4",
+     "weight": 0.25,
+     "weighted": 6.0
+    }
+   ],
+   "worked": "(68 + 44 + 20 + 6) \u00d7 10 = 138 \u00d7 10 = 1,380 mm",
+   "D_mm": 10.0
+  },
+  "method": "Clear width = short side of the stair flight solid (IfcStairFlight), between handrails as modelled. Persons: Deck 5 = berths of the cabins in the stair's MVZ, counted from the model; other decks from SonarIQ_Ship.persons_by_deck. N1..N4 are taken largest first.",
+  "missing": [],
+  "depends_on": [
+   "0$H5gwCdbMyxeEHiayaRUK",
+   "02IhLI$pDJ5hrn2UTmOtRq",
+   "05Tt0p8vTHL9HUbNiOEHvu",
+   "0686SvdUzRMf0regoxXeHe",
+   "0AE$orJU1HwO3ZPKGNavxO",
+   "0K1k4rYRfRGh8Z6a2BifOh",
+   "0M9DE$iqHNK9ggHlpSLFPS",
+   "0Ow39A9rvNgP43epYC2brV",
+   "0PZgR2CK9Lxgb7qkf$UYKP",
+   "0idCnT20XJmefXl6xMWNhA",
+   "0ifxE69l5MtBeAWEpGedrt",
+   "0j4_wWkGnHGvjbzwEbFvlu",
+   "0mATDD1mvHtxOd3ThXA7tc",
+   "0q243I3zzHo8FK4reDPhfB",
+   "0vsE7CLADQjeY8Wuo1Fo4W",
+   "1I45Pv4MrQtA8dLvVRY8Wg",
+   "1akN0Zy4XORwnqPwyqZ4au",
+   "1hJzY3GWzTmwMfBUhc1mLM",
+   "1kEKdet2rJuOkjNh415yfR",
+   "1orByBQJbMGvXUbvS73B7H",
+   "1sG5lDcCnGR8l5hKfLfK7y",
+   "1tDsS7TKfJuBY2cZtWuzpG",
+   "23ppNtYJzRUAWZ9$EZ9xqV",
+   "2P97g3lBjP7h6yTv9OwOUE",
+   "2RGPhlqS5VTfih4nCtNU5U",
+   "2YPanSt_fToA6SOtZ_NL7a",
+   "2doLFozijUZBHv502O8eMr",
+   "2h1Xo$EzLMrem6U4xUtEJX",
+   "2jjVznXzHIgBOnbUBIEdZn",
+   "2mb95if6fUwPX1kZftVMie",
+   "2untRt$$PSG9flGwB9xJGn",
+   "366T989BzUpOPqaKVBpITv",
+   "37kVxU8MHITPBzLfKPBqVf",
+   "3cpOS7vh1S$B8f$xzZX7Ff",
+   "3exffxPdjHTv2FRNDtReKX",
+   "3fndt7UvvK$hIyJ9$nZb5b",
+   "berths:5:MVZ 4"
+  ],
+  "revision": "B",
+  "extra": {
+   "persons": {
+    "5": 68,
+    "6": 44,
+    "4": 40,
+    "7": 24
+   }
+  },
+  "engine": "Rule engine",
+  "evidence": {
+   "guids": [
+    "2P97g3lBjP7h6yTv9OwOUE"
+   ],
+   "related": [
+    "3fndt7UvvK$hIyJ9$nZb5b",
+    "1hJzY3GWzTmwMfBUhc1mLM",
+    "1akN0Zy4XORwnqPwyqZ4au",
+    "0ifxE69l5MtBeAWEpGedrt",
+    "1orByBQJbMGvXUbvS73B7H",
+    "2mb95if6fUwPX1kZftVMie",
+    "0K1k4rYRfRGh8Z6a2BifOh",
+    "0PZgR2CK9Lxgb7qkf$UYKP",
+    "02IhLI$pDJ5hrn2UTmOtRq",
+    "2jjVznXzHIgBOnbUBIEdZn",
+    "3cpOS7vh1S$B8f$xzZX7Ff",
+    "0M9DE$iqHNK9ggHlpSLFPS",
+    "2YPanSt_fToA6SOtZ_NL7a",
+    "23ppNtYJzRUAWZ9$EZ9xqV",
+    "2doLFozijUZBHv502O8eMr",
+    "1kEKdet2rJuOkjNh415yfR",
+    "0vsE7CLADQjeY8Wuo1Fo4W",
+    "2h1Xo$EzLMrem6U4xUtEJX",
+    "2untRt$$PSG9flGwB9xJGn",
+    "2P97g3lBjP7h6yTv9OwOUE",
+    "0mATDD1mvHtxOd3ThXA7tc",
+    "1sG5lDcCnGR8l5hKfLfK7y",
+    "37kVxU8MHITPBzLfKPBqVf",
+    "0j4_wWkGnHGvjbzwEbFvlu",
+    "1tDsS7TKfJuBY2cZtWuzpG",
+    "1I45Pv4MrQtA8dLvVRY8Wg",
+    "366T989BzUpOPqaKVBpITv",
+    "3exffxPdjHTv2FRNDtReKX",
+    "0Ow39A9rvNgP43epYC2brV",
+    "05Tt0p8vTHL9HUbNiOEHvu",
+    "0q243I3zzHo8FK4reDPhfB",
+    "2RGPhlqS5VTfih4nCtNU5U",
+    "0686SvdUzRMf0regoxXeHe",
+    "0idCnT20XJmefXl6xMWNhA",
+    "0$H5gwCdbMyxeEHiayaRUK",
+    "0AE$orJU1HwO3ZPKGNavxO"
+   ],
+   "bbox": [
+    128.2,
+    -0.675,
+    131.0,
+    0.675
+   ],
+   "z": 14.5
+  }
+ },
+ {
+  "id": "F-09",
+  "check_key": "R-FLS-04|2y9ZtcBKjQFBti02X9WcIg",
+  "rule": "R-FLS-04",
+  "title": "Escape corridor narrower than 900 mm",
+  "source": "FSS Code",
+  "clause": "Ch.13 \u00a72.1.2",
+  "ref": "FSS Code Ch.13 \u00a72.1.2",
+  "rule_status": "verify",
+  "verified_against_official_text": false,
+  "source_group": "SOLAS/FSS",
+  "to_verify": true,
+  "pack": "escape",
+  "group": "fls",
+  "discipline": "fire_life_safety",
+  "discipline_label": "Fire & life safety",
+  "status": "fail",
+  "status_word": "Fail",
+  "glyph": "\u2715",
+  "element": {
+   "guid": "2y9ZtcBKjQFBti02X9WcIg",
+   "name": "COR-5-152-S",
+   "ifc_class": "IfcSpace"
+  },
+  "location": {
+   "deck": "5",
+   "frame": "152",
+   "side": "S",
+   "label": "Deck 5 \u00b7 Fr 152 \u00b7 S"
+  },
+  "required": {
+   "value": 900,
+   "unit": "mm",
+   "op": ">=",
+   "provenance": {
+    "kind": "public",
+    "source": "FSS Code Ch.13 \u00a72.1.2",
+    "verified_against_official_text": false
+   }
+  },
+  "measured": {
+   "value": 850,
+   "unit": "mm",
+   "provenance": {
+    "kind": "derived",
+    "file": "deck5_revB.ifc",
+    "element": "2y9ZtcBKjQFBti02X9WcIg",
+    "prop": "short side of the corridor space footprint",
+    "inputs": [
+     "2y9ZtcBKjQFBti02X9WcIg"
+    ]
+   }
+  },
+  "margin": {
+   "value": -50,
+   "unit": "mm"
+  },
+  "summary": "clear width 850 mm, min 900 mm",
+  "formula": null,
+  "method": "Clear width = short side of the corridor space footprint (IfcSpace), wall face to wall face as modelled.",
+  "missing": [],
+  "depends_on": [
+   "2y9ZtcBKjQFBti02X9WcIg"
+  ],
+  "revision": "B",
+  "extra": {},
+  "engine": "Rule engine",
+  "evidence": {
+   "guids": [
+    "2y9ZtcBKjQFBti02X9WcIg"
+   ],
+   "related": [
+    "2y9ZtcBKjQFBti02X9WcIg"
+   ],
+   "bbox": [
+    120.0,
+    -7.05,
+    124.0,
+    -6.2
+   ],
+   "z": 14.5
+  }
+ },
+ {
+  "id": "H-01",
+  "check_key": "R-FLS-05|1MFqg3k0DTHRtcu2ITqnZl",
+  "rule": "R-FLS-05",
+  "title": "Duct through A-class division without fire damper",
+  "source": "SOLAS II-2",
+  "clause": "II-2/9.7",
+  "ref": "SOLAS II-2/9.7",
+  "rule_status": "verify",
+  "verified_against_official_text": false,
+  "source_group": "SOLAS/FSS",
+  "to_verify": true,
+  "pack": "hvac",
+  "group": "hvac",
+  "discipline": "hvac",
+  "discipline_label": "HVAC",
+  "status": "fail",
+  "status_word": "Fail",
+  "glyph": "\u2715",
+  "element": {
+   "guid": "1MFqg3k0DTHRtcu2ITqnZl",
+   "name": "VD-5-03",
+   "ifc_class": "IfcDuctSegment"
+  },
+  "location": {
+   "deck": "5",
+   "frame": "165",
+   "side": "P",
+   "label": "Deck 5 \u00b7 Fr 165 \u00b7 P"
+  },
+  "required": {
+   "value": "fire damper",
+   "unit": "",
+   "op": "present",
+   "provenance": {
+    "kind": "public",
+    "source": "SOLAS II-2/9.7",
+    "verified_against_official_text": false
+   }
+  },
+  "measured": {
+   "value": "none",
+   "unit": "",
+   "provenance": {
+    "kind": "model",
+    "file": "deck5_revB.ifc",
+    "element": "1MFqg3k0DTHRtcu2ITqnZl",
+    "prop": "IfcDamper near the crossing"
+   }
+  },
+  "margin": null,
+  "summary": "crosses BHD-5-165 (A-60) \u00b7 no damper",
+  "formula": null,
+  "method": "Duct footprint intersected with A-class wall footprints; an IfcDamper within 1.0 m of the crossing counts.",
+  "missing": [],
+  "depends_on": [
+   "1MFqg3k0DTHRtcu2ITqnZl",
+   "1hv_MRqInVNwtbCUUSZrp4",
+   "2YTqdUOFPHAe7xJ3_JgQY8"
+  ],
+  "revision": "B",
+  "extra": {
+   "wall": "BHD-5-165"
+  },
+  "engine": "Rule engine",
+  "evidence": {
+   "guids": [
+    "1MFqg3k0DTHRtcu2ITqnZl"
+   ],
+   "related": [
+    "1hv_MRqInVNwtbCUUSZrp4",
+    "1MFqg3k0DTHRtcu2ITqnZl",
+    "2YTqdUOFPHAe7xJ3_JgQY8"
+   ],
+   "bbox": [
+    131.5,
+    2.9,
+    135.5,
+    3.3
+   ],
+   "z": 16.9
+  }
+ }
+]

@@ -1,2 +1,1 @@
-{ "name": "sonariq-rcrv-tools", "private": true, "version": "0.1.0",
-  "dependencies": { "svf-utils": "8.0.0" } }
+{"name":"sonariq-rcrv-tools","private":true,"version":"0.1.0","dependencies":{"meshoptimizer":"^1.3.0","svf-utils":"8.0.0"}}
