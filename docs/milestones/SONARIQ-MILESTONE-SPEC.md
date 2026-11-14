@@ -161,6 +161,23 @@ Evacuation simulation (500 seeded runs, p95), AI explanation with number guard, 
 
 Stay on the existing VM behind Caddy with HTTPS. No temporary tunnels. Model tiles served with long cache headers and compression.
 
+## B11. Model revisions
+
+- **Export saves a revision.** Clicking Export (BCF, report or CSV) saves the current analysis as the next revision
+  under that model: Rev A, Rev B, Rev C…
+- **A saved revision can't be changed.** It stores the model file hash, rule-pack versions, all findings and their
+  statuses, engineer marks (e.g. "Incorrect finding"), the readiness report, the accuracy banner, saved views, and the
+  exported files.
+- **New work starts the next draft revision** under the same model. That covers running a new analysis after an
+  export, and uploading a new file via the upload dialog's choice of "New model" or "New revision of <model>".
+- **Studio shows a revision timeline:** editable label, date, pass / fail / cannot-verify counts, and a download of that
+  revision's bundle. You can open any past revision read-only.
+- **Compare any two revisions:** new, resolved and still-open findings, matched by element ID, with fallback matches
+  shown as "please confirm". Reuse and replace the existing revision-diff code rather than writing a second one.
+- **Stored on the VM** (SQLite + files). "Reset all data" still clears everything.
+- **Test:** Rev A (1 fail) → Rev B with OR-117 (4 fails) → Fix 2 (3 fails) gives the expected diff counts. Plus an e2e
+  test: export → new analysis → export → timeline shows two revisions → compare shows the right counts.
+
 ---
 
 # PART C — Build order and scope
@@ -173,8 +190,9 @@ If time or budget runs short, stop at the end of a step with everything working,
 4. Findings at scale, traceability, report/CSV (B6, B7).
 5. Display modes + View pane + discipline solo (A4).
 6. Section blade with capping (A3).
-7. Rendered callouts with evidence geometry (A5).
-8. Demo run-through, docs, performance report, polish (B8, A6).
+7. Model revisions (B11).
+8. Rendered callouts with evidence geometry (A5).
+9. Demo run-through (including the revision timeline and compare), docs, performance report, polish (B8, A6).
 
 ## How to work
 

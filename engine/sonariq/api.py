@@ -17,6 +17,8 @@ from pydantic import BaseModel
 
 from .edits import EditRefused
 from .rules import PACK_GROUPS, load_rules
+from . import revisions as _revs
+from .revdiff import diff as _diff
 from .session import DATA, REVISIONS, Session
 
 app = FastAPI(title="SonarIQ engine", version="0.2")
@@ -53,6 +55,7 @@ S = Session("A")
 HOSTED = _os.getenv("SONARIQ_HOSTED", "0").lower() in ("1", "true", "on", "yes")
 UPLOADS = DATA / "uploads"
 _LAST_BCF: dict = {}
+_LAST_RUN: dict = {}   # the session's latest Analyse, for /export/bcf (the FreeCAD panel exports the open run)
 
 
 def _check_path(path: str | None) -> str | None:
@@ -91,6 +94,8 @@ class AnalyseReq(BaseModel):
     scope: str = "deck:5"
     packs: list[str] | None = None
     selection: list[str] | None = None
+    model_id: int | None = None      # revisions (B11): file this run under that model ("New revision of <model>")
+    new_model: str | None = None     # … or start a new model with this name ("New model")
 
 
 class EditReq(BaseModel):
@@ -207,35 +212,10 @@ def runs_list():
 
 @app.get("/runs/diff")
 def runs_diff(a: str, b: str):
-    """What changed between two stored runs (a = before, b = after), by check: new findings, cleared, status changes."""
+    """What changed between two stored runs (a = before, b = after): new, resolved, still open (revdiff)."""
     ra, rb = _load_run(a), _load_run(b)
-    ca = {c["check_key"]: c for c in ra["run"]["checks"]}
-    cb = {c["check_key"]: c for c in rb["run"]["checks"]}
-    bad = ("fail", "warn", "unk")
-    row = lambda c: {"id": c.get("id"), "check_key": c["check_key"], "rule": c["rule"], "title": c["title"],
-                     "status": c["status"], "location": c["location"]["label"],
-                     "element": (c.get("element") or {}).get("name")}
-    new, cleared, changed = [], [], []
-    for k, c in cb.items():
-        o = ca.get(k)
-        if o is None:
-            (new if c["status"] in bad else changed).append({**row(c), "before": None})
-        elif o["status"] != c["status"]:
-            if c["status"] in bad and o["status"] not in bad:
-                new.append({**row(c), "before": o["status"]})
-            elif o["status"] in bad and c["status"] not in bad:
-                cleared.append({**row(c), "id": o.get("id"), "before": o["status"]})   # passing checks carry no finding id
-            else:
-                changed.append({**row(c), "before": o["status"]})
-    for k, o in ca.items():
-        if k not in cb and o["status"] in bad:
-            cleared.append({**row(o), "before": o["status"], "status": "removed"})
-    keys = ("fail", "warn", "unk", "pass", "dor", "na")
-    return {"a": {k: ra[k] for k in ("id", "time", "file", "revision", "counts", "total_checks")},
-            "b": {k: rb[k] for k in ("id", "time", "file", "revision", "counts", "total_checks")},
-            "counts_delta": {k: (rb["counts"] or {}).get(k, 0) - (ra["counts"] or {}).get(k, 0) for k in keys},
-            "new_findings": new, "cleared": cleared, "changed": changed,
-            "added_checks": len(set(cb) - set(ca)), "removed_checks": len(set(ca) - set(cb))}
+    head = ("id", "time", "file", "revision", "counts", "total_checks")
+    return {"a": {k: ra[k] for k in head}, "b": {k: rb[k] for k in head}, **_diff(ra["run"], rb["run"])}
 
 
 @app.get("/runs/{rid}")
@@ -277,8 +257,13 @@ def _csv_val(v):
 @app.get("/runs/{rid}/csv")
 def runs_csv(rid: str):
     """Every check of a stored run, one row each (spec B7). Values and verdicts exactly as the engine returned them."""
-    import io
     d = _load_run(rid)
+    name = f"sonariq_{d.get('revision', 'run')}_{rid}.csv"
+    return StreamingResponse(_csv_rows(d), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+def _csv_rows(d: dict):
+    import io
     run = d["run"]
     head = ["revision", "finding", "rule", "status", "element_guid", "element_name", "ifc_class", "deck", "location", "swbs",
             "measured", "measured_unit", "measured_source", "required", "required_unit", "required_source", "summary",
@@ -305,8 +290,7 @@ def runs_csv(rid: str):
                 yield buf.getvalue()
                 buf.seek(0); buf.truncate()
         yield buf.getvalue()
-    name = f"sonariq_{d.get('revision', 'run')}_{rid}.csv"
-    return StreamingResponse(rows(), media_type="text/csv", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+    return rows()
 
 
 @app.get("/runs/{rid}/ifc")
@@ -320,6 +304,137 @@ def runs_ifc(rid: str):
         raise HTTPException(404, "The file of this run is not on the engine any more.")
     return FileResponse(p, media_type="application/x-step", filename=re.sub(r"^[0-9a-f]{12}_", "", p.name))
 
+
+# ------------------------------------------------------------------ model revisions (spec B11)
+def _save_revision(d: dict) -> dict:
+    """Freeze the revision holding stored run d (see revisions.save): snapshot + the three exported files."""
+    from .bcf import export_bcf
+
+    def write(out: Path) -> str:
+        run = d["run"]
+        p = _run_file(d)
+        rcrv = d.get("revision") == "RCRV"
+        sha = _sha(DATA / "rcrv" / "manifest.json") if rcrv and (DATA / "rcrv" / "manifest.json").exists() else _sha(p) if p else None
+        rules = load_rules()
+        packs = sorted({pk for g in d.get("packs") or [] for pk in PACK_GROUPS.get(g, {}).get("packs", [])})
+        versions = {pk: hashlib.sha256(json.dumps([r.model_dump() for r in rules if r.pack == pk], sort_keys=True,
+                                                  default=str).encode()).hexdigest()[:12] for pk in packs}
+        keys = {c["check_key"] for c in run["checks"]}
+        inc = {k: v for k, v in incorrect_map().items() if k in keys}
+        acc = None
+        if d.get("revision") in SCENARIO:
+            try:
+                acc = accuracy(d["revision"])
+            except Exception as e:  # noqa: BLE001 - the banner is not computable here; say so in the snapshot
+                acc = {"error": str(e)}
+        mid = "rcrv" if rcrv else sha[:16] if sha else None
+        meta = {k: v for k, v in d.items() if k not in ("run", "path")}
+        snap = {"run_meta": meta, "model_file_sha256": sha, "model_file_basis": "data/rcrv/manifest.json" if rcrv else meta.get("file"),
+                "rule_packs": versions, "run": run, "marks": {"incorrect": inc,
+                "decisions": [x for x in S.decisions if x.get("revision") == d.get("revision")]},
+                "readiness": run.get("readiness"), "accuracy": acc,
+                "views": [v for v in _jload(VIEWS, []) if mid and v["model"] == mid]}
+        (out / "snapshot.json").write_text(json.dumps(snap, ensure_ascii=False, default=str), encoding="utf-8")
+        (out / "report.json").write_text(json.dumps(_report_body(d), ensure_ascii=False, indent=1), encoding="utf-8")
+        with open(out / "checks.csv", "w", encoding="utf-8", newline="") as fh:
+            for chunk in _csv_rows(d):
+                fh.write(chunk)
+        export_bcf([f for f in run.get("findings", []) if f["check_key"] not in inc], out / "export.bcfzip",
+                   project=d.get("file") or "SonarIQ")
+        return sha or ""
+    return _revs.save(d, write)
+
+
+class RevExportReq(BaseModel):
+    run_id: str
+    format: Literal["bcf", "report", "csv"]
+
+
+class RevLabelReq(BaseModel):
+    label: str
+
+
+_REV_FILES = {"bcf": "export.bcfzip", "report": "report.json", "csv": "checks.csv", "snapshot": "snapshot.json"}
+
+
+def _rev(rid: int) -> dict:
+    r = _revs.get(rid)
+    if r is None:
+        raise HTTPException(404, "no such revision")
+    return r
+
+
+def _rev_run(r: dict) -> dict:
+    """The run of a revision: from its frozen snapshot once saved, else from the run store (draft)."""
+    if r["state"] == "saved":
+        snap = json.loads((_revs.folder(r) / "snapshot.json").read_text(encoding="utf-8"))
+        return {**snap["run_meta"], "run": snap["run"], "snapshot": {k: snap[k] for k in
+                ("model_file_sha256", "rule_packs", "marks", "readiness", "accuracy", "views")}}
+    d = _load_run(r["run_id"])
+    d.pop("path", None)
+    return d
+
+
+@app.get("/revisions")
+def revisions_list():
+    """Every model with its revision timeline (oldest first)."""
+    return {"models": _revs.models()}
+
+
+@app.post("/revisions/export")
+def revisions_export(req: RevExportReq):
+    """Export = save: freezes the revision holding this run (Rev A, B, …) and names the file to download."""
+    r = _save_revision(_load_run(req.run_id))
+    return {**r, "download": f"/revisions/{r['id']}/files/{req.format}"}
+
+
+@app.get("/revisions/compare")
+def revisions_compare(a: int, b: int):
+    ra, rb = _rev(a), _rev(b)
+    da, db = _rev_run(ra), _rev_run(rb)
+    return {"a": ra, "b": rb, **_diff(da["run"], db["run"])}
+
+
+@app.get("/revisions/{rid}")
+def revisions_get(rid: int):
+    return {**_rev(rid), "data": _rev_run(_rev(rid))}
+
+
+@app.patch("/revisions/{rid}")
+def revisions_label(rid: int, req: RevLabelReq):
+    label = req.label.strip()
+    if not label or len(label) > 60:
+        raise HTTPException(422, "label must be 1-60 characters")
+    _rev(rid)
+    return _revs.relabel(rid, label)
+
+
+@app.get("/revisions/{rid}/files/{kind}")
+def revisions_file(rid: int, kind: str):
+    r = _rev(rid)
+    if r["state"] != "saved" or kind not in _REV_FILES:
+        raise HTTPException(404, "export this revision first" if kind in _REV_FILES else "no such file")
+    p = _revs.folder(r) / _REV_FILES[kind]
+    tag = re.sub(r"[^A-Za-z0-9_-]+", "_", r["label"])
+    return FileResponse(p, filename=f"sonariq_{tag}_{p.name}")
+
+
+@app.get("/revisions/{rid}/bundle")
+def revisions_bundle(rid: int):
+    """Everything a saved revision keeps, as one zip."""
+    import io
+    import zipfile
+    r = _rev(rid)
+    if r["state"] != "saved":
+        raise HTTPException(409, "A draft has no bundle yet; export it to save the revision.")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in sorted(_revs.folder(r).iterdir()):
+            z.write(p, p.name)
+        z.writestr("revision.json", json.dumps(r, indent=1))
+    tag = re.sub(r"[^A-Za-z0-9_-]+", "_", r["label"])
+    return StreamingResponse(iter([buf.getvalue()]), media_type="application/zip",
+                             headers={"Content-Disposition": f'attachment; filename="sonariq_{tag}_bundle.zip"'})
 
 
 @app.get("/model-file")
@@ -367,9 +482,16 @@ def reports_create(req: ReportReq):
     reps = _jload(REPORTS, [])
     for x in reps:
         if x["run_id"] == req.run_id:
-            return {**x, "existing": True}
+            return {**x, "existing": True, "saved_revision": _save_revision(r)}
+    rep = {"id": f"R-{len(reps) + 1:03d}", **_report_body(r)}
+    reps.append(rep)
+    _jsave(REPORTS, reps)
+    return {**rep, "saved_revision": _save_revision(r)}
+
+
+def _report_body(r: dict) -> dict:
     import datetime as _dt
-    rep = {"id": f"R-{len(reps) + 1:03d}", "run_id": req.run_id, "time": _dt.datetime.now().isoformat(timespec="seconds"),
+    rep = {"run_id": r["id"], "time": _dt.datetime.now().isoformat(timespec="seconds"),
            "file": r.get("file"), "revision": r.get("revision"), "counts": r.get("counts"),
            "total_checks": r.get("total_checks")}
     inc = incorrect_map()
@@ -377,8 +499,6 @@ def reports_create(req: ReportReq):
     rep["open_findings"] = sum(1 for f in fs if f["check_key"] not in inc)
     rep["excluded"] = [{"finding": f.get("id"), "check_key": f["check_key"], "reason": inc[f["check_key"]]["reason"]}
                        for f in fs if f["check_key"] in inc]
-    reps.append(rep)
-    _jsave(REPORTS, reps)
     return rep
 
 
@@ -509,6 +629,11 @@ def analyse(req: AnalyseReq, request: Request):
         _save_rd(d["readiness"], DATA / "readiness")      # readiness_<revision>.json, the latest per revision
     ua = request.headers.get("user-agent", "")
     d["run_meta"] = _save_run(d, req, "FreeCAD panel" if "Python-urllib" in ua else "portal" if "Mozilla" in ua else "API")
+    _LAST_RUN["id"] = d["run_meta"]["id"]
+    try:
+        d["run_meta"]["draft"] = _revs.attach(d["run_meta"], req.model_id, (req.new_model or "").strip() or None)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
     return d
 
 
@@ -660,6 +785,8 @@ def bcf():
     r = S.export_bcf(exclude=set(incorrect_map()))
     _LAST_BCF["path"] = r.get("path")
     r["download"] = "/export/bcf/file"
+    if _LAST_RUN.get("id") and (RUNS / f"{_LAST_RUN['id']}.json").exists():
+        r["saved_revision"] = _save_revision(_load_run(_LAST_RUN["id"]))
     return r
 
 
@@ -680,10 +807,10 @@ def history():
 @app.post("/admin/reset")
 def admin_reset():
     """"Reset all data" (portal Settings): same as scripts/demo_reset.sh, without a restart. Runs, reports, tasks,
-    incorrect marks, BCF exports and the in-memory history/decisions are moved to data/archive/<timestamp>/ (never
+    incorrect marks, saved views, model revisions (SQLite + files), BCF exports and the in-memory history/decisions are moved to data/archive/<timestamp>/ (never
     deleted); report numbering restarts at R-001. Demo models, uploaded model files and the simulation cache stay, so
     the FreeCAD panel keeps working (its next Analyse starts a fresh session)."""
-    global S, _LAST_BCF
+    global S, _LAST_BCF, _LAST_RUN
     import datetime as _dt
     import shutil
     ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -695,7 +822,7 @@ def admin_reset():
         moved["runs"] = len(list(RUNS.glob("*.json")))
         shutil.move(str(RUNS), str(arch / "runs"))
     RUNS.mkdir(parents=True, exist_ok=True)
-    for f in (REPORTS, TASKS, INCORRECT):
+    for f in (REPORTS, TASKS, INCORRECT, VIEWS, _revs.DB, _revs.DB.with_suffix("")):
         if f.exists():
             shutil.move(str(f), str(arch / f.name))
     out = DATA / "out"
@@ -706,7 +833,7 @@ def admin_reset():
             shutil.move(str(b), str(arch / "out" / b.name))
     (arch / "ARCHIVE.json").write_text(json.dumps({"archived": ts, "from": str(DATA), "by": "portal"}), encoding="utf-8")
     S = Session("A")
-    _LAST_BCF = {}
+    _LAST_BCF, _LAST_RUN = {}, {}
     return {"ok": True, "archived": ts, **moved}
 
 

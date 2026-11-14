@@ -402,3 +402,15 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .vp-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; font-size: 11.5px; color: var(--fg-2); }
 .vp-legend span { display: inline-flex; align-items: center; gap: 5px; }
 
+/* revision timeline (B11) */
+.rev-confirm { color: var(--st-warn); font-size: 12px; margin-top: 2px; }
+.rtl { display: flex; flex-direction: column; gap: 10px; padding: 0 12px 12px; overflow: auto; }
+.rtl-row { display: grid; grid-template-columns: 20px 1fr auto; gap: 4px 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.rtl-row.is-on { border-color: var(--accent); }
+.rtl-row.is-draft { border-style: dashed; }
+.rtl-row .rtl-meta { grid-column: 2 / 4; font-size: 12px; }
+.rtl-label { all: unset; cursor: text; font-weight: 600; }
+.rtl-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.studio-past { margin: 0 12px 8px; display: flex; gap: 8px; align-items: center; }
+.rtl .rev-row { padding: 8px 10px; gap: 8px; }
+.rtl .rev-row > span:first-child { width: auto !important; min-width: 40px; }

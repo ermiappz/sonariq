@@ -2,7 +2,8 @@
 // FreeCAD panel, and inspect findings next to the 3D. The viewer always loads the exact file of the run shown
 // (the engine converts that file once to web tiles: POST /models/prepare); every verdict and number comes from the engine.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, apiFetch, WORD, useIncorrect, type Check, type Run, type RunMeta } from "../api";
+import { api, apiFetch, download, WORD, useIncorrect, type Check, type Incorrect, type RevModel, type Revision, type Run, type RunMeta } from "../api";
+import RevisionTimeline from "../components/RevisionTimeline";
 import ShipView, { type ModelSrc, type View } from "../components/ShipView";
 import { AccuracyBanner, NotRun, ReadinessCard, SourceChips } from "../components/Evidence";
 import FindingsList from "../components/FindingsList";
@@ -37,7 +38,12 @@ type Shown = { meta: RunMeta & { bounds?: number[] | null; edited?: boolean }; r
 // ---------------------------------------------------------------------------------------------- Studio
 export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMeta & { bounds?: number[] | null; edited?: boolean }) | null; run: Run | null; onOpenFinding: (c: Check) => void }) {
   const [local, setLocal] = useState<Shown | null>(null);
-  const shown: Shown | null = local && (!latest || latest.seq <= local.meta.seq) ? local : latest && run ? { meta: latest, run } : null;
+  // a saved revision opened from the timeline: shown read-only with the marks it was saved with
+  const [past, setPast] = useState<{ rev: Revision; shown: Shown; marks: Record<string, Incorrect> } | null>(null);
+  const live: Shown | null = local && (!latest || latest.seq <= local.meta.seq) ? local : latest && run ? { meta: latest, run } : null;
+  const shown = past ? past.shown : live;
+  const [into, setInto] = useState("new");        // upload: "new" model or the id of the model it is a revision of
+  const [revModels, setRevModels] = useState<RevModel[]>([]);
   const [target, setTarget] = useState<Target | null>(null);
   const [scope, setScope] = useState<"deck:5" | "whole">("deck:5");
   const [discs, setDiscs] = useState<string[]>(["FIRE", "HULL", "INT"]);
@@ -48,9 +54,10 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   const [why, setWhy] = useState<{ key: string; text: string } | null>(null);
   const [setup, setSetup] = useState(true);
   const [listMode, setListMode] = useState<"list" | "matrix">("list");
-  const [tab, setTab] = useState<"findings" | "view">("findings");
+  const [tab, setTab] = useState<"findings" | "view" | "revisions">("findings");
   const [viewer, setViewer] = useState<{ v: ShipViewer | null; id: string | null }>({ v: null, id: null });
-  const [incorrect, reloadInc] = useIncorrect();
+  const [liveMarks, reloadInc] = useIncorrect();
+  const incorrect = past ? past.marks : liveMarks;
   const view = useRef<View | null>(null);
   const fileIn = useRef<HTMLInputElement>(null);
   useEffect(() => { if (shown) setSetup(false); }, [shown?.meta.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -84,7 +91,8 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
       const r = await apiFetch(`/upload?name=${encodeURIComponent(f.name)}`, { method: "POST", body: f, headers: { "Content-Type": "application/octet-stream" } });
       const j = await r.json();
       if (!r.ok) throw new Error(j.detail ?? r.statusText);
-      setTarget({ kind: "upload", path: j.path, rev: j.revision, name: f.name }); setSetup(true);
+      setTarget({ kind: "upload", path: j.path, rev: j.revision, name: f.name }); setSetup(true); setPast(null); setInto("new");
+      api.revisions().then((m) => setRevModels(m.models)).catch(() => {});
       setMsg(j.known ? `${f.name} is the demo file Rev ${j.revision}.` : `${f.name} uploaded. Press Analyse.`);
     } catch (e) { setMsg(`Upload failed: ${(e as Error).message}`); }
     setBusy(false);
@@ -95,11 +103,12 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
     setBusy(true); setMsg(""); setSel(null); view.current?.showAll();
     try {
       const body = t.kind === "rcrv" ? { revision: "RCRV", scope: "whole", packs }
-        : t.kind === "demo" ? { revision: t.rev, scope, packs } : { revision: t.path ? null : t.rev, path: t.path, scope, packs };
+        : t.kind === "demo" ? { revision: t.rev, scope, packs } : { revision: t.path ? null : t.rev, path: t.path, scope, packs,
+          ...(into === "new" ? { new_model: t.name.replace(/\.ifc$/i, "") } : { model_id: Number(into) }) };
       const r = await apiFetch("/analyse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail ?? r.statusText);
-      setLocal({ meta: { ...d.run_meta }, run: d }); setTarget(null); setStatus(null);
+      setLocal({ meta: { ...d.run_meta }, run: d }); setTarget(null); setStatus(null); setPast(null);
     } catch (e) { setMsg(`Analyse failed: ${(e as Error).message}`); }
     setBusy(false);
   };
@@ -111,6 +120,22 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   };
   const undo = async (key: string) => { await api.undoIncorrect(key); reloadInc(); };
   const label = target ? target.name : shown ? shown.meta.file : null;
+  // Export = save (B11): the engine freezes this run's revision, then the file comes from that saved revision
+  const exportAs = async (fmt: "bcf" | "csv") => {
+    if (!shown) return;
+    try {
+      const r = await api.revExport(shown.meta.id, fmt);
+      await download(r.download, `sonariq_${r.label.replace(/[^A-Za-z0-9_-]+/g, "_")}.${fmt === "bcf" ? "bcfzip" : "csv"}`);
+      setMsg(`${fmt.toUpperCase()} exported · saved as ${r.label} (frozen; the next Analyse starts a new draft).`);
+    } catch (e) { setMsg(`Export failed: ${(e as Error).message}`); }
+  };
+  const openPast = async (r: Revision) => {
+    try {
+      const d = await api.revGet(r.id);
+      setPast({ rev: r, shown: { meta: d.data, run: d.data.run }, marks: d.data.snapshot?.marks.incorrect ?? {} });
+      setTarget(null); setSel(null); setTab("findings"); setMsg("");
+    } catch (e) { setMsg(`Could not open ${r.label}: ${(e as Error).message}`); }
+  };
 
   const renderCard = (c: Check) => {
                 const [tag, color] = DISC[c.group] ?? ["··", "var(--fg-3)"];
@@ -126,14 +151,14 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
                     <div className="mono" style={{ fontSize: 11 }}>{valueLine(c)}</div>
                     <SourceChips c={c} />
                     {inc && <div className="inc-why flex items-center gap-2"><span style={{ flex: 1 }}>Marked incorrect · {inc.reason} · not exported</span>
-                      <button className="studio-link" onClick={(e) => { e.stopPropagation(); undo(c.check_key); }}>Undo</button></div>}
+                      {!past && <button className="studio-link" onClick={(e) => { e.stopPropagation(); undo(c.check_key); }}>Undo</button>}</div>}
                     {on && (
                       <div className="flex gap-1" style={{ flexWrap: "wrap", marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
                         <button className="sq-btn is-sm is-primary" onClick={() => view.current?.zoom()}>Zoom to</button>
                         <button className="sq-btn is-sm" onClick={() => view.current?.isolate(c)}>Isolate</button>
                         <button className="sq-btn is-sm" onClick={() => view.current?.sectionAt(c)} title="Cut through this finding and face the cut">Section at finding</button>
                         <button className="sq-btn is-sm" onClick={() => { view.current?.showAll(); setSel(null); }}>Show all</button>
-                        {!inc && <button className="sq-btn is-sm studio-warn" onClick={() => setWhy({ key: c.check_key, text: "" })}>Incorrect finding</button>}
+                        {!inc && !past && <button className="sq-btn is-sm studio-warn" onClick={() => setWhy({ key: c.check_key, text: "" })}>Incorrect finding</button>}
                         <button className="sq-btn is-sm" onClick={() => onOpenFinding(c)}>Thread →</button>
                       </div>
                     )}
@@ -155,16 +180,19 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
       <aside className="studio-panel">
         <header className="studio-head">
           <span className="studio-title"><b>Studio</b>
-            <span className="mono sq-muted studio-file" title={label ?? ""}>{label ? label.replace(/\.ifc$/i, "") : "No model open"}{shown && !target ? ` · Rev ${shown.meta.revision}` : target ? " · not analysed yet" : ""}</span></span>
+            <span className="mono sq-muted studio-file" title={label ?? ""}>{label ? label.replace(/\.ifc$/i, "") : "No model open"}{past ? ` · ${past.rev.label} · read-only` : shown && !target ? ` · Rev ${shown.meta.revision}` : target ? " · not analysed yet" : ""}</span></span>
           <span style={{ flex: 1 }} />
+          {past ? <button className="sq-btn" onClick={() => setPast(null)}>Back to current</button> : <>
           <button className="sq-btn" onClick={() => setSetup(!setup)}>{setup ? "Close" : "Open model"}</button>
           <button className="sq-btn is-primary" disabled={busy || (!target && !shown) || !packs.length} title={!target && !shown ? "Open an IFC model to analyse" : ""} onClick={analyse}>{busy ? "Analysing…" : "Analyse"}</button>
-          {shown && !target && <button className="sq-btn" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}
+          {shown && !target && <button className="sq-btn" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}</>}
         </header>
         <div className="sq-seg studio-tabs" role="tablist" aria-label="Panel">
-          {(["findings", "view"] as const).map((k) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>{k === "findings" ? "Findings" : "View"}</button>)}
+          {(["findings", "view", "revisions"] as const).map((k) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>{k === "findings" ? "Findings" : k === "view" ? "View" : "Revisions"}</button>)}
         </div>
-        {tab === "view" ? <ViewPane v={viewer.v} modelId={viewer.id} /> : <>
+        {tab === "view" ? <ViewPane v={viewer.v} modelId={viewer.id} /> : tab === "revisions" ? <RevisionTimeline current={shown?.meta.id ?? null} onOpen={openPast} /> : <>
+        {past && <div className="sq-banner studio-past"><span style={{ flex: 1 }}><b>{past.rev.label}</b> · saved {past.rev.saved_at?.replace("T", " ").slice(0, 16)} · read-only: verdicts and marks as they were saved.</span>
+          <button className="sq-btn is-sm" onClick={() => setPast(null)}>Back to current</button></div>}
         {shown && !target && <div className="sq-faint" style={{ fontSize: 12, textAlign: "right", padding: "0 12px 6px" }}>All findings are exported except those marked incorrect.</div>}
         {msg && <div className="sq-banner" style={{ margin: "0 12px 8px" }}>{msg}</div>}
         {!setup && shown && (
@@ -172,7 +200,9 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
             <span style={{ flex: 1 }}>{shown.run.scope === "whole" ? "Whole model" : "Deck 5"} · {discs.filter((d) => DISCS.find((x) => x.code === d)?.packs.length).join(" ")}<br />
               <span className="mono sq-faint" style={{ fontSize: 12 }}>Rev {shown.meta.revision} · {shown.run.total_checks} checks · {shown.meta.time.slice(11, 16)}{shown.meta.scope_note ? " · whole model" : ""}</span></span>
             <a className="sq-btn is-sm" href={`#print/${encodeURIComponent(shown.meta.id)}`} target="_blank" rel="noreferrer">Report</a>
-            <button className="sq-btn is-sm" onClick={() => setSetup(true)}>Edit</button>
+            <button className="sq-btn is-sm" onClick={() => exportAs("csv")}>CSV</button>
+            <button className="sq-btn is-sm" onClick={() => exportAs("bcf")}>BCF</button>
+            {!past && <button className="sq-btn is-sm" onClick={() => setSetup(true)}>Edit</button>}
           </div>
         )}
         {setup && (
@@ -190,6 +220,13 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
               <button className="studio-model" onClick={() => fileIn.current?.click()}><span>Upload IFC…</span><span className="sq-faint">IFC4 · up to {MAX_MB} MB</span></button>
               <input ref={fileIn} type="file" accept=".ifc" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
             </div>
+            {target?.kind === "upload" && (
+              <label className="flex flex-col gap-1" style={{ marginTop: 10 }}><span className="sq-label">Save as</span>
+                <select className="sq-input" value={into} onChange={(e) => setInto(e.target.value)}>
+                  <option value="new">New model</option>
+                  {revModels.map((m) => <option key={m.id} value={String(m.id)}>New revision of {m.name}</option>)}
+                </select></label>
+            )}
             {target && <div style={{ marginTop: 10 }}><ReadinessCard src={target.kind === "rcrv" ? { revision: "RCRV" } : target.kind === "demo" ? { revision: target.rev } : target.path ? { path: target.path } : { revision: target.rev ?? "A" }} /></div>}
             <div className="sq-label" style={{ marginTop: 10 }}>Scope</div>
             <div className="sq-seg">{([["deck:5", "Deck 5"], ["whole", "Whole model"]] as const).map(([k, l]) => <button key={k} className={scope === k ? "is-on" : ""} onClick={() => setScope(k)}>{l}</button>)}</div>

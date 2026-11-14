@@ -136,3 +136,25 @@ Proof: `tests/test_pipeline.py` (every finding of Rev B, every product GlobalId 
   target, projection, zoom) and display mode.
 - Tests: `npm test` (`section.test.ts`: frames, readouts, plane sides, near side, steps, section at finding, slicing a
   quantised cube), `tests/test_views_api.py` (views + grid), `e2e/section.spec.mjs` (deck5 and the whole RCRV).
+
+## Model revisions (step 7, spec B11)
+
+- **Export saves.** Studio **CSV** / **BCF**, the print page's **Print** / **CSV**, the report dialog (**Export** →
+  Create report) and the FreeCAD panel's BCF export all call the engine, which freezes the run's revision as Rev A,
+  B, C… under its model (`POST /revisions/export`); the file then comes from that saved revision. Exporting the same
+  run again returns the same revision. The next Analyse opens the next draft.
+- **Models:** the deck 5 demo files are one model ("Deck 5 demo"), the RCRV another; an upload asks **Save as: New
+  model / New revision of <model>**. Rules in DECISIONS M11.
+- **Saved = frozen:** `data/revisions.sqlite` (a trigger refuses any change but the label) and
+  `data/revisions/<model>/<seq>/` with `snapshot.json` (model file sha-256, rule-pack versions, every check with its
+  status, incorrect marks and decisions, readiness, accuracy banner, saved views), `export.bcfzip`, `checks.csv`,
+  `report.json`; files are read-only.
+- **Studio → Revisions tab:** per model, oldest first: label (click to rename), saved date, fail / pass / cannot verify,
+  **Bundle** (zip of the folder), **Open** (read-only: no Analyse, no marking, the marks as saved). Tick two to
+  compare: new, resolved, still open, matched by element ID; fallback matches (same rule + element name) say "please
+  confirm". The Revisions screen (runs) uses the same diff (`engine/sonariq/revdiff.py`).
+- API: `GET /revisions`, `GET /revisions/<id>`, `PATCH /revisions/<id>` `{label}`, `POST /revisions/export`
+  `{run_id, format}`, `GET /revisions/<id>/files/<bcf|csv|report|snapshot>`, `GET /revisions/<id>/bundle`,
+  `GET /revisions/compare?a=&b=`. Reset all data archives the store.
+- Tests: `tests/test_revisions.py` (A → B → Fix 2 counts, frozen rows, bundle, upload choice, fallback, reset),
+  `e2e/revisions.spec.mjs`.

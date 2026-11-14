@@ -66,7 +66,28 @@ export const api = {
   runs: () => j<{ runs: RunMeta[] }>("/runs"),
   runGet: (id: string) => j<RunMeta & { run: Run }>(`/runs/${encodeURIComponent(id)}`),
   runDiff: (a: string, b: string) => j<RunDiff>(`/runs/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`),
+  // model revisions (B11): Export saves; a saved revision never changes except its label
+  revisions: () => j<{ models: RevModel[] }>("/revisions"),
+  revExport: (run_id: string, format: "bcf" | "report" | "csv") =>
+    j<Revision & { download: string }>("/revisions/export", { method: "POST", body: JSON.stringify({ run_id, format }) }),
+  revGet: (id: number) => j<Revision & { data: RunMeta & { run: Run; snapshot?: { marks: { incorrect: Record<string, Incorrect> } } } }>(`/revisions/${id}`),
+  revLabel: (id: number, label: string) => j<Revision>(`/revisions/${id}`, { method: "PATCH", body: JSON.stringify({ label }) }),
+  revCompare: (a: number, b: number) => j<RevCompare>(`/revisions/compare?a=${a}&b=${b}`),
 };
+
+/** Download an engine file with the API key header (a plain link would miss it on the hosted portal). */
+export async function download(path: string, name: string) {
+  const r = await apiFetch(path);
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(await r.blob()); a.download = name; a.click();
+}
+
+export interface Revision { id: number; model_id: number; seq: number; letter: string; label: string; state: "draft" | "saved"; run_id: string;
+  file: string | null; file_sha: string | null; counts: Record<string, number> | null; created: string; saved_at: string | null }
+export interface RevModel { id: number; name: string; created: string; revisions: Revision[] }
+export interface RevCompare { a: Revision; b: Revision; new_findings: DiffRow[]; cleared: DiffRow[]; still_open: DiffRow[]; changed: DiffRow[];
+  fallback_matches: number; counts_delta: Record<string, number>; added_checks: number; removed_checks: number }
 
 export interface Report { id: string; run_id: string; time: string; file: string; revision: string; counts: Record<string, number>;
   total_checks: number; open_findings: number }
@@ -75,10 +96,11 @@ export interface Task { column: "backlog" | "doing" | "done"; assignee: string |
 
 // ---- Stored runs (every Analyse, from the panel or the portal, is kept; never overwritten)
 export interface RunMeta { id: string; seq: number; time: string; file: string; revision: string; scope: string; packs: string[];
-  counts: Record<string, number>; total_checks: number; source: string; scope_note?: string | null }
-export interface DiffRow { id: string | null; check_key: string; rule: string; title: string; status: string; before: string | null; location: string; element: string | null }
+  counts: Record<string, number>; total_checks: number; source: string; scope_note?: string | null; draft?: Revision }
+export interface DiffRow { id: string | null; check_key: string; rule: string; title: string; status: string; before: string | null; location: string; element: string | null;
+  match: "id" | "fallback" | "new" | "removed" }
 export interface RunDiff { a: RunMeta; b: RunMeta; counts_delta: Record<string, number>; new_findings: DiffRow[]; cleared: DiffRow[];
-  changed: DiffRow[]; added_checks: number; removed_checks: number }
+  still_open: DiffRow[]; changed: DiffRow[]; fallback_matches: number; added_checks: number; removed_checks: number }
 
 export const WORD: Record<Status, string> = { fail: "Fail", warn: "Warning", unk: "Cannot verify", pass: "Pass", dor: "Dormant", na: "Not applicable", acc: "Accepted with reason" };
 export const ORDER: Status[] = ["fail", "warn", "unk", "pass", "dor"];

@@ -98,7 +98,8 @@ function Workspace() {
     try {
       const rep = await api.report(ask.id);
       setReports((rs) => rs.some((x) => x.id === rep.id) ? rs : [...rs, rep]);
-      setToast(rep.existing ? `Report ${rep.id} already exists for this run` : `Report ${rep.id} created`);
+      const rv = (rep as { saved_revision?: { label: string } }).saved_revision;
+      setToast((rep.existing ? `Report ${rep.id} already exists for this run` : `Report ${rep.id} created`) + (rv ? ` · saved as ${rv.label}` : ""));
       setTimeout(() => setToast(""), 5000);
     } catch (e) { setError(String(e)); }
     setAsk(null); setScreen("inbox");

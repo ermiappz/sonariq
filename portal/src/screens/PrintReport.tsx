@@ -1,7 +1,7 @@
 // Printable report of one stored run (spec B7): readiness, accuracy banner, counts per rule, findings with provenance.
 // Opened at #print/<run id> in the light theme (design: light for print); the browser's Print turns it into PDF. Everything comes from the engine's JSON.
 import { useEffect, useState } from "react";
-import { API, WORD, api, apiFetch, type Run, type RunMeta } from "../api";
+import { WORD, api, download, type Run, type RunMeta } from "../api";
 import { AccuracyBanner, ReadinessCard } from "../components/Evidence";
 import { countLine } from "../components/FindingsList";
 import { valueLine } from "./Inbox";
@@ -9,6 +9,7 @@ import { valueLine } from "./Inbox";
 export default function PrintReport({ id }: { id: string }) {
   const [d, setD] = useState<(RunMeta & { run: Run }) | null>(null);
   const [err, setErr] = useState("");
+  const [saved, setSaved] = useState("");
   useEffect(() => { api.runGet(id).then(setD).catch((e) => setErr(String(e))); }, [id]);
   if (err) return <div className="sq sq-light"><div className="pr"><p>Report not available: {err}</p></div></div>;
   if (!d) return <div className="sq sq-light"><div className="pr"><p className="sq-muted">Loading the run…</p></div></div>;
@@ -20,8 +21,10 @@ export default function PrintReport({ id }: { id: string }) {
         <div><h1>SonarIQ review report</h1>
           <div className="mono">{d.file} · Rev {d.revision} · {d.time.replace("T", " ")} · {run.total_checks.toLocaleString("en-US")} checks · run {d.id}</div></div>
         <div className="pr-actions no-print">
-          <button className="sq-btn" onClick={() => window.print()}>Print / save as PDF</button>
-          <a className="sq-btn" href={`${API}/runs/${encodeURIComponent(d.id)}/csv`} onClick={(e) => { e.preventDefault(); apiFetch(`/runs/${encodeURIComponent(d.id)}/csv`).then((r) => r.blob()).then((b) => { const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `sonariq_${d.revision}_${d.id}.csv`; a.click(); }); }}>CSV</a>
+          {/* Export = save (B11): both freeze this run's revision first */}
+          <button className="sq-btn" onClick={() => api.revExport(d.id, "report").then((r) => { setSaved(r.label); window.print(); }).catch((e) => setErr(String(e)))}>Print / save as PDF</button>
+          <button className="sq-btn" onClick={() => api.revExport(d.id, "csv").then((r) => { setSaved(r.label); return download(r.download, `sonariq_${r.label.replace(/[^A-Za-z0-9_-]+/g, "_")}.csv`); }).catch((e) => setErr(String(e)))}>CSV</button>
+          {saved && <span className="sq-faint">Saved as {saved}</span>}
         </div>
       </header>
       <p className="sq-faint">Verdicts and numbers are the rule engine's. SonarIQ supports the engineer's review; each finding is to be checked on the drawing.</p>

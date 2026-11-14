@@ -35,7 +35,8 @@ if (has) {
   await page.getByRole('button', { name: 'Analyse' }).click();
   await page.waitForFunction(() => document.querySelector('.studio-sum')?.textContent?.includes('RCRV'), null, { timeout: 300000 });
   await page.locator('.fl-head').first().waitFor({ timeout: 60000 });
-  for (const h of await page.locator('.fl-head[aria-expanded="true"]').all()) await h.click();   // collapse: every rule header fits
+  // collapse one at a time: the list is virtualised, so a snapshot of handles goes stale after the first click
+  for (let i = 0; i < 20 && await page.locator('.fl-head[aria-expanded="true"]').count(); i++) await page.locator('.fl-head[aria-expanded="true"]').first().click();
   const h2 = await page.locator('.fl-head').allTextContents();
   check('RCRV: per-rule counts over the whole ship', h2.some((h) => /R-SYS-01[\s\S]*2,391 parts: 41 warning, 232 cannot verify, 2,118 pass/.test(h)), h2.join(' | ').slice(0, 300));
   await page.locator('.ib-chip', { hasText: 'Pass' }).click();

@@ -160,3 +160,27 @@ system name and usually a material value, there are **no spaces**. Hence:
   values verified against official text" honestly.
 - Pipe attribute names were lost in the property export; material is found by pattern and insulation specs are
   excluded explicitly. shortcut: pattern match, upgrade by re-extracting attribute display names from the APS database.
+
+## M11 — Model revisions (B11, added 14 Nov)
+
+- **Model = a line of revisions; revision = draft until exported.** Every Analyse replaces the model's open draft;
+  Export (BCF, report or CSV, from the Studio, the print page, the report dialog or the FreeCAD panel's BCF) freezes it
+  as Rev A, B, C…; the next Analyse opens the next draft. Exporting an already saved run returns that revision.
+- **Which model a run belongs to:** the upload choice ("New model" / "New revision of <model>") when given; else the
+  three deck 5 demo files → "Deck 5 demo", the RCRV → "RCRV whole ship", an upload → the model that last read a file
+  of that name, else a new model named after the file. The FreeCAD panel sends no choice, so it gets the inference.
+- **Store:** SQLite `data/revisions.sqlite` (index) + `data/revisions/<model>/<seq>/` (snapshot.json, export.bcfzip,
+  checks.csv, report.json). Saved = frozen: a trigger refuses any change except the label and refuses deletes; the
+  files are chmod 444. The three export files are written at save time from the stored run, so every format is in the
+  bundle whichever was clicked (the BCF from the stored run, not the live session: pins and sign-off comments of the
+  session BCF are not in it).
+- **Rule-pack version** = first 12 hex of sha-256 over that pack's rules as loaded (the YAML has no version field);
+  it changes whenever a rule changes. **Model file hash** = sha-256 of the IFC the run read; RCRV (no single file) =
+  sha-256 of `data/rcrv/manifest.json`, named in the snapshot as the basis.
+- **Accuracy banner in the snapshot** = `/accuracy` computed at save time (only the revisions with hand-checked ground
+  truth: A, B, RCRV); others store null.
+- **Compare = one diff** (`engine/sonariq/revdiff.py`), also behind `/runs/diff`: match by check key (rule + element
+  GlobalId); a finding left on both sides with the same rule and element name (or location) is a fallback match shown
+  as "please confirm", only when that pairing is unique. On compact (whole-ship) runs passes are not in `checks`, so a
+  finding that passes in the newer run counts as resolved with status "removed".
+- **Reset all data** archives the revision store and saved views too (it used to keep views).

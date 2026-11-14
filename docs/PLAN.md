@@ -1,4 +1,4 @@
-# Whole-ship viewer milestone: plan (steps 2–8)
+# Whole-ship viewer milestone: plan (steps 2–9)
 
 Decisions behind this plan: `docs/DECISIONS.md` § Milestone (M1–M10). Audit: `docs/AUDIT.md`. Spec:
 `docs/milestones/SONARIQ-MILESTONE-SPEC.md`. Every step ends with: tests green (golden path, ground truth from step 3),
@@ -6,8 +6,8 @@ Playwright screenshots looked at, docs updated, commit, one line in `docs/PROGRE
 
 **Cut first if budget runs short** (in this order): first-person walk (2.6) → Realistic display mode (5.2) → traceability
 matrix (4.3) → longitudinal cut (6.4) → three simultaneous cuts (6.5, keep one) → tinted volumes / rings in callouts
-(7.3) → demo run-through steps after "section at finding" (8.1). Never cut: ID mapping proof, ground-truth harness,
-provenance chips, golden path.
+(8.3) → demo run-through steps after "section at finding" (9.1). Never cut: ID mapping proof, ground-truth harness,
+provenance chips, golden path, saved revisions are immutable (7.2).
 
 ---
 
@@ -65,23 +65,40 @@ Studio keeps the old IFC path as fallback only if conversion fails (state messag
 | 6.4 | Flip, nudge + re-cut, ortho "Section view", Clear cut; longitudinal + deck plan | | | Playwright |
 | 6.5 | Up to 3 cuts; "Section at finding" on cards; named views (cut + camera + mode) saved via `/views` | `api.py`, `Studio.tsx` | | `tests/test_views_api.py` |
 
-## Step 7 — Rendered callouts with evidence geometry (A5)
+## Step 7 — Model revisions (B11)
+
+Added 14 Nov at the user's request, before the callouts. A *model* is a line of revisions (the three deck 5 demo files
+are one model, the RCRV another, an upload is a new model or a new revision of one). A *revision* is a draft (the
+latest analysis, replaced by the next Analyse) until an Export saves it; then it is frozen and the next Analyse opens
+the next draft.
 
 | # | Task | Files | Done when | Proof |
 |---|---|---|---|---|
-| 7.1 | Reusable callout module (`anchor`, `content`, `actions`), leader line, occlusion test via pick buffer, never covers its element | `portal/src/viewer/callout.ts`, `Callout.tsx` | | Playwright |
-| 7.2 | Content: title + status chip, Is, Must be (formula filled with engine numbers), clause + location, source chips, actions Section here / Isolate / Open evidence | | numbers only from the finding JSON | Playwright + guard test that the callout text has only numbers present in the finding |
-| 7.3 | Evidence in 3D: dimension lines (measured solid, required dashed) from existing `overlaySpec`, dead-end polyline, tinted volume / ring; material findings tint "is", outline "must be" | | | Playwright |
-| 7.4 | Several findings → pins, active expands; survives cuts and mode changes; unlocatable → said in card | | | Playwright |
+| 7.1 | Store: SQLite `data/revisions.sqlite` (`SONARIQ_REVISIONS`) with `models` and `revisions` (model, seq, letter, label, draft/saved, run id, file sha-256, counts) + files under `data/revisions/<model>/<seq>/`. Every Analyse attaches its run to the model's draft (model from the request, else demo file → "Deck 5 demo", RCRV → "RCRV", else same file name, else new model) | `engine/sonariq/revisions.py`, `api.py` (`/analyse`) | | `tests/test_revisions.py` |
+| 7.2 | Export saves: `POST /revisions/export {run_id, format}` (bcf / report / csv) freezes the draft as Rev A, B, C… with `snapshot.json` (file hash, rule-pack versions = hash of each pack's rules, all checks with statuses, incorrect marks + decisions, readiness, accuracy banner, saved views of that file) and `export.bcfzip`, `checks.csv`, `report.json`; exporting an already saved run returns that revision. A SQLite trigger refuses changes to a saved revision except its label | `revisions.py`, `api.py`; Studio Export / Report / CSV, report dialog | second export of the same run = same revision; UPDATE on a saved row fails | `test_revisions.py` |
+| 7.3 | Timeline in Studio: label (editable, `PATCH /revisions/<id>`), date, pass / fail / cannot verify, bundle download (`GET /revisions/<id>/bundle`, zip of the folder); open a past revision read-only (no Analyse, no marking, banner says so) | `portal/src/components/RevisionTimeline.tsx`, `Studio.tsx` | | Playwright |
+| 7.4 | Upload choice: "New model" / "New revision of <model>" | `Studio.tsx` | | Playwright |
+| 7.5 | Compare: one diff function (`engine/sonariq/revdiff.py`) replaces `/runs/diff`'s body: findings matched by element ID (check key), else by rule + element name / location → "please confirm"; new / resolved / still open / changed. `GET /revisions/compare?a=&b=`; the Revisions screen uses the same function | `revdiff.py`, `api.py`, timeline compare | | `test_revisions.py`: A (1 fail) → B (4) → Fix 2 (3) counts |
+| 7.6 | Reset all data archives the revision store too | `api.py` | | `test_revisions.py` |
+| 7.7 | e2e: export → new analysis → export → timeline shows two revisions → compare shows the right counts | `portal/e2e/revisions.spec.mjs` | | Playwright |
 
-## Step 8 — Demo run-through, docs, performance report, polish (B8, A6)
+## Step 8 — Rendered callouts with evidence geometry (A5)
 
 | # | Task | Files | Done when | Proof |
 |---|---|---|---|---|
-| 8.1 | Demo run-through button: readiness → whole ship → banner → finding + callout → section at finding → x-ray solo piping → revision diff → BCF; Space/→ step, Esc stops | `portal/src/components/DemoRun.tsx` | | Playwright walks all steps |
-| 8.2 | `docs/PERFORMANCE.md`: deck5_revB, RCRV, largest open IFC sample available offline (else say so): conversion time, size, first frame, fps (marked software GL), draw calls, peak memory | `scripts/perf_report.mjs` | | the script output |
-| 8.3 | Layouts 1280 / 1440 / 1920 × both themes, keyboard focus | | screenshots in `docs/screenshots/` | Playwright |
-| 8.4 | README, ARCHITECTURE, `docs/VIEWER.md`, `docs/MILESTONE_REPORT.md`; PR to main (not merged) | | | |
+| 8.1 | Reusable callout module (`anchor`, `content`, `actions`), leader line, occlusion test via pick buffer, never covers its element | `portal/src/viewer/callout.ts`, `Callout.tsx` | | Playwright |
+| 8.2 | Content: title + status chip, Is, Must be (formula filled with engine numbers), clause + location, source chips, actions Section here / Isolate / Open evidence | | numbers only from the finding JSON | Playwright + guard test that the callout text has only numbers present in the finding |
+| 8.3 | Evidence in 3D: dimension lines (measured solid, required dashed) from existing `overlaySpec`, dead-end polyline, tinted volume / ring; material findings tint "is", outline "must be" | | | Playwright |
+| 8.4 | Several findings → pins, active expands; survives cuts and mode changes; unlocatable → said in card | | | Playwright |
+
+## Step 9 — Demo run-through, docs, performance report, polish (B8, A6, B11)
+
+| # | Task | Files | Done when | Proof |
+|---|---|---|---|---|
+| 9.1 | Demo run-through button: readiness → whole ship → banner → finding + callout → section at finding → x-ray solo piping → revision timeline + compare → BCF; Space/→ step, Esc stops | `portal/src/components/DemoRun.tsx` | | Playwright walks all steps |
+| 9.2 | `docs/PERFORMANCE.md`: deck5_revB, RCRV, largest open IFC sample available offline (else say so): conversion time, size, first frame, fps (marked software GL), draw calls, peak memory | `scripts/perf_report.mjs` | | the script output |
+| 9.3 | Layouts 1280 / 1440 / 1920 × both themes, keyboard focus | | screenshots in `docs/screenshots/` | Playwright |
+| 9.4 | README, ARCHITECTURE, `docs/VIEWER.md`, `docs/MILESTONE_REPORT.md`; PR to main (not merged) | | | |
 
 ## Test harness
 
