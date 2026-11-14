@@ -174,6 +174,8 @@ export default function Studio({ scope: sc, openRev, refresh, onOpenFinding }: {
       await new Promise((r) => setTimeout(r, 250));
     }
   };
+  const startRef = useRef(startDemo); startRef.current = startDemo;
+  useEffect(() => { const on = () => { if (!now.current.demo) startRef.current(); }; window.addEventListener("sq:demo", on); return () => window.removeEventListener("sq:demo", on); }, []);
   const dScope = () => now.current.sc;
   const dRev = (label: string) => dScope().project?.models[0]?.revisions.filter((r) => r.label === label || r.file === (label === "Rev A" ? "deck5_revA.ifc" : "deck5_revB.ifc")) ?? [];
   const demoFinding = () => dScope().data?.run.checks.find((c) => c.id === "F-07") ?? null;
@@ -285,7 +287,7 @@ export default function Studio({ scope: sc, openRev, refresh, onOpenFinding }: {
                       <div className="flex gap-1" style={{ flexWrap: "wrap", marginTop: 4 }} onClick={(e) => e.stopPropagation()}>
                         <button className="sq-btn is-sm is-primary" onClick={() => view.current?.zoom()}>Zoom to</button>
                         <button className="sq-btn is-sm" onClick={() => view.current?.isolate(c)}>Isolate</button>
-                        <button className="sq-btn is-sm" onClick={() => view.current?.sectionAt(c)} title="Cut through this finding and face the cut">Section at finding</button>
+                        <button className="sq-btn is-sm" data-guide="section" onClick={() => view.current?.sectionAt(c)} title="Cut through this finding and face the cut">Section at finding</button>
                         <button className="sq-btn is-sm" onClick={() => { view.current?.showAll(); setSel(null); }}>Show all</button>
                         {!inc && !readOnly && <button className="sq-btn is-sm studio-warn" onClick={() => setWhy({ key: c.check_key, text: "" })}>Incorrect finding</button>}
                         <button className="sq-btn is-sm" onClick={() => onOpenFinding(c)}>Thread →</button>
@@ -315,13 +317,13 @@ export default function Studio({ scope: sc, openRev, refresh, onOpenFinding }: {
           <span style={{ flex: 1 }} />
           <button className="sq-btn" aria-expanded={setup} onClick={() => setSetup(!setup || !rev)}>Open model</button>
           {rev && <button className="sq-btn" onClick={() => setClearAsk(true)}>Clear all</button>}
-          <button className="sq-btn is-primary" disabled={busy || !rev || !packs.length} title={!rev ? "Open a model to analyse" : ""} onClick={() => analyse()}>{busy ? "Analysing…" : "Analyse"}</button>
-          {shown && <button className="sq-btn" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}
+          <button className="sq-btn is-primary" data-guide="analyse" disabled={busy || !rev || !packs.length} title={!rev ? "Open a model to analyse" : ""} onClick={() => analyse()}>{busy ? "Analysing…" : "Analyse"}</button>
+          {shown && <button className="sq-btn" data-guide="export" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}
           <button className="sq-btn" aria-pressed={!!demo} aria-label="Demo run-through" disabled={starting} onClick={() => (demo ? stopDemo() : startDemo())}
                   title="Demo run-through: a guided tour that plays by itself (Space / → next, Esc stops). It works in its own copy of the demo model and changes nothing here.">{demo ? "Stop" : starting ? "Starting…" : "▶ Demo"}</button>
         </header>
         <div className="sq-seg studio-tabs" role="tablist" aria-label="Panel">
-          {(["findings", "view", "revisions"] as const).map((k) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>{k === "findings" ? "Findings" : k === "view" ? "View" : "Revisions"}</button>)}
+          {(["findings", "view", "revisions"] as const).map((k) => <button key={k} role="tab" aria-selected={tab === k} data-guide={k === "view" ? "view-tab" : undefined} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>{k === "findings" ? "Findings" : k === "view" ? "View" : "Revisions"}</button>)}
         </div>
         {tab === "view" ? <ViewPane v={viewer.v} modelId={viewer.id} /> : tab === "revisions" ? <RevisionTimeline models={model ? [model] : []} current={rev?.id ?? null} onOpen={(r) => openRev(r.id)} pick={cmpPick} /> : <>
         {readOnly && <div className="sq-banner studio-past"><span style={{ flex: 1 }}><b>{rev!.label}</b> · saved {rev!.saved_at?.replace("T", " ").slice(0, 16)} · read-only: verdicts, marks and tasks as they were saved. Analyse to continue in a new draft.</span></div>}

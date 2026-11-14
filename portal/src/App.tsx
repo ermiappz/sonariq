@@ -1,7 +1,8 @@
-// SonarIQ portal v2 (design 12-portal-new): Home at / (no hash), workspace screens behind #<screen>. Data comes from the
+// SonarIQ portal v2 (design 12-portal-new): / redirects to /studio (the landing page); workspace screens behind
+// /studio#<screen>; the marketing Home is at /welcome. Data comes from the
 // engine API; the portal never computes a verdict. #inbox/<run id> (FreeCAD Export) opens that run and offers a report.
 import { useEffect, useRef, useState } from "react";
-import { api, SCOPE, useIncorrect, type Check, type Project, type Report, type RevModel, type Revision, type Run, type RunMeta } from "./api";
+import { api, BASE, SCOPE, useIncorrect, type Check, type Project, type Report, type RevModel, type Revision, type Run, type RunMeta } from "./api";
 import Inbox from "./screens/Inbox";
 import Thread from "./screens/Thread";
 import Studio from "./screens/Studio";
@@ -14,6 +15,7 @@ import Board from "./screens/Board";
 import Home from "./screens/Home";
 import { Pill } from "./components/ui";
 import PrintReport from "./screens/PrintReport";
+import Guide from "./components/Guide";
 
 type Screen = "simulate" | "projects" | "inbox" | "board" | "thread" | "model" | "rules" | "mapping" | "benchmark" | "revisions" | "settings";
 const USER = { name: "Mikko Saari", role: "Fire & life safety lead", initials: "MS" }; // sample person from the design
@@ -21,15 +23,18 @@ const USER = { name: "Mikko Saari", role: "Fire & life safety lead", initials: "
 const hashParts = () => location.hash.slice(1).split("/");
 const RUN_RE = /^[0-9]{4,}_[0-9]{8}-[0-9]{6}$/;
 
+const isHome = () => location.pathname.replace(/\/+$/, "") === (BASE + "welcome").replace(/\/+$/, "");
 export default function App() {
-  const [home, setHome] = useState(!location.hash || location.hash === "#");
+  // "/" (no hash) lands in the Studio: rewrite the address to /studio without a reload
+  if (location.pathname === BASE && (!location.hash || location.hash === "#")) history.replaceState(null, "", BASE + "studio");
+  const [home, setHome] = useState(isHome());
   useEffect(() => {
-    const on = () => setHome(!location.hash || location.hash === "#");
-    window.addEventListener("hashchange", on);
-    return () => window.removeEventListener("hashchange", on);
+    const on = () => setHome(isHome());
+    window.addEventListener("popstate", on);
+    return () => window.removeEventListener("popstate", on);
   }, []);
   if (location.hash.startsWith("#print/")) return <PrintReport id={decodeURIComponent(location.hash.slice(7))} />;
-  if (home) return <Home onLogin={() => { location.hash = "#inbox"; setHome(false); }} />;
+  if (home) return <Home onLogin={() => { history.pushState(null, "", BASE + "studio#model"); setHome(false); }} />;
   return <Workspace />;
 }
 
@@ -57,6 +62,8 @@ function Workspace() {
   const [ask, setAsk] = useState<(RunMeta & { run: Run }) | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [toast, setToast] = useState("");
+  const [guide, setGuide] = useState(false);
+  const [help, setHelp] = useState(false);
   const [nameAsk, setNameAsk] = useState<{ mode: "new" | "rename"; text: string } | null>(null);
   const [incorrect] = useIncorrect();
   useEffect(() => {   // an Export link opened in a tab that already shows the portal
@@ -163,6 +170,19 @@ function Workspace() {
     } catch (e) { setError(String(e)); setNameAsk(null); }
   };
 
+  // first visit: no completed flag in this browser and nothing opened in this project here. The shared demo project's
+  // server flag does not hide it from new browsers (everyone shares that project); a project of your own does.
+  const guideTried = useRef(false);
+  useEffect(() => {
+    if (guideTried.current || !project || screen !== "model") return;
+    guideTried.current = true;
+    if (LS.get("sq.guide.done") || LS.get(`sq.rev.${project.id}`) || (project.guide_done && !project.shared) || project.demo) return;
+    setGuide(true);
+  }, [project?.id, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const guideDone = () => {
+    setGuide(false); LS.set("sq.guide.done", "1");
+    if (project && !project.demo) api.projectUpdate(project.id, { guide_done: true }).catch(() => {});
+  };
   const run = data?.run ?? null;
   const openFinding = (c: Check) => { setOpen(c.id ?? c.check_key); setScreenState("thread"); history.replaceState(null, "", "#thread/" + (c.id ?? c.check_key)); };
   const inboxN = run?.findings.length ?? 0;
@@ -180,8 +200,7 @@ function Workspace() {
   return (
     <div className={`sq ${light ? "sq-light" : "sq-dark"} sq-portal app`}>
       <nav className="rail sq-rail">
-        <a href="#" onClick={(e) => { e.preventDefault(); history.replaceState(null, "", location.pathname); window.dispatchEvent(new HashChangeEvent("hashchange")); }}
-           aria-label="SonarIQ home" style={{ padding: "4px 12px 14px", height: "auto" }}><Lockup size={18} /></a>
+        <a href={BASE + "welcome"} aria-label="About SonarIQ" style={{ padding: "4px 12px 14px", height: "auto" }}><Lockup size={18} /></a>
         {nav.map(([k, label, n]) => (
           <a key={k} href="#" className={screen === k || (k === "inbox" && screen === "thread") ? "is-on" : ""}
              onClick={(e) => { e.preventDefault(); setScreen(k); }}>
@@ -209,6 +228,13 @@ function Workspace() {
             {model && [...model.revisions].reverse().map((r) => <option key={r.id} value={r.id}>{r.label}{r.state === "saved" ? " (saved)" : ""} · {countsLine(r)}</option>)}
           </select>
           <span style={{ flex: 1 }} />
+          <span className="help-wrap">
+            <button className="sq-btn is-sm" aria-haspopup="menu" aria-expanded={help} aria-label="Help" onClick={() => setHelp(!help)}>?</button>
+            {help && <div className="sq-card help-menu" role="menu" onKeyDown={(e) => { if (e.key === "Escape") setHelp(false); }}>
+              <button role="menuitem" autoFocus onClick={() => { setHelp(false); setScreen("model"); setGuide(true); }}>Show the guide</button>
+              <button role="menuitem" onClick={() => { setHelp(false); setGuide(false); setScreen("model"); window.setTimeout(() => window.dispatchEvent(new Event("sq:demo")), 50); }}>Play the demo</button>
+            </div>}
+          </span>
           <span className="sq-faint">Units</span>
           <div className="sq-seg">{(["mm", "in"] as const).map((u) => <button key={u} className={units === u ? "is-on" : ""} onClick={() => setUnits(u)}>{u}</button>)}</div>
           <button className="sq-btn is-sm" title="Light / dark" aria-label="Light / dark theme" aria-pressed={light} onClick={() => setLight(!light)}>◐</button>
@@ -270,6 +296,7 @@ function Workspace() {
           </form>
         </div>
       )}
+      {guide && screen === "model" && <Guide onDone={guideDone} onDemo={() => { guideDone(); window.dispatchEvent(new Event("sq:demo")); }} />}
       {toast && <div className="sq-toast">✓ {toast}</div>}
     </div>
   );

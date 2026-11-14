@@ -287,3 +287,18 @@ Reconciled with step 7 (B11, M11). Differences from step 7, all deliberate:
   pre-converts every bundled model (step 1).
 - **Compare.** Step 3 analyses and saves Rev A, then analyses Rev B, both in the demo project. Step 7 compares the two.
   Step 8's BCF export saves Rev B there too.
+
+## M17 — First-run guide and landing page (Studio reliability step 5, 14 Nov)
+
+- **Landing page.** `/` rewrites to `/studio` without a reload. The workspace screens stay hash routes
+  (`/studio#inbox`), so old links keep working. The marketing Home moved to `/welcome`, and the logo links there.
+- **Placement.** The guide's cards are placed by `placeCallout`, the finding callouts' module. Each card sits beside
+  its first target and never over it, with a ring on every target and a leader to the ring's edge. Targets carry
+  `data-guide` attributes so styling changes don't break them. A target that isn't on screen yet (findings before
+  Analyse) gets a centred card that says what to do first. Placement is measured every 300 ms, not on every render:
+  placing a card changes its size, which caused an endless update loop.
+- **When it shows.** On a first visit: no `sq.guide.done` in this browser and no revision opened in this project from
+  this browser. Skip and Done set both the browser flag and the project's `guide_done`. On the shared "Demo ship"
+  project the server flag doesn't hide the guide: every visitor shares that project, so one visitor's Skip would hide
+  it for all new visitors. On a project of your own it does. The ? Help menu reopens the guide or plays the demo.
+- **e2e:** all other specs start with the guide marked done (`lib.mjs` init script); `guide.spec.mjs` starts fresh.

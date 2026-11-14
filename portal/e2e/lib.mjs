@@ -8,10 +8,12 @@ export const BASE = process.env.E2E_BASE || 'http://127.0.0.1:5197/';
 export const SHOTS = path.resolve(new URL('../../docs/screenshots/', import.meta.url).pathname);
 const exe = process.env.CHROME || `${os.homedir()}/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome`;
 
-export async function browser({ width = 1440, height = 900, theme = 'dark' } = {}) {
+export async function browser({ width = 1440, height = 900, theme = 'dark', guide = false } = {}) {
   const b = await chromium.launch({ executablePath: exe, headless: true,
     args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
   const ctx = await b.newContext({ viewport: { width, height }, colorScheme: theme });
+  // specs other than the guide's start as a returning visitor (the first-run guide already done in this browser)
+  if (!guide) await ctx.addInitScript(() => { try { localStorage.setItem('sq.guide.done', '1'); } catch {} });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

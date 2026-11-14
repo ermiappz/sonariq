@@ -446,3 +446,17 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .demo-actions { align-self: end; }
 .studio-left:has(.sec-bar) .demo-bar { bottom: 150px; }
 .demo-err { display: flex; flex-direction: column; gap: 6px; color: var(--st-warn); }
+.guide { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+.guide-lead { position: absolute; inset: 0; }
+.guide-lead line { stroke: var(--accent); stroke-width: 1.5; }
+.guide-lead rect { fill: none; stroke: var(--accent); stroke-width: 2; }
+.guide-card { position: fixed; pointer-events: auto; border-left-color: var(--accent); font-size: 13px; display: flex; flex-direction: column; gap: 6px; z-index: 41; }
+.guide-title { font-size: 14px; }
+.guide-dots { display: flex; gap: 4px; }
+.guide-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-2); }
+.guide-dots i.is-on { background: var(--accent); } .guide-dots i.is-done { background: var(--fg-3); }
+.guide-demo { align-self: flex-start; }
+.help-wrap { position: relative; }
+.help-menu { position: absolute; right: 0; top: 34px; z-index: 30; min-width: 180px; padding: 4px; display: flex; flex-direction: column; box-shadow: 0 12px 30px rgba(0,0,0,.4); }
+.help-menu button { text-align: left; padding: 8px 10px; background: none; border: 0; color: var(--fg-1); border-radius: 4px; cursor: pointer; font: inherit; }
+.help-menu button:hover, .help-menu button:focus-visible { background: var(--bg-2); }
