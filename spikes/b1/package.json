@@ -1,0 +1,13 @@
+{
+  "name": "sonariq-spike-b1",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway spike: whole-ship viewer format (That Open Fragments vs glTF tiles). Not part of the product build.",
+  "dependencies": {
+    "@thatopen/fragments": "3.6.1",
+    "meshoptimizer": "^1.3.0",
+    "playwright-core": "^1.50.0",
+    "three": "0.182.0",
+    "web-ifc": "0.0.79"
+  }
+}

@@ -46,3 +46,117 @@ Each line is an assumption made without asking. Check the ones marked ★ at 08:
 | 40 | 13:00 | The number guard now also checks number words ("seven", "forty-four"); "one" is skipped because it is usually a pronoun. Found when the hotspot analyst wrote "seven people". | A loophole closed |
 | 41 | 14:00 | **Fire what-if is reported as exposure, not time.** In the cached night runs with the fire origin near Stair 3A (LOUNGE-5-180), p95 assembly time is unchanged against the same model without the fire, while every run has people walking through smoke and nobody switches stairs (numbers: `docs/DEMO_SCRIPT.md`, W10 smoke card, both computed from the runs). The summary now aggregates smoke exposure over all runs (`smoke_summary`) and the demo script says the fire shows in exposure. Not tuned to make the fire look bigger. | Report, don't hide |
 | 42 | 14:00 | **Hosted demo** at `https://34-88-130-224.sslip.io` (Caddy, Let's Encrypt via sslip.io, basic auth; engine as a systemd user service with `SONARIQ_HOSTED=1` and Simulate on). Caddy binds the NIC address only because Tailscale already serves :443 on its interface. The FreeCAD panel uploads the open IFC to a remote engine (`POST /upload`); a byte-identical demo file maps to its revision so edits and cached simulations keep working. Engine and portal share one session. | User instruction: only FreeCAD on the Mac |
+
+---
+
+# Milestone: whole-ship viewer (14 Nov 2026)
+
+Spec: `docs/milestones/SONARIQ-MILESTONE-SPEC.md`. Evidence: `docs/AUDIT.md`, `spikes/b1/`, raw results in
+`data/rcrv/spike_b1/bench_*.json` (not in git: real-ship data). VM: 4 vCPU, 16 GB, **no GPU** (SwiftShader software GL),
+so every fps below is a lower bound, not a laptop number.
+
+## M1 — Viewer format: Meshopt glTF tiles in plain three.js (not Fragments)
+
+Both prototypes were built on the full RCRV (50.84 M triangles, 90,331 elements), same machine, same bench script.
+
+| Measure | glTF tiles | That Open Fragments 3.6.1 |
+|---|---|---|
+| Input it needs | the glTF as delivered | an IFC with real triangles: 7 files, **2.18 GB, 313 s** to write (the existing RCRV IFC is 91 % boxes) |
+| Conversion | **38 s + 31 s pack** (peak 1.8 GB) | decks 2–7: **467 s** (peak 3.1 GB per deck); **deck 1 (679 MB IFC) killed at the 3.6 GB cap** |
+| Output size | **205 MB** whole ship | 317 MB for decks 2–7 (≈ 450 MB projected with deck 1) |
+| Time to first frame | **1.0–1.2 s** whole ship (overview complete 3.3 s) | 3.9 s for one deck (deck 7); six decks did **not** reach ready within 10 min |
+| Draw calls | 271 overview, ≈ 230 close-up | 159 for deck 7 alone |
+| Orbit fps (software GL) | 0.6 at 4.0 M triangles | 1.35 at 1.4 M triangles (one deck) |
+| Browser memory | 103 MB JS heap, 1.4–1.9 GB process RSS | 56 MB heap for one deck; 4.2 GB RSS trying six decks |
+| Picking → right element | 49/60 first hit, **60/60** after hiding enclosing parts | **not scored**: hits return real GlobalIds (IDs survive), but my harness could not align the test camera (loaded-deck boxes differ from the tile boxes by up to 12 m), 0/8 on decks 5–7 where tiles got 8/8 |
+| Integrity check | decode every tile, 0 vertex / 0 triangle mismatches, max quantisation 0.16 mm | none built in |
+| Capping / clipping | ours to write (stencil caps, M5) | `getSection()` gives edges and fills |
+
+Decision: **glTF tiles**. It is the only option that loads the whole ship here, it converts the RCRV in about a minute
+without an IFC hop, and picking returns the engine's ID. Fragments' real advantage (built-in section fills, raycast,
+highlighter) does not offset an IFC hop that cannot finish deck 1 in 3.6 GB. Fragments also needs its worker served
+from our origin (it defaults to unpkg; rule 3), which we solved in the spike, so that was not the deciding factor.
+Cost accepted: we write capping, picking and display modes ourselves on one shader (M5, M9).
+
+Small IFC models (deck5) go through the same tile writer (geometry from `ifcopenshell.geom`), so the Studio has one
+viewer path. The old browser-side IFC loader stays only as a fallback when conversion fails, with a visible message.
+
+## M2 — Libraries and versions
+
+Portal stays on three 0.160.1 (shared with `@thatopen/components` 2.3.0 used by the Simulate 3D); GLTFLoader 0.160
+supports `KHR_mesh_quantization` and `EXT_meshopt_compression`. Decoder: `meshoptimizer` npm (MIT), served from our
+origin, because three's bundled decoder rejects vertex codec v1 (found in the spike). Encoder: same package in node at
+conversion time. No new runtime dependency besides `meshoptimizer`. All MIT/Apache/BSD.
+
+## M3 — Tiles layout
+
+Per model: overview level (largest size-per-triangle elements ≥ 1 m, up to 4 M triangles) and detail level (the rest),
+each split by discipline group × deck × 8 m slice; one draw call per tile. Positions uint16 quantised per tile, no
+normals (flat shading from derivatives), element index per vertex. Detail streamed within 24 m of the camera, 1.5 M
+triangle budget, 6 requests in flight. Tiles are content-addressed under `data/models/<sha>/` and served with
+`Cache-Control: public, max-age=31536000, immutable`; Caddy already compresses. shortcut: overview by size-per-triangle,
+not Complee's exterior-visibility sampling; upgrade if the overview shows holes from outside.
+
+## M4 — ID mapping
+
+- One `elements.json` per model: index → `[stable_id, source_id, ifc_class, name]`. Vertex attribute = index; GPU pick
+  returns the index; the viewer looks up `stable_id`.
+- `stable_id` = IFC GlobalId. For IFC input it is read from the file. For the RCRV glTF it is
+  `compress(uuid5(NS, dbid))`, the exact function `scripts/rcrv_to_ifc.py` uses, so findings on `rcrv_deck_n.ifc` and
+  the tiles agree without a lookup table. `source_id` = IFC `Tag`, or the Navisworks dbid, plus the ShipConstructor
+  PartGUID in the metadata index when present.
+- The engine never sees tiles; the viewer maps `finding.element.guid` → index. Proven by `tests/test_id_mapping.py`
+  (deck5_revB and RCRV).
+
+## M5 — Section and capping
+
+three.js clipping planes in the tile shader; caps by the stencil method (back faces increment, front faces decrement,
+then a plane quad where stencil ≠ 0) per cut, coloured by discipline or material. Section edges: CPU plane ∩ triangles
+for tiles whose box crosses the plane, in a worker. Many ShipConstructor parts are closed solids, but pipe and mesh
+objects are not guaranteed closed; where a mesh is open the cap would leak, so caps draw only for groups marked
+closed (structure, architecture) and the rest get section outlines. This is documented in `docs/VIEWER.md`. If stencil
+capping is too costly on a laptop GPU, the fallback is outlines only for all groups (spec allows it).
+
+## M6 — Ship coordinates
+
+The RCRV model has no frame grid and no deck names. Frames: metres from the aft end of the geometry with user-settable
+frame zero and spacing (stored per model in `meta.json`); deck5 uses its `frame_spacing_m` (0.8 m). Decks: RCRV levels
+from `rcrv_to_ifc.py` (plate-area peaks), deck5 from the storey.
+
+## M7 — Provenance in the finding schema (backward compatible)
+
+New optional key `provenance` on `measured`, `required` and every `formula.inputs[]` item:
+`{kind: model|derived|public|estimated|user|confirmed, file, element, pset, prop, raw, inputs, by, date}`. Missing key
+= old finding, the UI shows no chip. The existing `formula.inputs[].source` stays as it is. The engine fills it in
+`checks.py` where the value is read; the AI never writes it.
+
+## M8 — View pane placement
+
+A **View** tab next to **Findings** in the right panel, not a collapsible section: the Findings list needs the full height
+at scale (B6), and the tab keeps both one click away. Selection and cuts survive switching tabs.
+
+## M9 — Display modes on one shader
+
+All modes are uniforms/defines of the tile shader (shaded, edges via a screen-space id/depth pass, x-ray, lines,
+wireframe via `wireframe`), plus a per-element colour texture for discipline solo and colour-by. Realistic = lights +
+per-class colours, no shadows if they cost more than 2 draws per tile (cut first).
+
+## M10 — Rules on real data (B3)
+
+What the RCRV actually has (AUDIT § What the models contain): plates have thickness and grade (100 %), pipes have a
+system name and usually a material value, there are **no spaces**. Hence:
+
+- Fire & escape packs on RCRV: **Not possible** (no spaces), shown in readiness, never run.
+- R-STR-01 hull steel grade allowed set (IACS UR W11): steel plates/stiffeners with a `CS ABS <grade>` material must name
+  a W11 grade (A, B, D, E, AH/DH/EH/FH 32/36/40); aluminium is out of W11's scope (Not applicable, reason shown).
+- R-STR-02 grade vs thickness (IACS UR S6): **draft, does not run** — the table is not in the repo, and S6 applies to ships
+  ≥ 90 m (RCRV ≈ 67 m). The UI says so, like Complee's minimum thickness.
+- R-SYS-01 oil fuel pipes (SOLAS II-2/4.2.2.5.1, "steel or other approved material"): steel → Pass; other metal →
+  **Warning** (needs approval evidence), not Fail; no material value → Cannot verify. Systems: name contains FUEL OIL /
+  FO OVERFLOW.
+- R-DQ-01..03 data quality: missing grade/thickness on a plate; non-structural material on a plate (`AIR AIR`,
+  `DETA COUPLE`, dim pads); error values (`Error`, `---`).
+- `verified_against_official_text: false` for all of them: no official text in the repo. The banner shows "0 of N rule
+  values verified against official text" honestly.
+- Pipe attribute names were lost in the property export; material is found by pattern and insulation specs are
+  excluded explicitly. shortcut: pattern match, upgrade by re-extracting attribute display names from the APS database.
