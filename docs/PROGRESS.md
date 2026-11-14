@@ -11,3 +11,7 @@ One line per step: step · status · commit · gaps.
 - Step 7 · done · d81c019 · fallback match (rule + element name) is flagged "please confirm", never auto-merged; past revisions open read-only in the list, the 3D shows the file of that run; revision store is runtime data (gitignored).
 - Step 8 · done · (this commit) · pins only for findings with an evidence box; anchor height is 2 m above the footprint (engine sends 2D boxes); tinted volumes cut (plan cut-list); unlocatable card not exercised in e2e (no such finding on deck5).
 - Step 9 · done · (this commit) · demo runs on the Deck 5 demo model (not RCRV) and saves a Rev A once if missing; fps measured on software GL only (RCRV 0.1 fps orbiting), no GPU number; largest open IFC sample is 2.3 MB; lint still reports pre-existing `any` in ShipView.
+
+## Studio reliability milestone (branch fix/studio-reliability, 14 Nov)
+
+- Step 0 · done · (this commit) · diagnosis in docs/INCIDENT-2026-11-14.md: Node not on the systemd unit's PATH; Inbox/Tasks follow the newest run in the whole store; demo step 2 polls 10 min with Next disabled.
