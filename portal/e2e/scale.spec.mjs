@@ -29,7 +29,7 @@ await rp.close();
 
 const has = await page.evaluate(async () => (await fetch('/api/models/rcrv')).ok);
 if (has) {
-  await page.getByRole('tab', { name: 'Findings' }).click();
+  await page.getByRole('tab', { name: 'List' }).click();
   await page.getByRole('button', { name: 'Open model', exact: true }).click();
   await page.getByRole('button', { name: /RCRV whole ship/ }).click();
   await page.getByRole('button', { name: 'Analyse' }).click();

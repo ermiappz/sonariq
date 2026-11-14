@@ -37,7 +37,8 @@ const FRAG = /* glsl */ `
   precision highp float;
   uniform float uPass;        // 0 solid, 1 ghost, 2 pick
   uniform float uLight;       // 0 flat, 1 realistic
-  uniform vec3 uGhost;
+  uniform float uFill;        // 1 = draw the background colour (hidden-line "Lines" mode: only the edge pass shows)
+  uniform vec3 uGhost; uniform vec3 uBg;
   flat in vec4 vCol; flat in float vId; in vec3 vPos; out vec4 o;
   #include <clipping_planes_pars_fragment>
   void main() {
@@ -50,8 +51,8 @@ const FRAG = /* glsl */ `
     vec3 n = normalize(cross(dFdx(vPos), dFdy(vPos)));
     float l = 0.38 + 0.62 * abs(dot(n, normalize(vec3(0.35, 0.25, 0.9))));
     if (uLight > 0.5) l = 0.30 + 0.45 * max(dot(n, normalize(vec3(0.4, 0.3, 0.85))), 0.0) + 0.25 * (0.5 + 0.5 * n.z);
-    if (uPass == 1.0) { o = vec4(mix(uGhost, vCol.rgb, 0.25) * (0.7 + 0.3 * l), a / 255.0 * 0.6); return; }
-    o = vec4(vCol.rgb * l, 1.0);
+    if (uPass == 1.0) { if (uFill > 0.5) discard; o = vec4(mix(uGhost, vCol.rgb, 0.25) * (0.7 + 0.3 * l), a / 255.0 * 0.6); return; }
+    o = uFill > 0.5 ? vec4(uBg, 1.0) : vec4(vCol.rgb * l, 1.0);
   }`;
 
 export class ShipViewer {
@@ -75,7 +76,7 @@ export class ShipViewer {
   onChange: (() => void) | null = null;
   hovered: number | null = null;
   selected: number | null = null;
-  mode: DisplayMode = "shaded";
+  mode: DisplayMode = "edges";                    // spec default: shaded with edges
   private tiles: Tile[] = [];
   private material!: THREE.ShaderMaterial;
   private loader = new GLTFLoader();
@@ -90,8 +91,11 @@ export class ShipViewer {
   private budget = 1.5e6;
   private radius = 24;
   private hoverTimer = 0;
-  private bg = new THREE.Color("#17191c");
+  bg = new THREE.Color("#17191c");
   private ghostRgb = new THREE.Color("#8b95a1");
+  // the tile shader writes element colours as stored (sRGB bytes), so its uniforms are sRGB too
+  private bgSrgb = this.bg.clone().convertLinearToSRGB();
+  private ghostSrgb = this.ghostRgb.clone().convertLinearToSRGB();
 
   constructor(readonly host: HTMLElement, opts: { headers?: Record<string, string> } = {}) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -153,10 +157,14 @@ export class ShipViewer {
     this.tex.needsUpdate = true;
     this.material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: VERT, fragmentShader: FRAG, clipping: true, side: THREE.DoubleSide,
-      uniforms: { uElem: { value: this.tex }, uBase: { value: 0 }, uPass: { value: 0 }, uLight: { value: 0 }, uGhost: { value: this.ghostRgb } },
+      uniforms: { uElem: { value: this.tex }, uBase: { value: 0 }, uPass: { value: 0 }, uLight: { value: 0 }, uFill: { value: 0 },
+        uGhost: { value: this.ghostSrgb }, uBg: { value: this.bgSrgb } },
     });
     this.material.clippingPlanes = this.clipPlanes;
     this.tiles = index.files.map((f: TileFile) => ({ ...f, box: new THREE.Box3(new THREE.Vector3(...f.min), new THREE.Vector3(...f.max)), mesh: null, loading: null }));
+    this.disc = new Uint8Array(index.elements); this.deckOf = new Int16Array(index.elements);
+    for (const t of this.tiles) { const g = index.groups.indexOf(t.group); this.disc.fill(g, t.base, t.base + t.n); this.deckOf.fill(t.deck, t.base, t.base + t.n); }
+    this.setMode(this.mode);
     this.view("iso");
     const overview = this.tiles.filter((t) => t.lod === 0);
     let i = 0;
@@ -247,6 +255,7 @@ export class ShipViewer {
       r.render(this.scene, this.camera);
       this.material.transparent = false; this.material.depthWrite = true; this.material.uniforms.uPass.value = 0;
     }
+    if (this.edgesOn) this.renderEdges();
     if (this.overlay.children.length) {
       this.overlay.visible = true;
       const vis = this.scene.children.filter((c) => c !== this.overlay && c.visible);
@@ -256,6 +265,48 @@ export class ShipViewer {
     }
     r.autoClear = true;
     if (this.stats.firstFrame === null && r.info.render.triangles > 0) this.stats.firstFrame = performance.now() - this.t0;
+  }
+
+  // ---------------------------------------------------------------- edges: element ids at full resolution, a line
+  // wherever neighbouring pixels belong to different elements (or to nothing). Clipping applies, so cuts keep their edges.
+  private idTarget = new THREE.WebGLRenderTarget(1, 1, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  private edgeCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  private edgeMat = new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3, transparent: true, depthTest: false, depthWrite: false,
+    uniforms: { uId: { value: null as THREE.Texture | null }, uPx: { value: new THREE.Vector2() }, uColor: { value: new THREE.Vector4(0, 0, 0, 0.55) } },
+    vertexShader: "out vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
+    fragmentShader: `precision highp float; uniform sampler2D uId; uniform vec2 uPx; uniform vec4 uColor; in vec2 vUv; out vec4 o;
+      void main() {
+        vec4 c = texture(uId, vUv);
+        float e = 0.0;
+        e += float(texture(uId, vUv + vec2(uPx.x, 0.0)) != c);
+        e += float(texture(uId, vUv + vec2(0.0, uPx.y)) != c);
+        e += float(texture(uId, vUv - vec2(uPx.x, 0.0)) != c);
+        e += float(texture(uId, vUv - vec2(0.0, uPx.y)) != c);
+        if (e < 0.5) discard;
+        o = vec4(uColor.rgb, uColor.a * min(1.0, e * 0.5));
+      }`,
+  });
+  private edgeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.edgeMat);
+  private edgeScene = new THREE.Scene().add(this.edgeQuad);
+  edgeColor = new THREE.Vector4(0, 0, 0, 0.55);
+  private inkSrgb = new THREE.Color("#c9ccd2").convertLinearToSRGB();
+
+  private renderEdges() {
+    const r = this.renderer, w = r.domElement.width, h = r.domElement.height;
+    if (this.idTarget.width !== w || this.idTarget.height !== h) this.idTarget.setSize(w, h);
+    const vis = this.overlay.visible; this.overlay.visible = false;
+    this.material.uniforms.uPass.value = 2;
+    r.setRenderTarget(this.idTarget); r.setClearColor(0, 0); r.clear(); r.render(this.scene, this.camera);
+    r.setRenderTarget(null); this.material.uniforms.uPass.value = 0; this.overlay.visible = vis;
+    r.setClearColor(this.bg, 1);
+    this.edgeMat.uniforms.uId.value = this.idTarget.texture;
+    this.edgeMat.uniforms.uPx.value.set(1 / w, 1 / h);
+    // outlines on shaded faces: soft dark; Lines / X-ray: the theme's ink so they read on the background
+    const ink = this.mode === "lines" ? 0.85 : this.mode === "xray" ? 0.5 : 0;
+    if (ink) this.edgeMat.uniforms.uColor.value.set(this.inkSrgb.r, this.inkSrgb.g, this.inkSrgb.b, ink);
+    else this.edgeMat.uniforms.uColor.value.copy(this.edgeColor);
+    r.autoClear = false; r.render(this.edgeScene, this.edgeCam);
   }
 
   private hasGhosts = false;
@@ -297,53 +348,72 @@ export class ShipViewer {
     }
     return out;
   }
-  setColor(i: number, rgb: [number, number, number]) { this.state.set(rgb, i * 4); }
-  setAlpha(i: number, a: number) { this.state[i * 4 + 3] = a; }
-  resetElement(i: number) { this.state.set(this.base.subarray(i * 4, i * 4 + 4), i * 4); }
-  resetAll() { if (!this.index) return; this.state.set(this.base); this.commit(); }
   isShown(i: number) { return this.state[i * 4 + 3] > 0; }
 
-  private hlSaved: [number, Uint8Array] | null = null;
+  // Element look is composed from explicit state, so modes, solo, colour-by, finding focus, hide and selection combine.
+  // alpha: 0 hidden · GHOST x-ray · 255 solid.  rgb: finding paint > colour-by > model colour; selection / hover on top.
+  disc: Uint8Array = new Uint8Array(0);             // discipline index per element (index.groups)
+  deckOf: Int16Array = new Int16Array(0);
+  paint = new Map<number, [number, number, number]>();
+  focus: { ids: Set<number>; rest: "ghost" | "hide" } | null = null;
+  userHidden = new Set<number>();
+  discOff = new Set<number>();
+  solo: number | null = null;
+  colourBy: { kind: "model" | "discipline" | "values"; rgb?: Map<number, [number, number, number]> | ((i: number) => [number, number, number] | null) } = { kind: "model" };
+  discRgb: [number, number, number][] = [];
+
+  compose() {
+    if (!this.index) return;
+    const n = this.index.elements, st = this.state, base = this.base, xray = this.mode === "xray";
+    const by = this.colourBy;
+    for (let i = 0; i < n; i++) {
+      const o = i * 4;
+      let a: number;
+      if (base[o + 3] === 0 && !(this.focus?.ids.has(i))) a = 0;                 // spaces: shown only when focused
+      else if (this.userHidden.has(i) || this.discOff.has(this.disc[i])) a = 0;
+      else if (this.focus) a = this.focus.ids.has(i) ? 255 : this.focus.rest === "hide" ? 0 : GHOST;
+      else if (this.solo !== null) a = this.disc[i] === this.solo ? 255 : GHOST;
+      else a = xray ? GHOST : 255;
+      const p = this.paint.get(i);
+      let c: ArrayLike<number> | null = p ?? null;
+      if (!c && by.kind === "discipline") c = this.discRgb[this.disc[i]] ?? null;
+      else if (!c && by.kind === "values" && by.rgb) c = typeof by.rgb === "function" ? by.rgb(i) : by.rgb.get(i) ?? null;
+      if (c) { st[o] = c[0]; st[o + 1] = c[1]; st[o + 2] = c[2]; } else { st[o] = base[o]; st[o + 1] = base[o + 1]; st[o + 2] = base[o + 2]; }
+      st[o + 3] = a;
+    }
+    if (this.selected !== null) st.set([255, 210, 90], this.selected * 4);
+    if (this.hovered !== null && this.hovered !== this.selected) {
+      const o = this.hovered * 4; st[o] = Math.min(255, st[o] + 60); st[o + 1] = Math.min(255, st[o + 1] + 60); st[o + 2] = Math.min(255, st[o + 2] + 80);
+    }
+    this.commit();
+  }
+
   private hover(i: number | null) {
     if (i === this.hovered) return;
-    if (this.hlSaved) { this.state.set(this.hlSaved[1], this.hlSaved[0] * 4); this.hlSaved = null; }
     this.hovered = i;
-    if (i !== null && i !== this.selected) {
-      this.hlSaved = [i, this.state.slice(i * 4, i * 4 + 4)];
-      const c = this.hlSaved[1];
-      this.state.set([Math.min(255, c[0] + 60), Math.min(255, c[1] + 60), Math.min(255, c[2] + 80)], i * 4);
-    }
-    this.tex.needsUpdate = true; this.dirty = true;
+    this.compose();
     this.renderer.domElement.style.cursor = i === null ? "" : "pointer";
     this.onHover?.(i);
   }
-
-  private selSaved: [number, Uint8Array] | null = null;
-  select(i: number | null) {
-    if (this.hlSaved) { this.state.set(this.hlSaved[1], this.hlSaved[0] * 4); this.hlSaved = null; this.hovered = null; }
-    if (this.selSaved) { this.state.set(this.selSaved[1], this.selSaved[0] * 4); this.selSaved = null; }
-    this.selected = i;
-    if (i !== null) { this.selSaved = [i, this.state.slice(i * 4, i * 4 + 4)]; this.state.set([255, 210, 90, 255], i * 4); }
-    this.commit();
-  }
-
-  /** solid = these, everything else ghosted (x-ray) or hidden */
-  isolate(ids: number[], rest: "ghost" | "hide" = "hide") {
-    if (!this.index) return;
-    const keep = new Set(ids);
-    for (let i = 0; i < this.index.elements; i++) {
-      if (keep.has(i)) { if (this.state[i * 4 + 3] === 0) this.state[i * 4 + 3] = 255; continue; }
-      if (this.base[i * 4 + 3] === 0) continue;                  // spaces stay hidden
-      this.state[i * 4 + 3] = rest === "hide" ? 0 : GHOST;
+  select(i: number | null) { this.selected = i; this.hovered = null; this.compose(); }
+  setPaint(p: Map<number, [number, number, number]>) { this.paint = p; this.compose(); }
+  /** solid = these, everything else ghosted (x-ray) or hidden; null clears */
+  isolate(ids: number[] | null, rest: "ghost" | "hide" = "hide") { this.focus = ids ? { ids: new Set(ids), rest } : null; this.compose(); }
+  hide(ids: number[]) { ids.forEach((i) => this.userHidden.add(i)); this.compose(); }
+  showAll() { this.focus = null; this.userHidden.clear(); this.compose(); }
+  setDiscipline(d: number, visible: boolean) { if (visible) this.discOff.delete(d); else this.discOff.add(d); this.compose(); }
+  setSolo(d: number | null) { this.solo = d; this.compose(); }
+  setColourBy(c: ShipViewer["colourBy"]) { this.colourBy = c; this.compose(); }
+  setMode(m: DisplayMode) {
+    this.mode = m;
+    if (this.material) {
+      this.material.wireframe = m === "wireframe";
+      this.material.uniforms.uLight.value = m === "realistic" ? 1 : 0;
+      this.material.uniforms.uFill.value = m === "lines" ? 1 : 0;
     }
-    this.commit();
+    this.compose();
   }
-  hide(ids: number[]) { for (const i of ids) this.state[i * 4 + 3] = 0; this.commit(); }
-  showAll() {
-    if (!this.index) return;
-    for (let i = 0; i < this.index.elements; i++) this.state[i * 4 + 3] = this.base[i * 4 + 3];
-    this.commit();
-  }
+  get edgesOn() { return this.mode === "edges" || this.mode === "lines" || this.mode === "xray"; }
 
   // ---------------------------------------------------------------- camera
   boxOf(ids: number[]): THREE.Box3 {
@@ -411,7 +481,11 @@ export class ShipViewer {
     return decks.map((d, k) => ({ deck: d, z: floor(d), top: k + 1 < decks.length ? floor(decks[k + 1]) - 0.05 : this.index.box[1][2] }));
   }
 
-  setTheme(bg: string, ghost: string) { this.bg.set(bg); this.ghostRgb.set(ghost); this.dirty = true; }
+  setTheme(bg: string, ghost: string, edge?: [number, number, number, number], ink?: string) {
+    if (ink) this.inkSrgb.set(ink).convertLinearToSRGB();
+    this.bg.set(bg); this.ghostRgb.set(ghost); if (edge) this.edgeColor.set(...edge);
+    this.bgSrgb.copy(this.bg).convertLinearToSRGB(); this.ghostSrgb.copy(this.ghostRgb).convertLinearToSRGB(); this.dirty = true;
+  }
   setLight(realistic: boolean) { if (!this.material) return; this.material.uniforms.uLight.value = realistic ? 1 : 0; this.dirty = true; }
   invalidate() { this.dirty = true; }
 
@@ -429,7 +503,7 @@ export class ShipViewer {
     this.ro.disconnect();
     this.controls.dispose();
     for (const t of this.tiles) if (t.mesh) t.mesh.geometry.dispose();
-    this.tex?.dispose(); this.material?.dispose(); this.pickTarget.dispose();
+    this.tex?.dispose(); this.material?.dispose(); this.pickTarget.dispose(); this.idTarget.dispose(); this.edgeMat.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

@@ -87,7 +87,7 @@ if (has) {
   await page.getByRole('button', { name: 'Iso', exact: true }).click();
   await page.selectOption('.ship-deck select', '3');
   await page.waitForTimeout(1500);
-  const drawn = await page.evaluate(() => { const v = window.__sqViewer; v.render(); return v.renderer.info.render.triangles; });
+  const drawn = await page.evaluate(() => { const v = window.__sqViewer, m = v.mode; v.setMode('shaded'); v.render(); const t = v.renderer.info.render.triangles; v.setMode(m); return t; });   // edge pass off: its 2-triangle quad would reset the counter
   check('deck selector cuts above deck 3 and still draws the decks below', drawn > 100000, `${drawn} triangles drawn`);
   await shot(page, 'm2-06-rcrv-deck3.png');
 }

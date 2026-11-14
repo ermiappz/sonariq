@@ -178,6 +178,17 @@ def model_element(mid: str, index: int):
     return meta[index]
 
 
+COLUMNS = {"fire_rating", "swbs", "deck", "discipline", "material", "grade", "system"}
+
+
+@router.get("/models/{mid}/column/{field}")
+def model_column(mid: str, field: str):
+    """One metadata field for every element, in tile order (View pane: colour by fire class, SWBS ...)."""
+    if not _ID.match(mid) or field not in COLUMNS:
+        raise HTTPException(404, "no such column")
+    return [m.get(field) for m in _meta(mid)]
+
+
 @router.get("/models/{mid}/files/{path:path}")
 def model_file(mid: str, path: str):
     if not _ID.match(mid) or not _FILE.match(path):

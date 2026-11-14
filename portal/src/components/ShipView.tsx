@@ -41,9 +41,9 @@ export function overlaySpec(c: Check): { z: number; lines: Line[]; title: string
 const ISO = new THREE.Vector3(-0.55, -0.75, 0.42);
 const VIEWS: [ViewName, string][] = [["iso", "Iso"], ["top", "Top"], ["port", "Port"], ["starboard", "Stbd"], ["bow", "Bow"], ["stern", "Stern"]];
 
-export default function ShipView({ src, findings, apiRef, onSelectElement }: {
+export default function ShipView({ src, findings, apiRef, onSelectElement, onViewer }: {
   src: ModelSrc; findings: Check[] | null; apiRef: React.MutableRefObject<View | null>;
-  onSelectElement?: (guid: string | null) => void;
+  onSelectElement?: (guid: string | null) => void; onViewer?: (v: ShipViewer | null, modelId: string | null) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const vref = useRef<ShipViewer | null>(null);
@@ -66,7 +66,7 @@ export default function ShipView({ src, findings, apiRef, onSelectElement }: {
     vref.current = v;
     (window as any).__sqViewer = v;            // e2e checks (portal/e2e) read stats and pick through this handle
     const css = getComputedStyle(host.current);
-    v.setTheme(css.getPropertyValue("--plan-bg").trim() || "#17191c", "#8b95a1");
+    v.setTheme(css.getPropertyValue("--plan-bg").trim() || "#17191c", "#8b95a1", undefined, css.getPropertyValue("--fd-ink").trim() || "#c9ccd2");
     let extras: THREE.Object3D[] = [];
     let labelPts: { text: string; v: THREE.Vector3; dashed: boolean }[] = [];
     let painted: { i: number; rgb: [number, number, number] }[] = [];
@@ -89,11 +89,7 @@ export default function ShipView({ src, findings, apiRef, onSelectElement }: {
       extras.forEach((o) => { o.parent?.remove(o); (o as any).geometry?.dispose?.(); }); extras = [];
       labelPts = []; focusBox = null; v.currentFocusBox = null; setLegend(null); setLabels([]);
     };
-    const restorePaint = () => {
-      v.resetAll();
-      for (const p of painted) { v.setColor(p.i, p.rgb); v.setAlpha(p.i, 255); }
-      v.commit();
-    };
+    const restorePaint = () => { v.focus = null; v.setPaint(new Map(painted.map((p) => [p.i, p.rgb]))); };
     // zoom to a finding keeps the isometric angle and leaves room for the neighbouring rooms (2.2 x radius, at least 7 m)
     const fit = (b: THREE.Box3) => { const r = b.getBoundingSphere(new THREE.Sphere()).radius; v.fit(b, ISO, Math.max(r * 2.2, 7)); };
     const home = () => { v.currentFocusBox = null; v.view("iso"); };
@@ -108,11 +104,9 @@ export default function ShipView({ src, findings, apiRef, onSelectElement }: {
       const rgb = STATUS_RGB[c.status] ?? [227, 146, 200];
       const color = hex(rgb);
       const box = new THREE.Box3();
-      restorePaint();
       v.loadElements(ids);
+      v.paint = new Map([...painted.map((p) => [p.i, p.rgb] as const), ...ids.map((i) => [i, rgb] as const)]);
       v.isolate(ids, "ghost");
-      for (const i of ids) { v.setColor(i, rgb); v.setAlpha(i, 255); }
-      v.commit();
       const ev = c.evidence;
       if (ev?.bbox && ev.z != null) {
         const [x0, y0, x1, y1] = ev.bbox, z = ev.z + 0.05;
@@ -184,12 +178,18 @@ export default function ShipView({ src, findings, apiRef, onSelectElement }: {
         setSummary(st.summary); setState("loading"); setMsg("Loading the ship");
         await v.load(`${API}/models/${modelId}/files/`, HDR);
         if (disposed) return;
+        // discipline colours from the design tokens (--disc-*), colour by discipline by default (spec A4)
+        const tok = getComputedStyle(host.current!);
+        const c = new THREE.Color();
+        v.discRgb = v.index.groups.map((g) => { c.set(tok.getPropertyValue(`--disc-${g}`).trim() || "#9a9da3"); return [Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255)]; });
+        v.setColourBy({ kind: "discipline" });
+        onViewer?.(v, modelId);
         setDecks(v.deckLevels());
         timer = window.setInterval(() => { if (labelPts.length) update(); }, 250);
         setState("ready");
       } catch (e) { if (!disposed) { setMsg(String((e as Error).message ?? e)); setState("error"); } }
     })();
-    return () => { disposed = true; apiRef.current = null; vref.current = null; window.clearInterval(timer); v.dispose(); setProps(null); setDeck(null); };
+    return () => { disposed = true; apiRef.current = null; vref.current = null; window.clearInterval(timer); v.dispose(); setProps(null); setDeck(null); onViewer?.(null, null); };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fkey = (findings ?? []).map((c) => c.check_key + c.status).join("|");

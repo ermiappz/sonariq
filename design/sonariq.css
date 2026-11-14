@@ -45,6 +45,9 @@
   /* brand v1 (13-Brand.pdf): logo ink + chart blue; the status palette is unchanged */
   --brand-ink: #e9eaed; --brand-blue: #5c9dff; --brand-bg: #0d0e11;
   --fc-bg: #2b2b2b; --fc-bar: #323232; --fc-line: #1e1e1e; --fc-fg: #d4d4d4; --fc-fg-2: #a8a8a8; --fc-sel: #3d6aa8; --fc-view: #3a3d42; --fc-view-2: #25272b;
+  /* 3D disciplines (whole-ship viewer: colour by discipline, View pane). Added 14 Nov 2026 for the viewer milestone. */
+  --disc-structure: #8fa3bf; --disc-architecture: #d6c7a8; --disc-hvac: #3fd0e6; --disc-piping: #c4e35c;
+  --disc-electrical: #82dd8a; --disc-fire: #e27dff; --disc-equipment: #a3a3ff; --disc-other: #9a9da3;
   color-scheme: dark;
 }
 
@@ -62,6 +65,8 @@
   --st-dor:  #5b616b; --st-na: #5b616b;
   --brand-ink: #15171b; --brand-blue: #1f5fd1; --brand-bg: #ffffff;
   --fd-ink: #2b2f36; --plan-bg: #f7f8fa; --plan-space: #ffffff; --plan-new: rgba(158,63,122,.08);
+  --disc-structure: #6e83a3; --disc-architecture: #b9a582; --disc-hvac: #1aa9c0; --disc-piping: #8fae22;
+  --disc-electrical: #3fa84a; --disc-fire: #b54fd6; --disc-equipment: #6f6fe0; --disc-other: #8a8d93;
   color-scheme: light;
 }
 

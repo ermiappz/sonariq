@@ -84,3 +84,17 @@ Proof: `tests/test_pipeline.py` (every finding of Rev B, every product GlobalId 
 - `TraceMatrix.tsx`: parts × rules on a canvas (visible window only), worst parts first; click a cell to select.
 - `GET /runs/<id>/csv`: one row per check incl. compact passes, with source kinds; `#print/<run id>`: printable report
   (light theme) with banner, readiness, counts per rule, findings with sources. BCF export unchanged.
+
+## Display modes and View pane (step 5)
+
+- A **View** tab next to **Findings** (DECISIONS M8): display mode, disciplines, colour by.
+- Modes (one tile shader + one screen-space pass): **Shaded**; **Shaded + edges** (default: element outlines from a
+  full-resolution id buffer, a line wherever neighbouring pixels belong to different elements); **Realistic** (softer
+  top light; no shadows: cut first); **X-ray** (everything ghosted, outlines in the theme ink); **Lines** (faces filled
+  with the background, so only visible outlines remain: hidden lines removed); **Wireframe**.
+- Element look is composed from explicit state (`ShipViewer.compose`): user-hidden, discipline off, focus, solo,
+  x-ray, then colour = finding paint > colour-by > model colour, with selection and hover on top. So modes, solo,
+  colour-by and a focused finding combine, and the clip planes apply to every pass (cuts keep their edges).
+- Disciplines: 8 colour tokens `--disc-*` in `design/sonariq.css` (dark and light), show / hide / **solo** (solid,
+  the rest x-ray). Colour by discipline (default), model colours, fire class of boundaries, finding status, deck, SWBS
+  group (`GET /models/<id>/column/<field>` serves one metadata column).

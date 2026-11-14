@@ -7,6 +7,8 @@ import ShipView, { type ModelSrc, type View } from "../components/ShipView";
 import { AccuracyBanner, NotRun, ReadinessCard, SourceChips } from "../components/Evidence";
 import FindingsList from "../components/FindingsList";
 import TraceMatrix from "../components/TraceMatrix";
+import ViewPane from "../components/ViewPane";
+import type { ShipViewer } from "../viewer/ShipViewer";
 import { Pill } from "../components/ui";
 import { DISC } from "./Board";
 import { valueLine } from "./Inbox";
@@ -46,6 +48,8 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   const [why, setWhy] = useState<{ key: string; text: string } | null>(null);
   const [setup, setSetup] = useState(true);
   const [listMode, setListMode] = useState<"list" | "matrix">("list");
+  const [tab, setTab] = useState<"findings" | "view">("findings");
+  const [viewer, setViewer] = useState<{ v: ShipViewer | null; id: string | null }>({ v: null, id: null });
   const [incorrect, reloadInc] = useIncorrect();
   const view = useRef<View | null>(null);
   const fileIn = useRef<HTMLInputElement>(null);
@@ -145,7 +149,7 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
   return (
     <div className="studio">
       <div className="studio-left">
-        <ShipView src={viewSrc.src} findings={painted} apiRef={view} />
+        <ShipView src={viewSrc.src} findings={painted} apiRef={view} onViewer={(v, id) => setViewer({ v, id })} />
       </div>
       <aside className="studio-panel">
         <header className="studio-head">
@@ -156,6 +160,10 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
           <button className="sq-btn is-primary" disabled={busy || (!target && !shown) || !packs.length} title={!target && !shown ? "Open an IFC model to analyse" : ""} onClick={analyse}>{busy ? "Analysing…" : "Analyse"}</button>
           {shown && !target && <button className="sq-btn" onClick={() => { location.hash = `#inbox/${shown.meta.id}`; }}>Export</button>}
         </header>
+        <div className="sq-seg studio-tabs" role="tablist" aria-label="Panel">
+          {(["findings", "view"] as const).map((k) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => setTab(k)}>{k === "findings" ? "Findings" : "View"}</button>)}
+        </div>
+        {tab === "view" ? <ViewPane v={viewer.v} modelId={viewer.id} /> : <>
         {shown && !target && <div className="sq-faint" style={{ fontSize: 12, textAlign: "right", padding: "0 12px 6px" }}>All findings are exported except those marked incorrect.</div>}
         {msg && <div className="sq-banner" style={{ margin: "0 12px 8px" }}>{msg}</div>}
         {!setup && shown && (
@@ -214,13 +222,14 @@ export default function Studio({ latest, run, onOpenFinding }: { latest: (RunMet
               ))}
             </div>
             <div className="sq-seg studio-mode" role="tablist" aria-label="Findings view">
-              {(["list", "matrix"] as const).map((k) => <button key={k} role="tab" aria-selected={listMode === k} className={listMode === k ? "is-on" : ""} onClick={() => setListMode(k)}>{k === "list" ? "Findings" : "Traceability"}</button>)}
+              {(["list", "matrix"] as const).map((k) => <button key={k} role="tab" aria-selected={listMode === k} className={listMode === k ? "is-on" : ""} onClick={() => setListMode(k)}>{k === "list" ? "List" : "Traceability"}</button>)}
             </div>
             {listMode === "list"
               ? <FindingsList run={shown.run} status={status} selected={sel} onPick={pick} renderCard={renderCard} incorrect={incorrect} />
               : <TraceMatrix run={shown.run} selected={sel} onPick={pick} />}
           </>
         )}
+        </>}
       </aside>
     </div>
   );
