@@ -1,5 +1,5 @@
-// Revision timeline in the Studio (spec B11): every model's revisions, oldest first. Export saves a revision; a saved
-// revision never changes except its label. Open shows a saved revision read-only; tick two to compare (engine diff).
+// Revision timeline in the Studio (spec B11): the open model's revisions, oldest first. Export saves a revision; a saved
+// revision never changes except its label. Open switches to that revision (saved ones read-only); tick two to compare.
 import { useEffect, useState } from "react";
 import { api, download, useIncorrect, type RevCompare, type RevModel, type Revision } from "../api";
 import { Row, Stat } from "../screens/Revisions";
@@ -7,15 +7,13 @@ import { Row, Stat } from "../screens/Revisions";
 const when = (s: string) => s.replace("T", " ").slice(0, 16);
 
 /** `pick`: revision ids to tick (the demo run-through compares two revisions this way) */
-export default function RevisionTimeline({ current, onOpen, pick }: { current: string | null; onOpen: (r: Revision) => void; pick?: number[] }) {
-  const [models, setModels] = useState<RevModel[] | null>(null);
+export default function RevisionTimeline({ models, current, onOpen, pick }: { models: RevModel[]; current: number | null; onOpen: (r: Revision) => void; pick?: number[] }) {
   const [sel, setSel] = useState<number[]>([]);
   const [cmp, setCmp] = useState<RevCompare | null>(null);
   const [edit, setEdit] = useState<{ id: number; text: string } | null>(null);
   const [err, setErr] = useState("");
   const [inc] = useIncorrect();
-  const load = () => api.revisions().then((r) => setModels(r.models)).catch((e) => setErr(String(e)));
-  useEffect(() => { load(); }, [current]); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = () => {};   // the models come from the open project (App polls it)
   useEffect(() => { if (pick?.length) setSel(pick.slice(-2)); }, [pick?.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     setCmp(null);
@@ -32,31 +30,30 @@ export default function RevisionTimeline({ current, onOpen, pick }: { current: s
   };
   const toggle = (id: number) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id].slice(-2)));
 
-  if (models === null) return <p className="sq-muted" style={{ padding: 12 }}>{err || "Loading revisions…"}</p>;
   return (
     <div className="rtl">
       {err && <div className="sq-banner">{err}</div>}
-      {!models.length && <p className="sq-muted">No revisions yet. Analyse a model: the run becomes its draft revision, and Export (BCF, report or CSV) saves it as Rev A.</p>}
+      {!models.length && <p className="sq-muted">Open a model to see its revisions. Analyse fills a draft revision; Save or Export (BCF, report or CSV) keeps it as it is.</p>}
       {models.map((m) => (
         <section key={m.id} aria-label={`Revisions of ${m.name}`} className="flex flex-col gap-2">
           <div className="sq-label">{m.name} · {m.revisions.filter((r) => r.state === "saved").length} saved</div>
           {m.revisions.map((r) => {
             const c = r.counts ?? {};
             return (
-              <div key={r.id} className={`rtl-row${r.run_id === current ? " is-on" : ""}${r.state === "draft" ? " is-draft" : ""}`} data-rev={r.label}>
+              <div key={r.id} className={`rtl-row${r.id === current ? " is-on" : ""}${r.state === "draft" ? " is-draft" : ""}`} data-rev={r.label}>
                 <input type="checkbox" aria-label={`Compare ${r.label}`} checked={sel.includes(r.id)} onChange={() => toggle(r.id)} />
                 {edit?.id === r.id
                   ? <input className="sq-input" autoFocus maxLength={60} aria-label="Revision label" value={edit.text} onChange={(e) => setEdit({ id: r.id, text: e.target.value })}
                       onBlur={rename} onKeyDown={(e) => { if (e.key === "Enter") rename(); if (e.key === "Escape") setEdit(null); }} />
                   : <button className="rtl-label" title="Rename" onClick={() => setEdit({ id: r.id, text: r.label })}>{r.label}</button>}
                 <span className="flex gap-1">
-                  {r.state === "saved" && <button className="sq-btn is-sm" onClick={() => onOpen(r)} aria-label={`Open ${r.label} read-only`}>Open</button>}
+                  {r.id !== current && <button className="sq-btn is-sm" onClick={() => onOpen(r)} aria-label={`Open ${r.label}${r.state === "saved" ? " read-only" : ""}`}>Open</button>}
                   {r.state === "saved" && <button className="sq-btn is-sm" aria-label={`Download ${r.label} bundle`}
                     onClick={() => download(`/revisions/${r.id}/bundle`, `sonariq_${r.label.replace(/[^A-Za-z0-9_-]+/g, "_")}_bundle.zip`).catch((e) => setErr(String(e)))}>Bundle</button>}
                 </span>
                 <span className="rtl-meta mono sq-faint">
-                  {r.state === "saved" ? `Saved ${when(r.saved_at!)}` : "Draft · latest analysis, saved on Export"} · {r.file ?? ""}<br />
-                  <span className="rtl-counts">{c.fail ?? 0} fail · {c.pass ?? 0} pass · {c.unk ?? 0} cannot verify</span>
+                  {r.state === "saved" ? `Saved ${when(r.saved_at!)}` : r.run_id ? "Draft · latest analysis, saved on Export" : "Not analysed yet"} · {r.file ?? ""}<br />
+                  <span className="rtl-counts">{r.counts ? `${c.fail ?? 0} fail · ${c.pass ?? 0} pass · ${c.unk ?? 0} cannot verify` : "—"}</span>
                 </span>
               </div>
             );

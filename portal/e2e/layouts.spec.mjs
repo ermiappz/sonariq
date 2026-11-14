@@ -1,7 +1,7 @@
 // Step 9.3: Studio with a finding callout at 1280 / 1440 / 1920 wide, dark and light theme: no horizontal page
 // scroll, the callout inside the 3D, the 3D background follows the theme; keyboard: Tab reaches the view tools with
 // a visible focus ring, arrow keys in the findings list open a callout.
-import { browser, check, shot, done, BASE } from './lib.mjs';
+import { browser, check, shot, done, BASE, openModel } from './lib.mjs';
 
 for (const width of [1280, 1440, 1920]) {
   for (const theme of ['dark', 'light']) {
@@ -10,8 +10,7 @@ for (const width of [1280, 1440, 1920]) {
     await page.goto(BASE + '#model');
     await page.waitForLoadState('networkidle'); await page.waitForTimeout(1500);
     // later passes: the Studio opens the previous pass's run and closes the model list
-    if (!(await page.getByRole('button', { name: /deck5_revB\.ifc/ }).isVisible())) await page.getByRole('button', { name: 'Open model', exact: true }).click();
-    await page.getByRole('button', { name: /deck5_revB\.ifc/ }).click();
+    await openModel(page, 'Deck 5', 'Rev B');
     await page.waitForFunction(() => window.__sqViewer?.stats.firstFrame != null, null, { timeout: 300000 });
     await page.getByRole('button', { name: 'Analyse' }).click();
     await page.locator('.fl-row', { hasText: 'F-07' }).first().waitFor({ timeout: 60000 });

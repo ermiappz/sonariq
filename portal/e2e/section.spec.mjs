@@ -1,7 +1,7 @@
 // Step 6: section blade with capping. Position (readout, arrows, slider, field), Cut (near side removed, camera faces
 // the cut, caps on closed groups, section edges), Flip, Section view, Clear, three cuts, modes with cuts, Section at
 // finding, named views. deck5_revB, then the whole RCRV (skipped when the engine does not have it).
-import { browser, check, shot, done, BASE } from './lib.mjs';
+import { browser, check, shot, done, BASE, openModel } from './lib.mjs';
 
 const ready = (page) => page.waitForFunction(() => window.__sqViewer?.stats.overviewMs != null && window.__sqViewer.stats.firstFrame != null, null, { timeout: 300000 });
 const idle = (page, ms = 900) => page.waitForTimeout(ms);
@@ -61,7 +61,7 @@ const only = process.env.E2E_ONLY;     // deck5 | rcrv: run one half while itera
 if (only !== 'rcrv') {
   const { b, page, errors } = await browser();
   await page.goto(BASE + '#model');
-  await page.getByRole('button', { name: /deck5_revB\.ifc/ }).click();
+  await openModel(page, 'Deck 5', 'Rev B');
   await ready(page);
   await blade(page, 'deck5');
   await shot(page, 'm6-01-deck5-blade.png');
@@ -152,8 +152,7 @@ if (only !== 'deck5') {
     console.log('skip RCRV: not on this engine (data/rcrv is not in git)');
   } else {
     await page.waitForLoadState('networkidle'); await idle(page, 1500);
-    if (!(await page.getByRole('button', { name: /RCRV whole ship/ }).isVisible())) await page.getByRole('button', { name: 'Open model', exact: true }).click();
-    await page.getByRole('button', { name: /RCRV whole ship/ }).click();
+    await openModel(page, 'RCRV whole ship');
     await ready(page);
     await blade(page, 'RCRV');
     await shot(page, 'm6-08-rcrv-blade.png');

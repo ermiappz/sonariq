@@ -26,3 +26,17 @@ export function check(name, ok, detail = '') {
 }
 export async function shot(page, name) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, name), timeout: 120000 }); }
 export function done() { const f = results.filter((r) => !r.ok); if (f.length) { console.log(`${f.length} failed`); process.exit(1); } }
+
+/** Studio: open a model of the current project from the "Open model" list, then (optionally) one of its revisions
+ *  from the header's Revision menu. The model list opens the model's latest revision. */
+export async function openModel(page, model, rev) {
+  const list = page.getByRole('list', { name: 'Models in this project' });
+  if (!(await list.isVisible())) await page.getByRole('button', { name: 'Open model', exact: true }).click();
+  await list.getByRole('listitem').filter({ hasText: model }).first().click({ timeout: 60000 });
+  if (rev) {
+    const sel = page.locator('select[aria-label="Revision"]');
+    await page.waitForFunction((r) => [...document.querySelectorAll('select[aria-label="Revision"] option')].some((o) => o.textContent.startsWith(r + ' ')), rev, { timeout: 30000 });
+    const v = await sel.evaluate((s, r) => [...s.options].find((o) => o.textContent.startsWith(r + ' '))?.value, rev);
+    if ((await sel.inputValue()) !== v) await sel.selectOption(v);
+  }
+}

@@ -214,3 +214,51 @@ system name and usually a material value, there are **no spaces**. Hence:
 
 The spec says "open a PR, do not merge". The user asked on 14 Nov to finish steps 8–9, merge to main and push, then
 review it themselves. Merged with `--no-ff` so the milestone stays one reviewable merge; nothing was deployed.
+
+## M15 — Projects → models → revisions (Studio reliability, 14 Nov)
+
+Reconciled with step 7 (B11, M11). Differences from step 7, all deliberate:
+
+- **Project level added.** `projects` table; every model has a `project_id`. The header's Project menu lists, creates
+  and renames projects. Projects are never deleted from the UI. Demo run-through projects are the exception (M17).
+- **A revision is one file version** (`source`: `demo:A|B|Bfix2`, `rcrv`, `path:<file>`) plus its analysis state. It can
+  exist before any analysis (`run_id` NULL). Step 7 created a revision only on Analyse and kept one draft per model,
+  which any file replaced. Now:
+  - analysing a draft replaces its run;
+  - analysing a saved revision opens a new draft of the same file (`Rev <letter of seq>`), which starts with that
+    revision's marks and tasks;
+  - an FreeCAD-panel run without a revision goes to the draft that read the same file, else to a new draft. The panel
+    never names a revision; its runs go to the shared "Demo ship" project.
+- **Scoped state:**
+  - marks, tasks and saved views are kept per revision (`{"<revision id>": {...}}`). In step 7 they were global by
+    check key, which is why Inbox (7) and Tasks leaked between models.
+  - a saved revision's marks and tasks come from its snapshot, which now also stores tasks, and they cannot be changed:
+    writes get 409 with "Analyse it again to start a new draft". Step 7 let marks change after an export because they
+    were global.
+  - requests without `revision_id` (the FreeCAD panel) use the revision of the engine's latest Analyse.
+- **Migration** (on first open of a step 7 store): the old index is archived (`data/archive/<ts>-projects/`), as are
+  the Deck 5 demo / RCRV snapshot folders. These were all made by demo runs and tests, so nothing is deleted. Any other
+  model keeps its revisions (same ids and folders) in a project "Earlier uploads". "Demo ship" is then seeded:
+  - Deck 5: Rev A, Rev B, Fix 2;
+  - RCRV whole ship: Rev 1, if `data/rcrv` exists;
+  - nothing analysed.
+
+  Old global `tasks.json` / `incorrect.json` are archived (`<ts>-unscoped/`) on first read; there's no revision to
+  give them to. Reset all data re-seeds the same way.
+- **Revision menu** in the header: revisions of the open model, newest first, with fail / pass / cannot-verify counts
+  ("not analysed" before the first run). It replaces step 7's "Open read-only / Back to current". Opening a saved
+  revision is the same as switching to it, and the Studio shows it read-only. The Studio's Revisions tab shows only
+  the open model.
+- **Open model** lists the project's models; picking one opens its latest revision. Upload asks "New model in this
+  project" or "New revision of <model>" right after the upload, and creates the revision before analysis. Step 7 asked
+  in a "Save as" select at Analyse time.
+- **Clear all** replaces the Studio's Close button, which was the model-list toggle (the toggle is now always "Open
+  model"). "Save and clear" uses the step 7 save (POST /revisions/export, format report). Clearing closes the model in
+  this browser only and deletes nothing.
+- **Reset all data** moved from the sidebar into Settings → Danger zone and needs RESET typed.
+- **Not scoped yet:**
+  - the Revisions screen (the engine's whole run history);
+  - the finding Thread, which reads the engine session's latest run.
+
+  Both are as before; noted in the fix report.
+- Steps 2 and 3 share one commit: the Clear all dialog is part of the same Studio rewrite.

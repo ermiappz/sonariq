@@ -1,10 +1,10 @@
 // Step 4: findings grouped by rule with counts, filters, a virtualised list on the whole ship, traceability matrix,
 // printable report and CSV.
-import { browser, check, shot, done, BASE } from './lib.mjs';
+import { browser, check, shot, done, BASE, openModel } from './lib.mjs';
 
 const { b, page, errors } = await browser();
 await page.goto(BASE + '#model');
-await page.getByRole('button', { name: /deck5_revB\.ifc/ }).click();
+await openModel(page, 'Deck 5', 'Rev B');
 await page.getByRole('button', { name: 'Analyse' }).click();
 await page.locator('.fl-head').first().waitFor({ timeout: 120000 });
 // the virtualised list renders the rows that fit; wait until it has its full height
@@ -32,8 +32,7 @@ await rp.close();
 const has = await page.evaluate(async () => (await fetch('/api/models/rcrv')).ok);
 if (has) {
   await page.getByRole('tab', { name: 'List' }).click();
-  await page.getByRole('button', { name: 'Open model', exact: true }).click();
-  await page.getByRole('button', { name: /RCRV whole ship/ }).click();
+  await openModel(page, 'RCRV whole ship');
   await page.getByRole('button', { name: 'Analyse' }).click();
   await page.waitForFunction(() => document.querySelector('.studio-sum')?.textContent?.includes('RCRV'), null, { timeout: 300000 });
   await page.locator('.fl-head').first().waitFor({ timeout: 60000 });

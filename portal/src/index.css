@@ -208,9 +208,12 @@ tr.is-incorrect td:has(.inc-why) { opacity: .85; }
 .studio-3d { height: 100%; border: 0; border-radius: 0; border-right: 1px solid var(--line); }
 .studio-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fg-3); padding: 24px; text-align: center; }
 .studio-panel { display: flex; flex-direction: column; min-height: 0; background: var(--bg-1); }
-.studio-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
-.studio-title { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-.studio-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; max-width: 150px; }
+.studio-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.studio-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; line-height: 1.25; flex: 1 0 100%; }
+.studio-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; min-width: 0; }
+.tb-sel { flex: 0 1 240px; min-width: 120px; width: auto; height: 30px; padding: 2px 8px; }
+.topbar .tb-user { flex-shrink: 0; white-space: nowrap; }
+.danger-zone { border-color: color-mix(in srgb, var(--st-fail) 45%, var(--line)); }
 .studio-sum { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
 .studio-setup { padding: 10px 12px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; overflow: auto; max-height: 55vh; }
 .studio-model { display: flex; justify-content: space-between; gap: 8px; text-align: left; background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; color: var(--fg-1); padding: 7px 10px; cursor: pointer; font: inherit; font-size: 13px; }
